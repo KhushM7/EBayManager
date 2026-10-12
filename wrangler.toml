@@ -1,0 +1,27 @@
+name = "ebay-autopilot"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+[vars]
+# EBAY_GB = UK site. Change to EBAY_US etc. if you sell elsewhere.
+EBAY_MARKETPLACE = "EBAY_GB"
+EBAY_SITE_ID = "3"
+PUBLIC_URL = "https://ebay-autopilot.<your-subdomain>.workers.dev"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ebay-autopilot"
+database_id = "<filled in by `wrangler d1 create ebay-autopilot`>"
+
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "ebay-autopilot-photos"
+
+# Secrets (set with `wrangler secret put NAME`, never committed):
+#   EBAY_APP_ID, EBAY_CERT_ID, EBAY_DEV_ID, EBAY_RUNAME
+#   MCP_TOKEN      bearer token Claude uses to call /mcp
+#   SIGNING_KEY    HMAC key for one-tap approval links
+#   NTFY_TOPIC     private ntfy topic for push notifications
+
+[triggers]
+crons = ["0 2 * * *"]

@@ -1,7 +1,7 @@
 # ebay-autopilot
 
-K's eBay seller service: a Cloudflare Worker that holds the eBay credentials and rules, and exposes
-MCP tools Claude uses from the Claude app, routines and Projects. Claude calls this service; it never calls Claude.
+K's eBay seller service: a Cloudflare Worker that holds the eBay credentials and rules, calls the Claude API for judgement, and exposes
+MCP tools for optional use from the Claude app or Claude Code. See CLAUDE.md for decisions and next steps.
 
 Plan: https://claude.ai/code/artifact/9039237c-08b7-4e30-a3d7-683e24431d36
 

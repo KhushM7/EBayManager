@@ -4,7 +4,7 @@ The real eBay seller account is connected read-only at Phase 6 and starts accept
 
 Updated 2026-11-02. Design details: [safety-and-environments.md](safety-and-environments.md), [approvals.md](approvals.md), [app-and-dashboard.md](app-and-dashboard.md).
 
-**Current phase: 5. Buyer messages and offers.** Phases 1–4 are built; the Phase 2 and 3 gates wait for K (install the app, add the Anthropic key).
+**Current phase: 6 needs K. Phases 1–5 are built and running on Sandbox.** The Phase 2 and 3 gates wait for K (install the app, add the Anthropic key).
 
 | # | Phase | Environment | Exit gate |
 | --- | --- | --- | --- |
@@ -60,9 +60,10 @@ Updated 2026-11-02. Design details: [safety-and-environments.md](safety-and-envi
 
 ## Phase 5: Buyer messages and offers (sandbox)
 
-- [ ] eBay notifications for questions and Best Offers into the Worker.
-- [ ] Haiku drafts a reply or counter → proposal → push → K approves → sent.
-- [ ] Round trip tested with a second sandbox user acting as buyer.
+- [x] Poll every 15 minutes for unanswered buyer questions (`GetMemberMessages`) and active Best Offers (`GetBestOffers`). Polling is read-only; eBay push notifications would need `SetNotificationPreferences`, a change to the account.
+- [x] Haiku drafts a reply from the listing's own details, or suggests accept, counter or decline for an offer (structured output). K's floor is enforced in code. Without a key, replies wait for K and offers get a plain suggestion.
+- [x] Each becomes a proposal with a push; K can edit the reply or the offer answer in the Inbox, then approve. The write gate sends `AddMemberMessageRTQ` or `RespondToBestOffer`.
+- [ ] Round trip with a second Sandbox user as the buyer: K registers a second test user, asks a question and makes an offer on a test listing, then approves the replies.
 
 ## Phase 6: Connect real account, read-only
 

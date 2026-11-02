@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { api, SignedOut, type Activity as Row, type Device, type Listing, type Me, type Proposal } from "./api";
+import { DraftEditor, EDITABLE } from "./drafts";
 import { ago, daysSince, describe, money } from "./format";
 
 interface ScreenProps {
@@ -140,7 +141,12 @@ export function Inbox({ me, onSignedOut }: ScreenProps) {
                   {figure && <span class="row-figure">{figure}</span>}
                 </div>
                 {p.item_title && p.kind !== "create_listing" && <p class="muted">{p.item_title}</p>}
-                {p.reason && <p>{p.reason}</p>}
+                {EDITABLE.includes(p.kind) && waiting && !done ? (
+                  <DraftEditor p={p} onSaved={reload} onSignedOut={onSignedOut} />
+                ) : (
+                  p.kind === "message" && p.payload?.body && <p>Reply: {p.payload.body}</p>
+                )}
+                {p.reason && p.kind !== "message" && <p>{p.reason}</p>}
                 {(p.payload?.flags ?? []).map((f: string) => (
                   <p class="flag">Check: {f}</p>
                 ))}

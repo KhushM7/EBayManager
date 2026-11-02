@@ -636,3 +636,66 @@ p + .rows {
 .chart-note {
   margin: 4px 0 0;
 }
+
+/* ---------------------------------------------------------------- Drafts */
+
+.draft {
+  margin: 12px 0 8px;
+}
+
+.quote {
+  margin: 0 0 12px;
+  padding: 12px 16px;
+  background: var(--bg);
+  display: grid;
+  gap: 4px;
+}
+
+.reply p {
+  margin: 4px 0 6px;
+}
+
+.draft-form {
+  margin: 8px 0 0;
+  max-width: none;
+}
+
+.draft-form textarea,
+.draft-form input[type="text"],
+.draft-form input[type="number"] {
+  font: inherit;
+  padding: 12px 14px;
+  border: 1px solid #b9c4c9;
+  border-radius: 0;
+  background: #fff;
+  color: var(--ink);
+  width: 100%;
+}
+
+.choices {
+  border: 0;
+  padding: 0;
+  margin: 0 0 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+
+.choices legend {
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 400;
+  min-height: 40px;
+}
+
+.choice input {
+  accent-color: var(--accent);
+  width: 20px;
+  height: 20px;
+}

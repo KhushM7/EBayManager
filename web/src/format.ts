@@ -29,9 +29,11 @@ export function describe(p: Proposal): { what: string; figure: string } {
     case "create_listing":
       return { what: `List ${a.title}${a.collectionOnly ? ", collection only" : ""}`, figure: money(a.price) };
     case "message":
-      return { what: "Reply to a buyer", figure: "" };
-    case "best_offer_response":
-      return { what: "Answer a Best Offer", figure: money(a.counterPrice ?? a.price) };
+      return { what: `Reply to ${a.recipientId ?? "a buyer"}`, figure: "" };
+    case "best_offer_response": {
+      const verb = a.action === "accept" ? "Accept" : a.action === "decline" ? "Decline" : "Counter";
+      return { what: `${verb} an offer of ${money(a.offerPrice)}`, figure: a.action === "counter" ? money(a.counterPrice) : money(a.offerPrice) };
+    }
     default:
       return { what: p.kind.replace(/_/g, " "), figure: "" };
   }

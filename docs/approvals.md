@@ -40,8 +40,10 @@ pending ──┤
                        └► failed     (eBay error; shown in Inbox with a retry proposal)
 ```
 
-- One pending proposal per item and field. A newer proposal for the same item and field supersedes the older one, which becomes `expired`.
-- An approved proposal is applied immediately by the write gate. If the gate refuses it, for example because writes are paused or the stage is read-only, it stays `approved` and is applied when the gate opens. In production read-only it is marked dry run and never applied.
+- One pending price, revision or ad-rate proposal per item: a newer one supersedes the older, which becomes `expired`. Replies and offer responses never supersede each other, since each answers a different buyer.
+- A draft that can't become an eBay call yet (an empty reply, a kind not built) stays `pending` when K taps Approve, with the reason, so K can finish it.
+- K can edit pending replies and offer answers in the Inbox before approving.
+- An approved proposal is applied immediately by the write gate. If the gate refuses it because writes are paused, it stays `approved` and is applied when K resumes writes. In production read-only it is marked dry run and never applied.
 - Each proposal stores the old value, the new value, the reason, and any guardrail flags (for example "more than 10% change" or "below floor").
 
 ## How K approves

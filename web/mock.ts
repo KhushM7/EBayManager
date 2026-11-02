@@ -18,6 +18,16 @@ const me = {
 
 let proposals: any[] = [
   {
+    id: "q1", kind: "message", item_id: "110591497601", item_title: "TEST White Ceramic Coffee Mug 350ml", item_price: 6,
+    payload: { recipientId: "buyer_one", parentMessageId: "m1", question: "Hi, is this dishwasher safe?", body: "Hi, the listing doesn't say, so I'll check the base and reply shortly." },
+    reason: "Drafted from the listing's own details.", status: "pending", dry_run: 0, created_at: now - 12 * 60_000, expires_at: now + 7 * 24 * h, decided_at: null, result: null,
+  },
+  {
+    id: "o1", kind: "best_offer_response", item_id: "110591497965", item_title: "TEST Classic Strategy Board Game Complete", item_price: 12,
+    payload: { bestOfferId: "bo1", buyer: "offer_buyer", offerPrice: 9, listPrice: 12, buyerMessage: "Would you take 9? Can collect today.", action: "counter", counterPrice: 10.5, message: "Thanks! I can do £10.50.", flags: [] },
+    reason: "25% below the asking price; meets halfway.", status: "pending", dry_run: 0, created_at: now - 30 * 60_000, expires_at: now + 2 * 24 * h, decided_at: null, result: null,
+  },
+  {
     id: "p1", kind: "price", item_id: "110591497601", item_title: "TEST White Ceramic Coffee Mug 350ml", item_price: 6,
     payload: { oldPrice: 6, newPrice: 5.5, flags: [] }, reason: "Three identical mugs sold for £5.00 to £5.80 in the last 30 days; 9 are listed now.",
     status: "pending", dry_run: 0, created_at: now - 40 * 60_000, expires_at: now + 7 * 24 * h, decided_at: null, result: null,

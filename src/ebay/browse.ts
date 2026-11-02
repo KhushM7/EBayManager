@@ -1,5 +1,5 @@
 import type { Env } from "../env";
-import { appToken } from "./auth";
+import { compsAccess } from "./auth";
 
 export interface Comp {
   itemId: string;
@@ -24,7 +24,8 @@ export async function searchActiveComps(
   q: string,
   opts: { conditionIds?: string[]; categoryId?: string; limit?: number } = {},
 ): Promise<CompSummary> {
-  const u = new URL("https://api.ebay.com/buy/browse/v1/item_summary/search");
+  const { token, api } = await compsAccess(env);
+  const u = new URL(`${api}/buy/browse/v1/item_summary/search`);
   u.searchParams.set("q", q);
   u.searchParams.set("limit", String(opts.limit ?? 50));
   const filters = ["buyingOptions:{FIXED_PRICE}"];
@@ -34,7 +35,7 @@ export async function searchActiveComps(
 
   const res = await fetch(u, {
     headers: {
-      Authorization: `Bearer ${await appToken(env)}`,
+      Authorization: `Bearer ${token}`,
       "X-EBAY-C-MARKETPLACE-ID": env.EBAY_MARKETPLACE,
     },
   });

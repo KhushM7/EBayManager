@@ -1,8 +1,8 @@
 import type { Env } from "./env";
 import { getActiveListings, getItem } from "./ebay/trading";
 import { searchActiveComps } from "./ebay/browse";
-import { createProposal, decisionLinks, listProposals } from "./proposals";
-import { push } from "./notify";
+import { listProposals, proposeAndNotify } from "./proposals";
+import { gateClosedReason, setWritesPaused } from "./ebay/write";
 import { MAX_PRICE_STEP, MIN_DAYS_BETWEEN_PRICE_CHANGES } from "./rules";
 
 export interface Tool {
@@ -103,22 +103,116 @@ export const tools: Tool[] = [
         flags.push(`more than ${MAX_PRICE_STEP * 100}% from ${last.price}`);
       if (recent?.n) flags.push(`price already changed in the last ${MIN_DAYS_BETWEEN_PRICE_CHANGES} days`);
 
-      const p = await createProposal(env, {
-        kind: "price",
-        itemId: a.item_id,
-        payload: { oldPrice: last?.price ?? null, newPrice: a.new_price, flags },
-        reason: a.reason,
-      });
-      const links = await decisionLinks(env, p.id);
       const from = last ? `${last.price} → ` : "";
-      await push(env, `Price: ${from}${a.new_price}`, [a.reason, ...flags.map((f) => `Note: ${f}`)].join("\n"), links);
-      return { proposalId: p.id, status: "pending K's approval", flags };
+      const out = await proposeAndNotify(
+        env,
+        { kind: "price", itemId: a.item_id, payload: { oldPrice: last?.price ?? null, newPrice: a.new_price, flags }, reason: a.reason },
+        `Price: ${from}${a.new_price}`,
+        [a.reason, ...flags.map((f) => `Note: ${f}`)].join("\n"),
+      );
+      return { ...out, flags };
     },
+  },
+  {
+    name: "propose_listing_revision",
+    description:
+      "Propose a new title, description and/or item specifics for a listing. Nothing changes on eBay until K approves. Item specifics replace the listing's current set, so include every specific to keep.",
+    inputSchema: obj(
+      {
+        item_id: { type: "string" },
+        title: { type: "string", maxLength: 80 },
+        description: { type: "string", description: "HTML or plain text" },
+        item_specifics: { type: "object", additionalProperties: { type: "array", items: { type: "string" } } },
+        reason: { type: "string" },
+      },
+      ["item_id", "reason"],
+    ),
+    run: async (env, a) => {
+      if (!a.title && !a.description && !a.item_specifics) throw new Error("Give a title, description or item specifics.");
+      const changed = [a.title && "title", a.description && "description", a.item_specifics && "item specifics"].filter(Boolean);
+      return proposeAndNotify(
+        env,
+        {
+          kind: "revise",
+          itemId: a.item_id,
+          payload: { title: a.title, description: a.description, itemSpecifics: a.item_specifics },
+          reason: a.reason,
+        },
+        `Revise ${changed.join(", ")}`,
+        [a.title ? `Title: ${a.title}` : "", a.reason].filter(Boolean).join("\n"),
+      );
+    },
+  },
+  {
+    name: "propose_new_listing",
+    description:
+      "Propose a new fixed-price listing (GBP, returns accepted, buyer pays return postage). Nothing is listed until K approves. Price must follow the house pricing rule and cite comps in the reason.",
+    inputSchema: obj(
+      {
+        title: { type: "string", maxLength: 80 },
+        description: { type: "string" },
+        category_id: { type: "string" },
+        price: { type: "number" },
+        condition_id: { type: "string", description: "eBay condition ID, e.g. 1000 new, 3000 used" },
+        quantity: { type: "number" },
+        postcode: { type: "string" },
+        shipping_cost: { type: "number" },
+        collection_only: { type: "boolean" },
+        picture_urls: { type: "array", items: { type: "string" } },
+        item_specifics: { type: "object", additionalProperties: { type: "array", items: { type: "string" } } },
+        reason: { type: "string" },
+      },
+      ["title", "description", "category_id", "price", "condition_id", "postcode", "reason"],
+    ),
+    run: (env, a) =>
+      proposeAndNotify(
+        env,
+        {
+          kind: "create_listing",
+          payload: {
+            title: a.title,
+            description: a.description,
+            categoryId: a.category_id,
+            price: a.price,
+            conditionId: a.condition_id,
+            quantity: a.quantity ?? 1,
+            postcode: a.postcode,
+            shippingCost: a.shipping_cost ?? 0,
+            collectionOnly: Boolean(a.collection_only),
+            pictureUrls: a.picture_urls ?? [],
+            itemSpecifics: a.item_specifics,
+          },
+          reason: a.reason,
+        },
+        `New listing: ${a.title} at ${a.price}`,
+        a.reason,
+      ),
+  },
+  {
+    name: "pause_writes",
+    description: "Stop every eBay write immediately (the kill switch). Only K can resume writes, outside this tool set.",
+    inputSchema: obj({}),
+    run: async (env) => {
+      await setWritesPaused(env, true);
+      return { paused: true };
+    },
+  },
+  {
+    name: "write_status",
+    description: "Which eBay environment this is and whether approved changes can currently be applied.",
+    inputSchema: obj({}),
+    run: async (env) => ({
+      ebayEnv: env.EBAY_ENV,
+      writeMode: env.WRITE_MODE,
+      writesBlocked: (await gateClosedReason(env)) ?? false,
+    }),
   },
   {
     name: "list_proposals",
     description: "Proposals by status (pending, applied, rejected, failed).",
-    inputSchema: obj({ status: { type: "string", enum: ["pending", "approved", "applied", "rejected", "failed"] } }),
+    inputSchema: obj({
+      status: { type: "string", enum: ["pending", "approved", "applying", "applied", "rejected", "expired", "failed"] },
+    }),
     run: (env, a) => listProposals(env, a.status ?? "pending"),
   },
   {

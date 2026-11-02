@@ -90,6 +90,22 @@ export function mockApi(): Plugin {
         if (p === "/listings/refresh") return send({ count: listings.length });
         if (p === "/activity") return send(activity);
         if (p === "/push/devices") return send(devices);
+        if (p === "/metrics") {
+          const days = (n: number, f: (i: number) => any) =>
+            Array.from({ length: n }, (_, i) => ({ day: new Date(now - (n - 1 - i) * 24 * h).toISOString().slice(0, 10), ...f(i) }));
+          const ago = (d: number) => new Date(now - d * 24 * h).toISOString().slice(0, 10);
+          return send({
+            listings: days(30, (i) => ({ active: 3 + Math.floor(i / 6), asking: 22.5 + Math.floor(i / 6) * 18 + (i % 5), watchers: 2 + Math.round(3 * Math.sin(i / 4) + i / 5) })),
+            sales: [{ day: ago(3), orders: 1, revenue: 12.5, fees: 1.6 }, { day: ago(11), orders: 2, revenue: 31, fees: 3.9 }, { day: ago(19), orders: 1, revenue: 8.75, fees: 1.1 }],
+            spend: days(30, (i) => ({ usd: i % 7 === 3 ? 0.42 : 0.01 + (i % 3) * 0.006, calls: 4 })),
+            sold30: { items: 4, revenue: 52.25, fees: 6.6, sellThrough: 0.36 },
+            avgDaysToSell: 17.4,
+            proposals: { applied: 9, rejected: 2, pending: 4 },
+            medianMinutesToDecide: 95,
+            flags: [{ item_id: "110591497601", flag: "stale", detail: "Listed 34 days with no watchers.", title: "TEST White Ceramic Coffee Mug 350ml" }],
+            lastNightly: { at: now - 5 * h, steps: { snapshot: "3 listings", orders: "0 orders", traffic: "failed: 500", health: "1 flagged", triage: "skipped" }, triaged: 0, proposals: 0 },
+          });
+        }
         if (p === "/usage") return send({ today: { usd: 0.04, calls: 6 }, month: { usd: 0.61, calls: 88 }, byJob: [{ job: "audit", calls: 40, usd: 0.52 }, { job: "triage", calls: 48, usd: 0.09 }], dailyBudgetUsd: 1, apiKeySet: false });
         if (p === "/audit") { await new Promise((r) => setTimeout(r, 600)); return send({ error: "ANTHROPIC_API_KEY is not set on this Worker yet." }, 503); }
         if (p === "/settings/writes") { me.writesPaused = Boolean(body.paused); (me as any).writesBlocked = me.writesPaused ? "Writes are paused" : null; return send({ writesPaused: me.writesPaused }); }

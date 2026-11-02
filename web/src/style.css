@@ -508,3 +508,131 @@ a {
 p + .rows {
   margin-top: 36px;
 }
+
+/* ---------------------------------------------------------------- Charts (dataviz rules) */
+
+:root {
+  --chart: #008aa3;
+  --chart-recessive: #c9d3d8;
+}
+
+.chart {
+  margin: 0 0 48px;
+}
+
+.chart-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.chart-readout {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: pan-y;
+  overflow: visible;
+}
+
+.chart-base {
+  stroke: var(--chart-recessive);
+  stroke-width: 1;
+}
+
+.chart-ref {
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+.chart-cross {
+  stroke: var(--chart-recessive);
+  stroke-width: 1;
+}
+
+.chart-line {
+  fill: none;
+  stroke: var(--chart);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-dot {
+  fill: var(--chart);
+  stroke: var(--bg);
+  stroke-width: 2;
+}
+
+.chart-bar {
+  fill: var(--chart);
+  opacity: 0.55;
+  transition: opacity 120ms var(--ease);
+}
+
+.chart-bar-on {
+  opacity: 1;
+}
+
+.chart-tick {
+  font-size: 13px;
+  fill: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-table summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: var(--step-small);
+  margin-top: 6px;
+}
+
+.chart-table table {
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: var(--step-small);
+}
+
+.chart-table th,
+.chart-table td {
+  text-align: left;
+  padding: 4px 16px 4px 0;
+  border-bottom: 1px solid var(--surface);
+}
+
+.flags {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.chart-max,
+.chart-axis,
+.chart-note {
+  font-size: var(--step-small);
+  color: var(--muted);
+}
+
+.chart-max {
+  margin-bottom: 4px;
+}
+
+.chart-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.chart-note {
+  margin: 4px 0 0;
+}

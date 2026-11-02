@@ -1,12 +1,14 @@
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { api, SignedOut, type Me } from "./api";
+import { Metrics } from "./metrics";
 import { Activity, Inbox, Listings, Settings, SignIn } from "./screens";
 import "./style.css";
 
 const ROUTES = [
   { path: "/", label: "Inbox", View: Inbox },
   { path: "/listings", label: "Listings", View: Listings },
+  { path: "/metrics", label: "Metrics", View: Metrics },
   { path: "/activity", label: "Activity", View: Activity },
   { path: "/settings", label: "Settings", View: Settings },
 ] as const;

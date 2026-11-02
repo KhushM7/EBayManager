@@ -4,7 +4,7 @@ The real eBay seller account is connected read-only at Phase 6 and starts accept
 
 Updated 2026-11-02. Design details: [safety-and-environments.md](safety-and-environments.md), [approvals.md](approvals.md), [app-and-dashboard.md](app-and-dashboard.md).
 
-**Current phase: 4. Metrics and nightly health.** Phases 1–3 are built; the Phase 2 and 3 gates wait for K (install the app, add the Anthropic key).
+**Current phase: 5. Buyer messages and offers.** Phases 1–4 are built; the Phase 2 and 3 gates wait for K (install the app, add the Anthropic key).
 
 | # | Phase | Environment | Exit gate |
 | --- | --- | --- | --- |
@@ -52,10 +52,11 @@ Updated 2026-11-02. Design details: [safety-and-environments.md](safety-and-envi
 
 ## Phase 4: Metrics and nightly health (sandbox)
 
-- [ ] Nightly sync of orders (Fulfillment API) and traffic (Analytics API).
-- [ ] Rule-based health score per listing, no Claude.
-- [ ] Only flagged listings go to `claude-haiku-5-5` for triage; any change is a proposal.
-- [ ] Metrics and Listing detail screens with charts.
+- [x] Nightly sync of orders (Fulfillment API) and traffic (Analytics API), read-only. Sandbox returns no traffic data, so that step fails there and the rest carry on.
+- [x] Rule-based health flags per listing (`src/health.ts`), no Claude: no watchers after 30 days, watched but not selling, few views, seen but not opened.
+- [x] Only flagged listings (at most 5 a night) go to `claude-haiku-5-5` for triage; any change is a proposal.
+- [x] Metrics screen: 30-day figures, single-series charts (dataviz rules, validated `#008aa3`), nightly check status and flags, Claude spend against the daily budget.
+- [ ] Listing detail screen (price and watcher history per item). Deferred: the Listings screen covers the essentials for now.
 
 ## Phase 5: Buyer messages and offers (sandbox)
 

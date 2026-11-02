@@ -108,7 +108,7 @@ Moving to production writes needs a fresh sign-in with the full scopes. This ste
 
 ## Go-live checklist
 
-K ticks these before `WRITE_MODE` is set to `approval` in production:
+Replaced on 2026-11-02 by [go-live-tests.md](go-live-tests.md): one nightly read-only cycle plus a full list of remote and hands-on tests. The original list follows for reference.
 
 - [ ] At least 7 days in production read-only with no errors in the nightly run.
 - [ ] Listings, prices, watchers and orders on the dashboard match eBay Seller Hub.

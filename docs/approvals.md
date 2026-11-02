@@ -62,11 +62,19 @@ Rules that stay from Phase 0:
 
 Batch approval in the Inbox calls the same decide path once per proposal. Each is applied and logged on its own, so one failure doesn't block the rest.
 
-## Auto-apply (later, opt-in)
+## Auto-apply (Phase 9, opt-in, owner only)
 
-Not built at launch. When it is:
+At launch nothing is auto-applied: every change waits for a tap. Later, K can switch on these in Settings, each separately:
 
-- A D1 `auto_apply` table holds one row per eligible kind that K has switched on in Settings. It is empty by default.
-- An auto-applied proposal still goes through the write gate, is written to the audit log and sends a "Done:" push so K sees it.
-- The kill switch stops auto-apply too.
-- Locked kinds are refused by the gate even if a row exists for them.
+| Switch | What applies without a tap |
+| --- | --- |
+| Title changes | New titles from reviews and the nightly check |
+| Description changes | New descriptions |
+| Item specifics | Added or corrected item specifics |
+
+Each auto-applied change:
+- still goes through the write gate and the eBay call allowlist;
+- is written to the Activity log, attributed to "auto-apply";
+- sends a **"Done"** notification saying exactly what changed (old and new), with a one-tap proposal to undo it.
+
+The pause switch stops auto-apply too. Prices, offers, counters, buyer replies, new listings, ending listings, promotion and policies are `LOCKED_KINDS`: always approval, refused by the gate even if a setting claims otherwise.

@@ -63,12 +63,11 @@ npm run deploy:sandbox          # see README for first-time setup
 
 ## Next steps
 
-Current phase: **1, safety foundation (sandbox)**. The code is done; the Sandbox deploy and the read-only scope test remain. The checklist is in [docs/roadmap.md](docs/roadmap.md#phase-1-safety-foundation-sandbox).
+Current phase: **2, app shell (sandbox)**. Phase 1 finished on 2026-11-02. The Sandbox Worker is live at https://ebay-autopilot-sandbox.ebay-autopilot.workers.dev with 3 test listings. The checklist is in [docs/roadmap.md](docs/roadmap.md#phase-2-app-shell-sandbox).
 
 ## Open items
 
 - Sold-price data: Marketplace Insights access has not been requested yet. Until it is, Terapeak is the fallback.
-- Confirm whether eBay OAuth read-only scopes restrict Trading API writes. Until confirmed, assume they don't, and rely on `WRITE_MODE`.
 - Production keyset (Phase 6): opt out of marketplace account deletion notifications, since the app stores no other users' data.
 - Pick a Workers-compatible Web Push library in Phase 2.
 - No CI is set up yet.

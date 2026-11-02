@@ -4,7 +4,7 @@ The real eBay seller account is connected read-only at Phase 6 and starts accept
 
 Updated 2026-11-02. Design details: [safety-and-environments.md](safety-and-environments.md), [approvals.md](approvals.md), [app-and-dashboard.md](app-and-dashboard.md).
 
-**Current phase: 1. Safety foundation.**
+**Current phase: 2. App shell.** Phase 1 finished 2026-11-02.
 
 | # | Phase | Environment | Exit gate |
 | --- | --- | --- | --- |
@@ -30,8 +30,8 @@ Updated 2026-11-02. Design details: [safety-and-environments.md](safety-and-envi
 - [x] Proposal kinds and apply paths for `revise` and `create_listing` (needed to make sandbox test listings).
 - [x] Tests: every gate refusal path, and the source scan for write calls outside `write.ts`.
 - [x] Trading client refuses any verb outside a read allowlist (second code guard beside the write gate).
-- [ ] Deploy `--env sandbox`, sign in with a sandbox test user, create 3–5 test listings via approved proposals.
-- [ ] Confirm on Sandbox that read-only scopes don't stop Trading API writes: sign in with `/oauth/start?readonly=1`, approve a price change on a test listing. eBay's docs say the traditional APIs ignore scopes; record the result in safety-and-environments.md.
+- [x] Deploy `--env sandbox`, sign in with a sandbox test user, create 3–5 test listings via approved proposals (3 created; new listings are checked with `VerifyAddFixedPriceItem` before K is asked).
+- [x] Confirmed on Sandbox that read-only scopes don't stop Trading API writes: sign in with `/oauth/start?readonly=1`, approve a price change on a test listing. Result: the price changed, as eBay's docs say; recorded in safety-and-environments.md.
 
 ## Phase 2: App shell (sandbox)
 

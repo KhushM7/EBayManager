@@ -5,7 +5,7 @@ import { healthFlags, type Flag, type ListingFacts } from "./health";
 import { AUDIT_TOOLS } from "./jobs";
 import { push } from "./notify";
 import { expireStale } from "./proposals";
-import { snapshotListings } from "./tools";
+import { snapshotListings } from "./snapshot";
 
 // The 02:00 run: read eBay, score listing health by rule, and send only flagged listings to Haiku, which may
 // file proposals for K. Each step runs on its own, so one failure (Sandbox has no traffic data, say) doesn't

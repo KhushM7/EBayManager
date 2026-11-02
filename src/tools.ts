@@ -1,5 +1,6 @@
 import type { Env } from "./env";
 import { getActiveListings, getItem, titleLockReason } from "./ebay/trading";
+import { snapshotListings } from "./snapshot";
 import { searchActiveComps } from "./ebay/browse";
 import { listProposals, proposeAndNotify } from "./proposals";
 import { gateClosedReason, setWritesPaused, verifyNewListing } from "./ebay/write";
@@ -13,20 +14,6 @@ export interface Tool {
 }
 
 const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required });
-
-export async function snapshotListings(env: Env) {
-  const listings = await getActiveListings(env);
-  const now = Date.now();
-  await env.DB.batch(
-    listings.map((l) =>
-      env.DB.prepare(
-        `INSERT INTO listing_snapshots (item_id, taken_at, title, price, currency, quantity_available, watch_count, start_time)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(l.itemId, now, l.title, l.price, l.currency, l.quantityAvailable, l.watchCount, l.startTime),
-    ),
-  );
-  return { count: listings.length, takenAt: new Date(now).toISOString() };
-}
 
 export const tools: Tool[] = [
   {

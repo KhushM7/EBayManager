@@ -2,6 +2,7 @@ import type { Env } from "./env";
 import { getItem, titleLockReason } from "./ebay/trading";
 import { callFor, ebayWrite, WriteRefused } from "./ebay/write";
 import { push } from "./notify";
+import { snapshotListings } from "./snapshot";
 import { PROPOSAL_TTL_DAYS } from "./rules";
 
 export type ProposalKind =
@@ -156,6 +157,12 @@ export async function editProposal(env: Env, id: string, changes: Record<string,
   return "Saved";
 }
 
+/** Listing changes show on the Listings screen straight away; a failed re-read waits for the nightly one. */
+async function refreshAfterChange(env: Env, kind: string) {
+  if (!["price", "revise", "create_listing", "end_listing", "relist"].includes(kind)) return;
+  await snapshotListings(env).catch(() => {});
+}
+
 /** Applies proposals K approved while writes were paused. Run when K resumes writes. */
 export async function applyApproved(env: Env): Promise<{ id: string; result: string }[]> {
   const { results } = await env.DB.prepare("SELECT id FROM proposals WHERE status = 'approved' AND dry_run = 0 ORDER BY decided_at").all<{ id: string }>();
@@ -165,6 +172,7 @@ export async function applyApproved(env: Env): Promise<{ id: string; result: str
       const result = await ebayWrite(env, id);
       await env.DB.prepare("UPDATE proposals SET status = 'applied', result = ? WHERE id = ?").bind(result, id).run();
       out.push({ id, result });
+      await refreshAfterChange(env, "revise");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (!(e instanceof WriteRefused)) await env.DB.prepare("UPDATE proposals SET status = 'failed', result = ? WHERE id = ?").bind(msg, id).run();
@@ -211,6 +219,7 @@ export async function decide(env: Env, id: string, decision: "approve" | "reject
   try {
     const result = await ebayWrite(env, id);
     await env.DB.prepare("UPDATE proposals SET status = 'applied', result = ? WHERE id = ?").bind(result, id).run();
+    await refreshAfterChange(env, p.kind);
     return result;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -8,7 +8,7 @@ import { pollInbox } from "./inbox";
 import { applyApproved, decide, editProposal } from "./proposals";
 import { saveSubscription, vapidPublicKey } from "./push";
 import { checkKey, clearCookie, CSRF_HEADER, hasSession, sessionCookie } from "./session";
-import { snapshotListings } from "./tools";
+import { snapshotListings } from "./snapshot";
 
 // JSON API for the dashboard. Everything except sign-in needs K's session cookie.
 

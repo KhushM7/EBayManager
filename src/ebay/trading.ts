@@ -92,6 +92,17 @@ export async function getActiveListings(env: Env): Promise<ActiveListing[]> {
   }
 }
 
+/**
+ * Why eBay would refuse a title or description change right now, or null. eBay blocks both on a fixed-price
+ * listing with a pending Best Offer (including K's own counter awaiting the buyer) or any quantity sold.
+ */
+export function titleLockReason(item: any): string | null {
+  if (Number(item?.BestOfferDetails?.BestOfferCount ?? 0) > 0)
+    return "this listing has a pending offer, and eBay won't change its title or description until the offer is answered or expires";
+  if (Number(item?.SellingStatus?.QuantitySold ?? 0) > 0) return "this listing has a sale, and eBay won't change its title or description";
+  return null;
+}
+
 /** Full detail for one listing: description, item specifics, pictures, condition. */
 export async function getItem(env: Env, itemId: string): Promise<any> {
   const doc = await trading(

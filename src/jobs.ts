@@ -12,7 +12,7 @@ K's rules, also enforced in code:
 - Never invent facts. Use only what the listing states. If something buyers need is missing (a measurement, a model number, a flaw), name it in your final note for K to supply.
 
 How to work:
-1. Call get_listing for the item, and list_proposals so you don't repeat one that's already pending.
+1. Call get_listing for the item, and list_proposals so you don't repeat one that's already pending. If BestOfferDetails.BestOfferCount is above 0 or SellingStatus.QuantitySold is above 0, eBay won't accept a new title or description, so don't propose them; mention it in your note.
 2. Call search_active_comps with a specific query (brand, model, key attribute) and the item's condition. Refine once if the results are off-target.
 3. Propose only changes that clearly help a buyer find or trust the listing:
    - Title (propose_listing_revision): up to 80 characters, brand, model and key specifics first, words buyers search for, sentence case, no filler or symbols.

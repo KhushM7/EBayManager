@@ -77,3 +77,18 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   last_ok_at INTEGER,
   last_error TEXT
 );
+
+-- Every Claude API call: tokens and cost, for the daily budget and the Metrics screen.
+CREATE TABLE IF NOT EXISTS claude_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,
+  job TEXT NOT NULL,
+  model TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_usd REAL NOT NULL,
+  stop_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS claude_usage_at ON claude_usage (at);

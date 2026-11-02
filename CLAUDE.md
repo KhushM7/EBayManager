@@ -51,7 +51,7 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/api.ts`, `src/session.ts` | Dashboard JSON API and K's sign-in session |
 | `web/` | The dashboard PWA (Preact). `MOCK=1 npm run dev:web` runs it on sample data |
 | `scripts/` | `make-keys.mjs` (DASHBOARD_KEY, VAPID_KEY into .dev.vars), `make-icons.mjs` |
-| `src/claude.ts` | Planned, Phase 3: Claude tool-use loop |
+| `src/claude.ts`, `src/jobs.ts` | Claude tool-use loop (allowlisted tools, cost log, daily budget) and the jobs that use it |
 
 ## Commands
 
@@ -65,7 +65,7 @@ npm run deploy:sandbox          # see README for first-time setup
 
 ## Next steps
 
-Current phase: **2, app shell (sandbox)**. Phase 1 finished on 2026-11-02. The Sandbox Worker is live at https://ebay-autopilot-sandbox.ebay-autopilot.workers.dev with 3 test listings. The checklist is in [docs/roadmap.md](docs/roadmap.md#phase-2-app-shell-sandbox).
+Current phase: **4, metrics and nightly health (sandbox)**. Phases 1–3 are built; waiting on K: install the app on Android (Phase 2 gate) and add `ANTHROPIC_API_KEY` (Phase 3 gate). The Sandbox Worker is live at https://ebay-autopilot-sandbox.ebay-autopilot.workers.dev with 3 test listings. The checklist is in [docs/roadmap.md](docs/roadmap.md).
 
 ## Open items
 

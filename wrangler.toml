@@ -80,6 +80,7 @@ database_id = "<filled in by `npx wrangler d1 create ebay-autopilot-production` 
 #   EBAY_COMPS_APP_ID, EBAY_COMPS_CERT_ID                 optional production keyset for Browse comps only
 #   MCP_TOKEN      bearer token for /mcp and /oauth/start
 #   DASHBOARD_KEY  K's dashboard sign-in key (never given to Claude's connector)
+#   ANTHROPIC_API_KEY  K's Anthropic key for the listing review and nightly triage
 #   VAPID_KEY      Web Push key pair, a P-256 private JWK (`node scripts/make-keys.mjs`)
 #   SIGNING_KEY    HMAC key for approval links
 #   NTFY_TOPIC     private ntfy topic for push notifications

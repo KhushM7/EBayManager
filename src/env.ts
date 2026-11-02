@@ -22,6 +22,8 @@ export interface Env {
   DASHBOARD_KEY: string;
   /** VAPID key pair as a P-256 private JWK, for Web Push. */
   VAPID_KEY?: string;
+  /** K's Anthropic API key, for the audit and nightly triage. */
+  ANTHROPIC_API_KEY?: string;
   MCP_TOKEN: string;
   SIGNING_KEY: string;
   NTFY_TOPIC: string;

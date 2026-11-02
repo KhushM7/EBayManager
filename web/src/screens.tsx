@@ -200,6 +200,21 @@ export function Listings({ onSignedOut }: ScreenProps) {
       setRefreshing(false);
     }
   };
+  const [reviews, setReviews] = useState<Record<string, { busy?: boolean; note?: string; error?: string }>>({});
+  const review = async (itemId: string) => {
+    setReviews((r) => ({ ...r, [itemId]: { busy: true } }));
+    try {
+      const out = await api<{ note: string; costUsd: number }>("/audit", { body: { itemId } });
+      setReviews((r) => ({
+        ...r,
+        [itemId]: { note: `${out.note || "Done."} (cost ${out.costUsd < 0.01 ? "under 1 cent" : usd(out.costUsd)})` },
+      }));
+      reload();
+    } catch (e) {
+      if (e instanceof SignedOut) onSignedOut();
+      else setReviews((r) => ({ ...r, [itemId]: { error: (e as Error).message } }));
+    }
+  };
   const rows = data ?? [];
   const total = rows.reduce((s, l) => s + Number(l.price) * Number(l.quantity_available || 1), 0);
   return (
@@ -242,6 +257,11 @@ export function Listings({ onSignedOut }: ScreenProps) {
                   .join(" · ")}
               </p>
               {l.pending > 0 && <p class="flag">{plural(l.pending, "change")} waiting in the Inbox</p>}
+              {reviews[l.item_id]?.note && <p class="result">{reviews[l.item_id].note}</p>}
+              {reviews[l.item_id]?.error && <p class="error">{reviews[l.item_id].error}</p>}
+              <button class="btn-link" disabled={reviews[l.item_id]?.busy} onClick={() => review(l.item_id)}>
+                {reviews[l.item_id]?.busy ? "Claude is reviewing (up to a minute)" : "Review with Claude"}
+              </button>
             </div>
           </li>
         ))}
@@ -285,6 +305,17 @@ export function Activity({ onSignedOut }: ScreenProps) {
 
 // ---------------------------------------------------------------- Settings
 
+interface Usage {
+  today: { usd: number; calls: number };
+  month: { usd: number; calls: number };
+  byJob: { job: string; calls: number; usd: number }[];
+  dailyBudgetUsd: number;
+  apiKeySet: boolean;
+}
+
+const JOB_NAMES: Record<string, string> = { audit: "Listing reviews", triage: "Nightly checks" };
+const usd = (n: number) => "$" + (n ?? 0).toFixed(2);
+
 const keyBytes = (b64: string) => {
   const s = atob(b64.replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(s, (c) => c.charCodeAt(0));
@@ -299,6 +330,7 @@ function deviceName(ua: string | null) {
 
 export function Settings({ me, reloadMe, onSignedOut }: ScreenProps) {
   const devices = useData<Device[]>("/push/devices", onSignedOut);
+  const usage = useData<Usage>("/usage", onSignedOut);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [permission, setPermission] = useState(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
@@ -428,6 +460,37 @@ export function Settings({ me, reloadMe, onSignedOut }: ScreenProps) {
           </ul>
         )}
         <p class="muted small">On Android, open this site in Chrome and choose Install app, then turn notifications on here.</p>
+      </section>
+
+      <section class="section">
+        <h2>Claude</h2>
+        {usage.data && (
+          <dl class="figures">
+            <div>
+              <dt>API key</dt>
+              <dd>{usage.data.apiKeySet ? "Set" : "Not set yet"}</dd>
+            </div>
+            <div>
+              <dt>Today</dt>
+              <dd>
+                {usd(usage.data.today.usd)} of {usd(usage.data.dailyBudgetUsd)}
+              </dd>
+            </div>
+            <div>
+              <dt>This month</dt>
+              <dd>
+                {usd(usage.data.month.usd)} over {plural(usage.data.month.calls, "call")}
+              </dd>
+            </div>
+            {usage.data.byJob.map((j) => (
+              <div key={j.job}>
+                <dt>{JOB_NAMES[j.job] ?? j.job}</dt>
+                <dd>{usd(j.usd)}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        <p class="muted small">Claude only reads your listings and proposes changes. Runs stop for the day once the budget is reached.</p>
       </section>
 
       {note && (

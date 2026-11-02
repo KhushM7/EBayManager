@@ -4,7 +4,7 @@ The real eBay seller account is connected read-only at Phase 6 and starts accept
 
 Updated 2026-11-02. Design details: [safety-and-environments.md](safety-and-environments.md), [approvals.md](approvals.md), [app-and-dashboard.md](app-and-dashboard.md).
 
-**Current phase: 2. App shell.** Phase 1 finished 2026-11-02.
+**Current phase: 4. Metrics and nightly health.** Phases 1–3 are built; the Phase 2 and 3 gates wait for K (install the app, add the Anthropic key).
 
 | # | Phase | Environment | Exit gate |
 | --- | --- | --- | --- |
@@ -44,10 +44,11 @@ Updated 2026-11-02. Design details: [safety-and-environments.md](safety-and-envi
 
 ## Phase 3: Claude (sandbox)
 
-- [ ] `ANTHROPIC_API_KEY` secret; `src/claude.ts` tool-use loop over `src/tools.ts` with `claude-sonnet-5-5`.
-- [ ] Listing audit: for each listing, propose title, item specifics, description, price and ad rate, each as its own proposal.
-- [ ] Batch review in the Inbox.
-- [ ] `claude_usage` table logged on every call.
+- [x] `src/claude.ts`: manual tool-use loop over an allowlist of `src/tools.ts` with `claude-sonnet-5-5` (effort medium, cached system prompt, server-side refusal fallbacks), a turn limit and a daily budget (`CLAUDE_DAILY_BUDGET_USD`).
+- [ ] K adds `ANTHROPIC_API_KEY` as a Worker secret (`npx wrangler secret put ANTHROPIC_API_KEY --env sandbox`), then runs a first review.
+- [x] Listing audit (`src/jobs.ts`): per listing, Claude proposes one revision (title, specifics, description) and a price change if comps support it. Ad rates wait until Promoted Listings tools exist. Triggered by **Review with Claude** on each listing.
+- [x] Batch review in the Inbox (Phase 2).
+- [x] `claude_usage` table logged on every call; spend shown in Settings.
 
 ## Phase 4: Metrics and nightly health (sandbox)
 

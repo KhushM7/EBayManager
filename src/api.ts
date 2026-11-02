@@ -1,6 +1,8 @@
 import type { Env } from "./env";
 import { gateClosedReason, setWritesPaused, writesPaused } from "./ebay/write";
+import { auditListing } from "./jobs";
 import { push } from "./notify";
+import { CLAUDE_DAILY_BUDGET_USD } from "./rules";
 import { decide } from "./proposals";
 import { saveSubscription, vapidPublicKey } from "./push";
 import { checkKey, clearCookie, CSRF_HEADER, hasSession, sessionCookie } from "./session";
@@ -126,6 +128,41 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
   if (path === "/push/test" && method === "POST") {
     await push(env, "Test notification", "Notifications from EBayManager reach this device.", undefined, "test");
     return json({ ok: true, lastPushAt: Number(await setting(env, "last_push_at")) || null });
+  }
+
+  if (path === "/audit" && method === "POST") {
+    const { itemId } = await body(request);
+    if (typeof itemId !== "string" || !/^\d{6,20}$/.test(itemId)) return json({ error: "Bad item id" }, 400);
+    try {
+      const r = await auditListing(env, itemId);
+      return json({ itemId, note: r.text, turns: r.turns, costUsd: r.costUsd, stopReason: r.stopReason });
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : String(e) }, 503);
+    }
+  }
+
+  if (path === "/usage" && method === "GET") {
+    const day = new Date();
+    day.setUTCHours(0, 0, 0, 0);
+    const month = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), 1));
+    const sum = (since: number) =>
+      env.DB.prepare("SELECT COALESCE(SUM(cost_usd), 0) AS usd, COUNT(*) AS calls FROM claude_usage WHERE at >= ?")
+        .bind(since)
+        .first<{ usd: number; calls: number }>();
+    const { results: byJob } = await env.DB.prepare(
+      `SELECT CASE WHEN instr(job, ':') > 0 THEN substr(job, 1, instr(job, ':') - 1) ELSE job END AS job,
+              COUNT(*) AS calls, SUM(cost_usd) AS usd
+       FROM claude_usage WHERE at >= ? GROUP BY 1 ORDER BY usd DESC`,
+    )
+      .bind(month.getTime())
+      .all();
+    return json({
+      today: await sum(day.getTime()),
+      month: await sum(month.getTime()),
+      byJob,
+      dailyBudgetUsd: CLAUDE_DAILY_BUDGET_USD,
+      apiKeySet: Boolean(env.ANTHROPIC_API_KEY),
+    });
   }
 
   return json({ error: "Not found" }, 404);

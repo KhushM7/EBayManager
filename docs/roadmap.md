@@ -1,23 +1,20 @@
 # Roadmap
 
-The real eBay seller account is connected read-only at Phase 6 and starts accepting approved writes at Phase 7. Everything before that runs on eBay Sandbox. Each phase ends with a gate that must pass before the next starts.
+Everything up to Phase 5 runs on eBay Sandbox. K's real account is connected **read-only** in Phase 6, once the access controls in [security.md](security.md) are built. It accepts approved changes in Phase 8, after one nightly read-only cycle and the [go-live tests](go-live-tests.md). At launch **every** change needs approval: titles, descriptions, item specifics, prices, offers, replies and promotion.
 
-Updated 2026-11-02. Design details: [safety-and-environments.md](safety-and-environments.md), [approvals.md](approvals.md), [app-and-dashboard.md](app-and-dashboard.md).
+Updated 2026-11-02 (plan v3). Design: [security.md](security.md), [pricing-and-promotion.md](pricing-and-promotion.md), [listing-assistant.md](listing-assistant.md), [go-live-tests.md](go-live-tests.md), [safety-and-environments.md](safety-and-environments.md), [approvals.md](approvals.md), [app-and-dashboard.md](app-and-dashboard.md).
 
-**Current phase: 6 needs K. Phases 1–5 are built and running on Sandbox.** The Phase 2 and 3 gates wait for K (install the app, add the Anthropic key).
+**Current phase: 6. Production preparation.**
 
 | # | Phase | Environment | Exit gate |
 | --- | --- | --- | --- |
-| 0 | Skeleton (done, PR #1) | none | Merged |
-| 1 | Safety foundation | Sandbox | No eBay write is possible without an approved proposal, proven by tests; sandbox sign-in works |
-| 2 | App shell: dashboard, PWA, Web Push | Sandbox | K approves a sandbox price change from the Android notification |
-| 3 | Claude: tool-use loop and listing audit | Sandbox (+ production Browse comps) | Audit of sandbox listings fills the Inbox with sensible proposals |
-| 4 | Metrics and nightly health | Sandbox | Metrics screen renders; nightly run logs Claude spend |
-| 5 | Buyer messages and offers | Sandbox (test buyer) | Message and Best Offer round trip with a sandbox buyer |
-| 6 | **Connect real account, read-only** | Production read-only | Go-live checklist ticked |
-| 7 | **Enable approved writes** | Production | First 10 approved writes verified on eBay |
-| 8 | Listing from photos | Production | First listing published via an approved proposal |
-| later | Opt-in auto-apply for eligible kinds | Production | K switches a kind on in Settings |
+| 0–5 | Skeleton, safety, app, Claude, metrics, messages and offers (done) | Sandbox | Offer round trip passed 2026-11-02 |
+| 6 | **Production preparation**: passkey sign-in for 3 people, roles, eBay call allowlist, hardening, account-deletion endpoint, production Worker with writes off | Sandbox, then production (read-only) | Security tests (go-live tests A, B) pass on Sandbox; K connects the real account read-only |
+| 7 | **Read-only on the real account**: first-day audit, reply style guide, market pictures and pricing engine, promotion research, the redesigned app | Production read-only | One nightly cycle with everything running; go-live tests A to H pass |
+| 8 | **Go live, approve everything** | Production | Go-live tests I1 to I5 |
+| 9 | Auto-apply settings for listing edits (title, description, specifics), each with a "Done" notification | Production | K switches one on |
+| 10 | Listing assistant: photos with coaching, no-assumption facts, publish | Production | First listing published via an approved proposal |
+| later | Marketplace Insights sold prices (when eBay grants access), Cloudflare Access in front | Production | — |
 
 ## Phase 1: Safety foundation (sandbox)
 
@@ -66,23 +63,38 @@ Updated 2026-11-02. Design details: [safety-and-environments.md](safety-and-envi
 - [x] Offer round trip on 2026-11-02: test buyer offered £9 (via `scripts/sandbox-buyer.mjs`, since the Sandbox website fails on buyer pages), Claude suggested an answer, K edited it to a £11 counter and approved from the app, and the buyer saw the counter.
 - [ ] Question round trip: not testable on Sandbox (its message pages fail and there is no buyer API for pre-sale questions). Checked in Phase 6 instead, where real questions produce dry-run drafts that can't be sent.
 
-## Phase 6: Connect real account, read-only
+## Phase 6: Production preparation
 
-- [ ] Production keyset active (opt out of marketplace account deletion notifications; the app stores no other users' data).
-- [ ] Deploy `--env production` with `WRITE_MODE=off`; sign in with read-only scopes.
-- [ ] Dry-run audit: proposals appear in the Inbox marked "dry run" with no Approve button.
-- [ ] Run for at least 7 days; work through the [go-live checklist](safety-and-environments.md#go-live-checklist).
+- [ ] Passkey (WebAuthn) sign-in per person, recovery codes, server-side sessions (12 h idle, 7 days max), sign out everywhere ([security.md](security.md)).
+- [ ] Users: owner plus at most 2 managers, single-use 24-hour invite links, roles enforced on every route; who did what recorded on proposals and in Activity.
+- [ ] Production decide links need the signed link **and** the device's session; replies and offer acceptances can require opening the app (on by default in production).
+- [ ] `src/ebay/allowlist.ts`: every eBay call checked against the list in security.md, with a test.
+- [ ] `/mcp` off in production; `/oauth/start` needs the owner's session; sign-in rate limits.
+- [ ] Marketplace account deletion endpoint: answers eBay's challenge, verifies signed notifications, deletes that buyer's stored data.
+- [ ] Production Worker deployed with `WRITE_MODE=off`, its own D1 and R2, and production secrets in K's gitignored `.prod.vars`.
+- [ ] K: activate the production keyset (endpoint and verification token entered in the portal), create the production RuName, apply for Marketplace Insights access.
+- [ ] K connects the real account read-only.
 
-## Phase 7: Enable approved writes
+## Phase 7: Read-only on the real account
 
-- [ ] Re-sign in with full scopes; set `WRITE_MODE=approval`.
-- [ ] Approve the first writes one at a time and check each on eBay.
+- [ ] First-day audit and report: listings, sold history, ended listings, messages, settings ([listing-assistant.md](listing-assistant.md)).
+- [ ] Reply style guide from K's past replies, used by every draft.
+- [ ] Market pictures and the pricing engine for prices, offers and counters ([pricing-and-promotion.md](pricing-and-promotion.md)).
+- [ ] Promotion research: propose only when the market is saturated and the rate pays back, below eBay's suggestion.
+- [ ] The redesigned app (tasteskill; eBay-based colours made K's own, logo, separate phone and desktop layouts, same features).
+- [ ] One full nightly cycle with all of it, then go-live tests A to H.
 
-## Phase 8: Listing from photos
+## Phase 8: Go live
 
-- [ ] Upload photos from the PWA to R2; Sonnet gives photo-quality feedback and drafts the listing.
-- [ ] `create_listing` proposal; publish via the Inventory API on approval.
+- [ ] Go-live tests I1 to I5: re-sign in with full permissions, `WRITE_MODE=approval`, first change small and reversible, the first 10 one at a time.
 
-## Later: auto-apply
+## Phase 9: Auto-apply settings
 
-- [ ] `auto_apply` table and Settings toggles for eligible kinds (`revise`, `promote`, `relist`).
+- [ ] Settings (owner only): separate switches for title, description and item specifics changes. When on, those apply without a tap and a "Done" notification says exactly what changed, with an undo proposal one tap away.
+- [ ] Prices, offers, counters, replies, new listings, ending listings, promotion and policies stay approval-only, enforced in code (`LOCKED_KINDS`).
+
+## Phase 10: Listing assistant
+
+- [ ] Photo screen with the checklist and per-photo feedback (light, background, framing, focus, required shots).
+- [ ] Facts: exact product, then cited specifications; otherwise ask K. Condition always from K.
+- [ ] Market-picture price, suggested postage, eBay's check, approval, publish (Inventory and Media APIs; photos in R2).

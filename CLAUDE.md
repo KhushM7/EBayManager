@@ -4,7 +4,7 @@ Automates K's eBay selling: improve existing listings, re-evaluate unsold ones, 
 
 Full plan (decisions, eBay API map, rollout): https://claude.ai/artifact/JowUE86DsPhFBsswMms8jf
 
-Design docs: [roadmap](docs/roadmap.md), [safety and environments](docs/safety-and-environments.md), [approvals](docs/approvals.md), [app and dashboard](docs/app-and-dashboard.md).
+Design docs: [roadmap](docs/roadmap.md), [security](docs/security.md), [pricing and promotion](docs/pricing-and-promotion.md), [listing assistant](docs/listing-assistant.md), [go-live tests](docs/go-live-tests.md), [safety and environments](docs/safety-and-environments.md), [approvals](docs/approvals.md), [app and dashboard](docs/app-and-dashboard.md).
 
 ## Decisions (2026-11-02)
 
@@ -20,6 +20,16 @@ Design docs: [roadmap](docs/roadmap.md), [safety and environments](docs/safety-a
 - Dashboard and PWA: Vite + Preact + TypeScript in `web/`, served as Workers static assets at the site root. K signs in with `DASHBOARD_KEY` (separate from `MCP_TOKEN`); `/api/*` needs that session cookie plus an `X-EbayManager` header. Cloudflare Access can be added in front later. Design: the tasteskill "quiet instrument" direction (Switzer, Frost and slate); its house rules apply to every screen.
 - Notifications: Web Push (VAPID, implemented on Web Crypto in `src/push.ts`, no library) to the installed PWA, with signed Approve/Reject actions handled by `web/public/sw.js`. ntfy.sh is the fallback.
 - The `/mcp` endpoint stays. It lets K use the same tools from the Claude app or Claude Code when they want to, but nothing depends on it.
+
+## Decisions (2026-11-02, plan v3)
+
+- **Three people only**: K (owner) and two managers, each signing in with a passkey; roles and the eBay call allowlist enforced in code. See [security.md](docs/security.md). Extreme focus on security.
+- **Go live after one nightly read-only cycle** and the [go-live tests](docs/go-live-tests.md), not 7 days.
+- **Everything needs approval at launch**, including titles, descriptions and specifics. Later, owner-only switches let those three apply automatically with a "Done" notification. Prices, offers, replies and promotion never auto-apply.
+- **Prices, offers and promotion come from a market picture**: the same item in the same condition, postage-inclusive, with saturation and sold prices. Promotion only when it pays, below eBay's suggested rate. See [pricing-and-promotion.md](docs/pricing-and-promotion.md).
+- **Never assume item facts**: look up specifications only for an exactly identified product, with sources; otherwise ask. Coach photos for someone new to selling. See [listing-assistant.md](docs/listing-assistant.md).
+- **First-day audit** of listings, sold history, messages (reply style) and settings once the real account connects.
+- **UI redesign** with the tasteskill: eBay-based colours made K's own, a logo, separate phone and desktop layouts with the same features.
 
 ## Rules that are enforced in code, never in prompts
 
@@ -67,7 +77,7 @@ npm run deploy:sandbox          # see README for first-time setup
 
 ## Next steps
 
-Current phase: **Phases 1–5 are built and running on Sandbox; Phase 6 (connect the real account read-only) needs K.** Also waiting on K: install the app on Android (Phase 2 gate) and add `ANTHROPIC_API_KEY` (Phase 3 gate). The Sandbox Worker is live at https://ebay-autopilot-sandbox.ebay-autopilot.workers.dev with 3 test listings. The checklist is in [docs/roadmap.md](docs/roadmap.md).
+Current phase: **6, production preparation** (see [docs/roadmap.md](docs/roadmap.md)). Phases 0–5 are done on Sandbox; the Sandbox Worker is live at https://ebay-autopilot-sandbox.ebay-autopilot.workers.dev.
 
 ## Open items
 

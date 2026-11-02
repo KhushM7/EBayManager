@@ -127,10 +127,12 @@ export async function verifyNewListing(env: Env, payload: unknown): Promise<{ fe
 }
 
 async function audit(env: Env, proposalId: string, call: string, request: string, outcome: string, response: string) {
+  // Who approved it, for the Activity screen.
   await env.DB.prepare(
-    "INSERT INTO audit_log (at, env, proposal_id, call, request, response, outcome) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    `INSERT INTO audit_log (at, env, proposal_id, call, request, response, outcome, actor)
+     VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT decided_by FROM proposals WHERE id = ?))`,
   )
-    .bind(Date.now(), env.EBAY_ENV, proposalId, call, request.slice(0, 8000), response.slice(0, 8000), outcome)
+    .bind(Date.now(), env.EBAY_ENV, proposalId, call, request.slice(0, 8000), response.slice(0, 8000), outcome, proposalId)
     .run();
 }
 

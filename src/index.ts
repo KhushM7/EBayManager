@@ -1,6 +1,8 @@
 import type { Env } from "./env";
 import { consentUrl, exchangeCode, READONLY_SCOPES, userScopes } from "./ebay/auth";
+import { handleAccountDeletion } from "./deletion";
 import { handleApi } from "./api";
+import { getSession } from "./session";
 import { handleMcp } from "./mcp";
 import { envPrefix } from "./notify";
 import { pollInbox } from "./inbox";
@@ -40,13 +42,17 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    if (url.pathname === "/mcp") return handleMcp(env, request);
+    // The Claude connector: Sandbox only unless switched on deliberately (docs/security.md).
+    if (url.pathname === "/mcp") return env.MCP_ENABLED === "true" ? handleMcp(env, request) : new Response("Not found", { status: 404 });
+    if (url.pathname === "/ebay/account-deletion") return handleAccountDeletion(env, request, url);
     if (url.pathname.startsWith("/api/")) return handleApi(env, request, url);
 
-    // One-time eBay sign-in. Guarded by MCP_TOKEN so only K can start it. Scopes are read-only unless
-    // WRITE_MODE=approval; ?readonly=1 forces read-only (used to test what read-only scopes block).
+    // Connecting eBay needs the owner's signed-in session. Scopes are read-only unless WRITE_MODE=approval;
+    // ?readonly=1 forces read-only.
     if (url.pathname === "/oauth/start") {
-      if (url.searchParams.get("key") !== env.MCP_TOKEN) return new Response("Unauthorized", { status: 401 });
+      const session = await getSession(env, request);
+      if (!session || session.user.role !== "owner" || session.mustAddPasskey)
+        return html("<h1>Sign in to EBayManager as the owner first, then open this link again.</h1>", 401);
       const readonly = url.searchParams.get("readonly") === "1";
       const state = `${crypto.randomUUID()}.${readonly ? "r" : "f"}`;
       return new Response(null, {
@@ -58,6 +64,8 @@ export default {
       });
     }
     if (url.pathname === "/oauth/callback") {
+      const session = await getSession(env, request);
+      if (!session || session.user.role !== "owner") return html("<h1>Sign in as the owner first</h1>", 401);
       const cookie = request.headers.get("Cookie") ?? "";
       const state = url.searchParams.get("state");
       const code = url.searchParams.get("code");
@@ -77,8 +85,14 @@ export default {
       const s = url.searchParams.get("s") ?? "";
       if ((d !== "approve" && d !== "reject") || !(await verifyDecision(env, id, d, e, s)))
         return html("<h1>Invalid or expired link</h1>", 403);
+      // On the real account a link alone isn't enough: the device must also be signed in.
+      const session = await getSession(env, request);
+      if (env.EBAY_ENV === "production" && (!session || session.mustAddPasskey)) {
+        if (request.headers.get("Accept")?.includes("application/json")) return Response.json({ result: "Sign in to the app to decide" }, { status: 401 });
+        return html("<h1>Sign in to EBayManager on this device, then open the link again.</h1>", 401);
+      }
       if (request.method === "POST") {
-        const result = await decide(env, id, d);
+        const result = await decide(env, id, d, session?.user.name ?? "notification link");
         // The PWA's service worker asks for JSON when K taps Approve or Reject on a notification.
         if (request.headers.get("Accept")?.includes("application/json")) return Response.json({ result });
         return html(`<h1>${escHtml(result)}</h1>`);

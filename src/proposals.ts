@@ -127,16 +127,26 @@ export async function proposeAndNotify(
   opts: { links?: boolean } = {},
 ) {
   const row = await createProposal(env, p);
-  const links = opts.links === false ? undefined : await decisionLinks(env, row);
+  // On the real account, replies and offer answers are approved in the app, not from the lock screen.
+  const appOnly = env.EBAY_ENV === "production" && APP_ONLY_KINDS.includes(row.kind) && (await requireAppForReplies(env));
+  const links = opts.links === false || appOnly ? undefined : await decisionLinks(env, row);
   await push(env, row.dry_run ? `Dry run: ${title}` : title, body, links, row.id);
   return { proposalId: row.id, status: row.dry_run ? "dry run: cannot be applied while writes are off" : "pending K's approval" };
+}
+
+const APP_ONLY_KINDS = ["message", "best_offer_response"];
+
+/** Settings switch, on unless K turns it off: replies and offer answers need the app, not a notification tap. */
+export async function requireAppForReplies(env: Env): Promise<boolean> {
+  const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'require_app_for_replies'").first<{ value: string }>();
+  return row?.value !== "0";
 }
 
 /** Kinds whose pending drafts K may edit in the Inbox before approving. */
 export const EDITABLE_KINDS = ["message", "best_offer_response"];
 
 /** K's edit to a pending draft: the reply text, or the offer action, counter price and message. */
-export async function editProposal(env: Env, id: string, changes: Record<string, unknown>): Promise<string> {
+export async function editProposal(env: Env, id: string, changes: Record<string, unknown>, actor: string | null = null): Promise<string> {
   const p = await getProposal(env, id);
   if (!p) return "Not found";
   if (p.status !== "pending") return `Already ${p.status}`;
@@ -153,6 +163,7 @@ export async function editProposal(env: Env, id: string, changes: Record<string,
     if (typeof changes.message === "string") payload.message = changes.message.slice(0, 250);
   }
   payload.editedByK = true;
+  payload.editedBy = actor;
   await env.DB.prepare("UPDATE proposals SET payload = ? WHERE id = ? AND status = 'pending'").bind(JSON.stringify(payload), id).run();
   return "Saved";
 }
@@ -183,7 +194,7 @@ export async function applyApproved(env: Env): Promise<{ id: string; result: str
   return out;
 }
 
-export async function decide(env: Env, id: string, decision: "approve" | "reject"): Promise<string> {
+export async function decide(env: Env, id: string, decision: "approve" | "reject", actor: string | null = null): Promise<string> {
   const p = await getProposal(env, id);
   if (!p) return "Not found";
   if (p.status !== "pending") return `Already ${p.status}`;
@@ -193,7 +204,7 @@ export async function decide(env: Env, id: string, decision: "approve" | "reject
     return "Expired";
   }
   if (decision === "reject") {
-    await env.DB.prepare("UPDATE proposals SET status = 'rejected', decided_at = ? WHERE id = ? AND status = 'pending'").bind(now, id).run();
+    await env.DB.prepare("UPDATE proposals SET status = 'rejected', decided_at = ?, decided_by = ? WHERE id = ? AND status = 'pending'").bind(now, actor, id).run();
     return "Rejected";
   }
   if (p.dry_run) return "Dry run: this proposal can't be applied";
@@ -212,8 +223,8 @@ export async function decide(env: Env, id: string, decision: "approve" | "reject
     }
   }
 
-  const approved = await env.DB.prepare("UPDATE proposals SET status = 'approved', decided_at = ? WHERE id = ? AND status = 'pending'")
-    .bind(now, id)
+  const approved = await env.DB.prepare("UPDATE proposals SET status = 'approved', decided_at = ?, decided_by = ? WHERE id = ? AND status = 'pending'")
+    .bind(now, actor, id)
     .run();
   if (!approved.meta.changes) return "Already decided";
   try {

@@ -49,7 +49,7 @@ pending ──┤
 | Channel | How | Auth |
 | --- | --- | --- |
 | Push notification (main) | **Approve** and **Reject** buttons on the Android notification. The PWA's service worker POSTs the signed decision without opening the app | HMAC-signed link with 7-day expiry |
-| Dashboard Inbox | Approve or reject one at a time, or tick several and approve as a batch. Shows a diff of old vs new | Cloudflare Access session plus a CSRF token |
+| Dashboard Inbox | Approve or reject one at a time, or tick several and approve as a batch. Shows a diff of old vs new | K's dashboard session plus a CSRF header |
 | ntfy (fallback) | Tapping opens the signed `/decide/:id` confirmation page, and the button there POSTs | HMAC-signed link with 7-day expiry |
 
 Rules that stay from Phase 0:

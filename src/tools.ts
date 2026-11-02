@@ -100,7 +100,7 @@ export const tools: Tool[] = [
         .first<{ n: number }>();
       const flags: string[] = [];
       if (last && Math.abs(a.new_price - last.price) / last.price > MAX_PRICE_STEP)
-        flags.push(`more than ${MAX_PRICE_STEP * 100}% from ${last.price}`);
+        flags.push(`more than ${MAX_PRICE_STEP * 100}% away from £${Number(last.price).toFixed(2)}`);
       if (recent?.n) flags.push(`price already changed in the last ${MIN_DAYS_BETWEEN_PRICE_CHANGES} days`);
 
       const from = last ? `${last.price} → ` : "";

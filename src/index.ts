@@ -13,7 +13,27 @@ const html = (body: string, status = 200) =>
     { status, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
 
-const escHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+// The dashboard loads only its own code and the Switzer font, and can't be framed.
+const CSP = [
+  "default-src 'self'",
+  "style-src 'self' https://api.fontshare.com",
+  "font-src https://cdn.fontshare.com",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+].join("; ");
+
+function withSecurityHeaders(res: Response): Response {
+  const out = new Response(res.body, res);
+  out.headers.set("Content-Security-Policy", CSP);
+  out.headers.set("X-Content-Type-Options", "nosniff");
+  out.headers.set("Referrer-Policy", "no-referrer");
+  return out;
+}
+
+const escHtml =(s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -73,7 +93,7 @@ export default {
 
     if (url.pathname === "/health") return Response.json({ ok: true, ebayEnv: env.EBAY_ENV, writeMode: env.WRITE_MODE });
     // Everything else is the dashboard and PWA (single-page app); its data comes from /api with K's session.
-    if (env.ASSETS) return env.ASSETS.fetch(request);
+    if (env.ASSETS) return withSecurityHeaders(await env.ASSETS.fetch(request));
     return new Response("Not found", { status: 404 });
   },
 

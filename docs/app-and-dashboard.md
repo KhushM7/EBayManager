@@ -30,7 +30,7 @@ Settings shows **Last push delivered** with a **Send test push** button, so a br
 | Dashboard and PWA files | Workers static assets, same Worker | Free |
 | Database | D1 | Free tier: 5 GB |
 | Photos | R2 | Free tier: 10 GB |
-| Login | Cloudflare Access | Free for up to 50 users |
+| Login | `DASHBOARD_KEY` sign-in in the Worker (Cloudflare Access optional later) | Free |
 | Claude | Anthropic API | About $3–6 a month (the only running cost) |
 
 Nothing runs continuously. The Worker runs only when a request, a push decision or the nightly cron arrives. Running the system on the phone itself would be worse, for no saving: the cron needs a machine that's always on, and eBay's OAuth callback and notifications need a public HTTPS address.
@@ -40,13 +40,14 @@ Nothing runs continuously. The Worker runs only when a request, a push decision 
 - **Frontend:** Vite + Preact + TypeScript in `web/`, built to `web/dist`. Wrangler serves it with an `[assets]` block. Plain CSS, mobile first.
 - **Charts:** small hand-rolled SVG components, or uPlot if the time series grow large.
 - **API:** JSON routes under `/api/*` in `src/api.ts`, called by the dashboard.
-- **Push:** Web Push with VAPID keys (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` as Worker secrets). Subscriptions are stored in a D1 `push_subscriptions` table. The web-push library must run on Workers (Web Crypto, no Node `crypto`). It is chosen in Phase 2.
+- **Push:** Web Push with one `VAPID_KEY` secret (a P-256 private JWK; the public key is derived from it). Encryption (RFC 8291) and VAPID (RFC 8292) are written on Web Crypto in `src/push.ts`, with no library, and tested by decrypting a message as a browser would. Subscriptions are stored in a D1 `push_subscriptions` table; gone ones are removed.
 
 ## Auth
 
 | Route | Protected by |
 | --- | --- |
-| `/app/*` (dashboard) and `/api/*` | Cloudflare Access: one-time passcode emailed to K's address. The Worker also verifies the Access JWT |
+| `/` and other app paths | Public static files: the app shell holds no data |
+| `/api/*` | K's session: a signed 30-day `HttpOnly`, `SameSite=Strict` cookie set after entering `DASHBOARD_KEY`. State changes also need the `X-EbayManager: 1` header (CSRF). Cloudflare Access can be put in front later for a second factor |
 | `/decide/:id` | HMAC-signed link with expiry, POST only (see [approvals.md](approvals.md)) |
 | `/mcp` | Bearer `MCP_TOKEN` |
 | `/oauth/start` | `MCP_TOKEN` query key, unchanged from Phase 0 |

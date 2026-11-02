@@ -35,11 +35,12 @@ Updated 2026-11-02. Design details: [safety-and-environments.md](safety-and-envi
 
 ## Phase 2: App shell (sandbox)
 
-- [ ] `web/` Vite + Preact app served by Workers static assets; Cloudflare Access on `/app/*` and `/api/*`; Access JWT check in the Worker.
-- [ ] `src/api.ts`: proposals list, decide (single and batch), listings, settings, push subscribe.
-- [ ] Inbox, Listings, Activity and Settings screens; environment banner.
-- [ ] Manifest and service worker; Web Push with VAPID; `push_subscriptions` table; test push; notification actions that POST the decision.
-- [ ] `src/notify.ts` sends Web Push first, ntfy as a fallback if configured.
+- [x] `web/` Vite + Preact app served by Workers static assets. Sign-in with `DASHBOARD_KEY` and a signed session cookie instead of Cloudflare Access, which needs K in the Cloudflare dashboard; Access can be added in front later.
+- [x] `src/api.ts`: proposals list, decide (single and batch), listings, settings, push subscribe.
+- [x] Inbox, Listings, Activity and Settings screens; environment banner.
+- [x] Manifest and service worker; Web Push with VAPID; `push_subscriptions` table; test push; notification actions that POST the decision.
+- [x] `src/notify.ts` sends Web Push first, ntfy as a fallback if configured.
+- [ ] K installs the app on Android, turns on notifications in Settings, and approves a Sandbox change from a notification (the exit gate).
 
 ## Phase 3: Claude (sandbox)
 

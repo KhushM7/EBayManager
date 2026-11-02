@@ -19,6 +19,13 @@ binding = "DB"
 database_name = "ebay-autopilot-local"
 database_id = "local"
 
+# Dashboard and PWA, built by `npm run build:web`. The Worker runs first and serves these for unknown paths.
+[assets]
+directory = "web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
+
 # R2 photo storage (binding PHOTOS) is added in Phase 8; R2 isn't enabled on the account yet.
 
 [triggers]
@@ -34,6 +41,12 @@ WRITE_MODE = "approval"
 EBAY_MARKETPLACE = "EBAY_GB"
 EBAY_SITE_ID = "3"
 PUBLIC_URL = "https://ebay-autopilot-sandbox.ebay-autopilot.workers.dev"
+
+[env.sandbox.assets]
+directory = "web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
 
 [[env.sandbox.d1_databases]]
 binding = "DB"
@@ -51,6 +64,12 @@ EBAY_MARKETPLACE = "EBAY_GB"
 EBAY_SITE_ID = "3"
 PUBLIC_URL = "https://ebay-autopilot-production.<your-subdomain>.workers.dev"
 
+[env.production.assets]
+directory = "web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
+
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "ebay-autopilot-production"
@@ -60,6 +79,8 @@ database_id = "<filled in by `npx wrangler d1 create ebay-autopilot-production` 
 #   EBAY_APP_ID, EBAY_CERT_ID, EBAY_DEV_ID, EBAY_RUNAME   that environment's eBay keyset
 #   EBAY_COMPS_APP_ID, EBAY_COMPS_CERT_ID                 optional production keyset for Browse comps only
 #   MCP_TOKEN      bearer token for /mcp and /oauth/start
+#   DASHBOARD_KEY  K's dashboard sign-in key (never given to Claude's connector)
+#   VAPID_KEY      Web Push key pair, a P-256 private JWK (`node scripts/make-keys.mjs`)
 #   SIGNING_KEY    HMAC key for approval links
 #   NTFY_TOPIC     private ntfy topic for push notifications
 # For `wrangler dev`, put the Sandbox values in .dev.vars (gitignored).

@@ -5,23 +5,28 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy:sandbox": "wrangler deploy --env sandbox",
-    "deploy:production": "wrangler deploy --env production",
+    "deploy:sandbox": "npm run build:web && wrangler deploy --env sandbox",
+    "deploy:production": "npm run build:web && wrangler deploy --env production",
     "db:init:local": "wrangler d1 execute ebay-autopilot-local --local --file=schema.sql",
     "db:init:sandbox": "wrangler d1 execute ebay-autopilot-sandbox --env sandbox --remote --file=schema.sql",
     "db:init:production": "wrangler d1 execute ebay-autopilot-production --env production --remote --file=schema.sql",
     "writes:resume:sandbox": "wrangler d1 execute ebay-autopilot-sandbox --env sandbox --remote --command \"UPDATE settings SET value = '0' WHERE key = 'writes_paused'\"",
     "writes:resume:production": "wrangler d1 execute ebay-autopilot-production --env production --remote --command \"UPDATE settings SET value = '0' WHERE key = 'writes_paused'\"",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p test",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test && tsc --noEmit -p web",
+    "test": "vitest run",
+    "build:web": "vite build web",
+    "dev:web": "vite web"
   },
   "dependencies": {
-    "fast-xml-parser": "^5.2.0"
+    "fast-xml-parser": "^5.2.0",
+    "preact": "^10.29.8"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261006.1",
+    "@preact/preset-vite": "^2.10.6",
     "@types/node": "^24.19.2",
     "typescript": "^5.9.0",
+    "vite": "^7.3.7",
     "vitest": "^3.2.0",
     "wrangler": "^4.20.0"
   }

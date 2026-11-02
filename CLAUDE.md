@@ -17,8 +17,8 @@ Design docs: [roadmap](docs/roadmap.md), [safety and environments](docs/safety-a
 - TypeScript on Cloudflare Workers, with D1 (SQLite) for state and R2 for photos. Deployed with `wrangler`, with separate `sandbox` and `production` environments that each have their own D1 and R2.
 - eBay: Trading API (XML) for existing listings, best offers and revisions; REST APIs (Browse, Inventory, Marketing, Negotiation, Analytics, Taxonomy) elsewhere. Marketplace is EBAY_GB, site ID 3. `EBAY_ENV` (`sandbox` | `production`) selects hosts and keyset.
 - Claude: called from the Worker through the Anthropic API with K's key, using `@anthropic-ai/sdk`. This decision was made on 2026-11-01 and replaces the earlier plan to run on the Claude subscription. Use Claude Sonnet 5.5 (`claude-sonnet-5-5`) for listing builds and photo feedback. Use Claude Haiku 5.5 (`claude-haiku-5-5`) for nightly triage and buyer message drafts. The target spend is about $3 to $6 a month.
-- Dashboard and PWA: Vite + Preact + TypeScript in `web/`, served as Workers static assets. Cloudflare Access protects `/app/*` and `/api/*`.
-- Notifications: Web Push (VAPID) to the installed PWA, with signed Approve/Reject actions. ntfy.sh is the fallback.
+- Dashboard and PWA: Vite + Preact + TypeScript in `web/`, served as Workers static assets at the site root. K signs in with `DASHBOARD_KEY` (separate from `MCP_TOKEN`); `/api/*` needs that session cookie plus an `X-EbayManager` header. Cloudflare Access can be added in front later. Design: the tasteskill "quiet instrument" direction (Switzer, Frost and slate); its house rules apply to every screen.
+- Notifications: Web Push (VAPID, implemented on Web Crypto in `src/push.ts`, no library) to the installed PWA, with signed Approve/Reject actions handled by `web/public/sw.js`. ntfy.sh is the fallback.
 - The `/mcp` endpoint stays. It lets K use the same tools from the Claude app or Claude Code when they want to, but nothing depends on it.
 
 ## Rules that are enforced in code, never in prompts
@@ -44,11 +44,13 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/ebay/` (rest) | eBay OAuth, the read-only Trading API client, and Browse comps |
 | `src/proposals.ts` | Proposals, signed expiring approval links, and deciding them |
 | `src/tools.ts`, `src/mcp.ts` | Tool definitions and a minimal stateless MCP server |
-| `src/notify.ts` | ntfy pushes (Web Push added in Phase 2) |
+| `src/notify.ts`, `src/push.ts` | Notifications: Web Push to the PWA (RFC 8291/8292), ntfy fallback |
 | `schema.sql` | D1 schema |
 | `test/` | Vitest: gate refusal paths (`gate.test.ts`), source scans keeping writes behind the gate (`safety.test.ts`) |
 | `docs/` | Design docs and roadmap |
-| `src/api.ts`, `web/` | Planned, Phase 2: dashboard API and PWA |
+| `src/api.ts`, `src/session.ts` | Dashboard JSON API and K's sign-in session |
+| `web/` | The dashboard PWA (Preact). `MOCK=1 npm run dev:web` runs it on sample data |
+| `scripts/` | `make-keys.mjs` (DASHBOARD_KEY, VAPID_KEY into .dev.vars), `make-icons.mjs` |
 | `src/claude.ts` | Planned, Phase 3: Claude tool-use loop |
 
 ## Commands
@@ -69,5 +71,4 @@ Current phase: **2, app shell (sandbox)**. Phase 1 finished on 2026-11-02. The S
 
 - Sold-price data: Marketplace Insights access has not been requested yet. Until it is, Terapeak is the fallback.
 - Production keyset (Phase 6): opt out of marketplace account deletion notifications, since the app stores no other users' data.
-- Pick a Workers-compatible Web Push library in Phase 2.
 - No CI is set up yet.

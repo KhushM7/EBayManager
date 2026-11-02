@@ -6,6 +6,7 @@
 // 2. Save it as the only line of .sandbox-buyer-token in the project folder (gitignored).
 // 3. node scripts/sandbox-buyer.mjs offer <itemId> <price> ["message to the seller"]
 //    node scripts/sandbox-buyer.mjs offers            (the buyer's offers and their status)
+//    node scripts/sandbox-buyer.mjs whoami            (which Sandbox user the token belongs to)
 import { readFileSync } from "node:fs";
 
 const SANDBOX_TRADING = "https://api.sandbox.ebay.com/ws/api.dll";
@@ -34,8 +35,24 @@ async function call(verb, inner) {
 
 const [cmd, itemId, price, message] = process.argv.slice(2);
 
+/** The Sandbox user the token belongs to (GetUser with no UserID returns the caller). */
+async function whoami() {
+  const r = await call("GetUser", "");
+  if (r.ack === "Failure") throw new Error(`GetUser failed: ${r.errors.join("; ")}`);
+  return r.xml.match(/<UserID>([^<]*)<\/UserID>/)?.[1] ?? "unknown";
+}
+
+if (cmd === "whoami") {
+  console.log(`Token belongs to: ${await whoami()}`);
+  process.exit(0);
+}
+
 if (cmd === "offer") {
   if (!/^\d+$/.test(itemId ?? "") || !(Number(price) > 0)) throw new Error("Usage: offer <itemId> <price> [message]");
+  const user = await whoami();
+  const seller = (await call("GetItem", `<ItemID>${esc(itemId)}</ItemID>`)).xml.match(/<Seller>[\s\S]*?<UserID>([^<]*)<\/UserID>/)?.[1];
+  if (user === seller) throw new Error(`This token belongs to the seller (${user}). Get a token signed in as the buyer test user.`);
+  console.log(`Offering as ${user} on ${seller}'s item`);
   const r = await call(
     "PlaceOffer",
     `<ItemID>${esc(itemId)}</ItemID><EndUserIP>127.0.0.1</EndUserIP>

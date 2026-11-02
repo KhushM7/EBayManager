@@ -57,9 +57,10 @@ export function callFor(p: Pick<Proposal, "kind" | "item_id" | "payload">): Writ
     }
     case "create_listing": {
       const pictures = (a.pictureUrls ?? []).map((u: string) => `<PictureURL>${esc(u)}</PictureURL>`).join("");
+      // eBay rejects collection in person as the only flat-rate service; collection only = no postage, ship nowhere.
       const shipping = a.collectionOnly
-        ? `<ShippingService>UK_CollectInPerson</ShippingService><ShippingServiceCost currencyID="GBP">0.00</ShippingServiceCost>`
-        : `<ShippingService>UK_RoyalMailSecondClassStandard</ShippingService><ShippingServiceCost currencyID="GBP">${Number(a.shippingCost ?? 0).toFixed(2)}</ShippingServiceCost>`;
+        ? `<ShipToLocations>None</ShipToLocations>`
+        : `<ShippingDetails><ShippingType>Flat</ShippingType><ShippingServiceOptions><ShippingServicePriority>1</ShippingServicePriority><ShippingService>UK_RoyalMailSecondClassStandard</ShippingService><ShippingServiceCost currencyID="GBP">${Number(a.shippingCost ?? 0).toFixed(2)}</ShippingServiceCost></ShippingServiceOptions></ShippingDetails>`;
       return {
         call: "AddFixedPriceItem",
         xml: `<Item>
@@ -75,13 +76,24 @@ export function callFor(p: Pick<Proposal, "kind" | "item_id" | "payload">): Writ
   ${pictures ? `<PictureDetails>${pictures}</PictureDetails>` : ""}
   ${specificsXml(a.itemSpecifics)}
   <ReturnPolicy><ReturnsAcceptedOption>ReturnsAccepted</ReturnsAcceptedOption><ReturnsWithinOption>Days_${RETURNS.periodDays}</ReturnsWithinOption><ShippingCostPaidByOption>Buyer</ShippingCostPaidByOption></ReturnPolicy>
-  <ShippingDetails><ShippingType>Flat</ShippingType><ShippingServiceOptions><ShippingServicePriority>1</ShippingServicePriority>${shipping}</ShippingServiceOptions></ShippingDetails>
+  ${shipping}
 </Item>`,
       };
     }
     default:
       throw new WriteRefused(`Applying ${p.kind} is not built yet`);
   }
+}
+
+/**
+ * Asks eBay to check a new listing without creating it (VerifyAddFixedPriceItem), so K is never asked to
+ * approve a listing eBay will reject. Changes nothing on eBay, so it needs no approval. Throws eBay's errors.
+ */
+export async function verifyNewListing(env: Env, payload: unknown): Promise<{ fees: number }> {
+  const { xml } = callFor({ kind: "create_listing", item_id: null, payload: JSON.stringify(payload) });
+  const res = await tradingRequest(env, "VerifyAddFixedPriceItem", xml);
+  const fees = [res.Fees?.Fee ?? []].flat().reduce((sum: number, f: any) => sum + Number(f.Fee?.["#text"] ?? f.Fee ?? 0), 0);
+  return { fees: Math.round(fees * 100) / 100 };
 }
 
 async function audit(env: Env, proposalId: string, call: string, request: string, outcome: string, response: string) {

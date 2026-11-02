@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeD1 } from "./d1";
 import type { Env } from "../src/env";
 import { createProposal, decide, getProposal } from "../src/proposals";
-import { ebayWrite, setWritesPaused, WriteRefused } from "../src/ebay/write";
+import { callFor, ebayWrite, setWritesPaused, WriteRefused } from "../src/ebay/write";
 import { trading } from "../src/ebay/trading";
 import { ebayHosts } from "../src/ebay/hosts";
 import { READONLY_SCOPES, FULL_SCOPES, userScopes } from "../src/ebay/auth";
@@ -148,6 +148,20 @@ describe("write gate", () => {
     const b = await price(env, "111", 9);
     expect((await getProposal(env, a.id))?.status).toBe("expired");
     expect((await getProposal(env, b.id))?.status).toBe("pending");
+  });
+});
+
+describe("listing builder", () => {
+  const base = { title: "T", description: "D", categoryId: "1", price: 5, conditionId: "3000", postcode: "SW1A 1AA" };
+  it("collection only offers no postage service", () => {
+    const { xml } = callFor({ kind: "create_listing", item_id: null, payload: JSON.stringify({ ...base, collectionOnly: true }) });
+    expect(xml).toContain("<ShipToLocations>None</ShipToLocations>");
+    expect(xml).not.toContain("ShippingDetails");
+  });
+  it("posted items use Royal Mail 2nd class at the given cost", () => {
+    const { xml } = callFor({ kind: "create_listing", item_id: null, payload: JSON.stringify({ ...base, shippingCost: 2.85 }) });
+    expect(xml).toContain("UK_RoyalMailSecondClassStandard");
+    expect(xml).toContain('<ShippingServiceCost currencyID="GBP">2.85</ShippingServiceCost>');
   });
 });
 

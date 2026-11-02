@@ -19,9 +19,7 @@ binding = "DB"
 database_name = "ebay-autopilot-local"
 database_id = "local"
 
-[[r2_buckets]]
-binding = "PHOTOS"
-bucket_name = "ebay-autopilot-photos-local"
+# R2 photo storage (binding PHOTOS) is added in Phase 8; R2 isn't enabled on the account yet.
 
 [triggers]
 crons = ["0 2 * * *"]
@@ -35,16 +33,12 @@ EBAY_ENV = "sandbox"
 WRITE_MODE = "approval"
 EBAY_MARKETPLACE = "EBAY_GB"
 EBAY_SITE_ID = "3"
-PUBLIC_URL = "https://ebay-autopilot-sandbox.<your-subdomain>.workers.dev"
+PUBLIC_URL = "https://ebay-autopilot-sandbox.ebay-autopilot.workers.dev"
 
 [[env.sandbox.d1_databases]]
 binding = "DB"
 database_name = "ebay-autopilot-sandbox"
-database_id = "<filled in by `npx wrangler d1 create ebay-autopilot-sandbox`>"
-
-[[env.sandbox.r2_buckets]]
-binding = "PHOTOS"
-bucket_name = "ebay-autopilot-photos-sandbox"
+database_id = "94aa60bf-c500-476c-9d4b-70df3fbfd31a"
 
 # --- Production: K's real account. WRITE_MODE stays "off" (read-only) until the go-live checklist in Phase 7. ---
 [env.production]
@@ -61,10 +55,6 @@ PUBLIC_URL = "https://ebay-autopilot-production.<your-subdomain>.workers.dev"
 binding = "DB"
 database_name = "ebay-autopilot-production"
 database_id = "<filled in by `npx wrangler d1 create ebay-autopilot-production` at Phase 6>"
-
-[[env.production.r2_buckets]]
-binding = "PHOTOS"
-bucket_name = "ebay-autopilot-photos-production"
 
 # Secrets, per environment (`npx wrangler secret put NAME --env sandbox`), never committed:
 #   EBAY_APP_ID, EBAY_CERT_ID, EBAY_DEV_ID, EBAY_RUNAME   that environment's eBay keyset

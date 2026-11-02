@@ -1,6 +1,7 @@
 export interface Env {
   DB: D1Database;
-  PHOTOS: R2Bucket;
+  /** R2 photo storage, bound from Phase 8. */
+  PHOTOS?: R2Bucket;
   /** sandbox | production. Selects eBay hosts and keyset; anything else fails closed. */
   EBAY_ENV: string;
   /** off | approval. The write gate refuses every eBay write unless this is "approval". */

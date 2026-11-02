@@ -2,7 +2,7 @@ import type { Env } from "./env";
 import { getActiveListings, getItem } from "./ebay/trading";
 import { searchActiveComps } from "./ebay/browse";
 import { listProposals, proposeAndNotify } from "./proposals";
-import { gateClosedReason, setWritesPaused } from "./ebay/write";
+import { gateClosedReason, setWritesPaused, verifyNewListing } from "./ebay/write";
 import { MAX_PRICE_STEP, MIN_DAYS_BETWEEN_PRICE_CHANGES } from "./rules";
 
 export interface Tool {
@@ -164,29 +164,30 @@ export const tools: Tool[] = [
       },
       ["title", "description", "category_id", "price", "condition_id", "postcode", "reason"],
     ),
-    run: (env, a) =>
-      proposeAndNotify(
+    run: async (env, a) => {
+      const payload = {
+        title: a.title,
+        description: a.description,
+        categoryId: a.category_id,
+        price: a.price,
+        conditionId: a.condition_id,
+        quantity: a.quantity ?? 1,
+        postcode: a.postcode,
+        shippingCost: a.shipping_cost ?? 0,
+        collectionOnly: Boolean(a.collection_only),
+        pictureUrls: a.picture_urls ?? [],
+        itemSpecifics: a.item_specifics,
+      };
+      // eBay checks the listing first; a rejected listing never reaches K. Throws with eBay's reason.
+      const { fees } = await verifyNewListing(env, payload);
+      const out = await proposeAndNotify(
         env,
-        {
-          kind: "create_listing",
-          payload: {
-            title: a.title,
-            description: a.description,
-            categoryId: a.category_id,
-            price: a.price,
-            conditionId: a.condition_id,
-            quantity: a.quantity ?? 1,
-            postcode: a.postcode,
-            shippingCost: a.shipping_cost ?? 0,
-            collectionOnly: Boolean(a.collection_only),
-            pictureUrls: a.picture_urls ?? [],
-            itemSpecifics: a.item_specifics,
-          },
-          reason: a.reason,
-        },
+        { kind: "create_listing", payload: { ...payload, verifiedFees: fees }, reason: a.reason },
         `New listing: ${a.title} at ${a.price}`,
         a.reason,
-      ),
+      );
+      return { ...out, ebayCheck: "passed", listingFees: fees };
+    },
   },
   {
     name: "pause_writes",

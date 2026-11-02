@@ -35,7 +35,6 @@ approval link. Only K's tap on that link (HMAC signed, expiring, POST only) reac
 npm install
 npx wrangler login
 npx wrangler d1 create ebay-autopilot-sandbox          # paste database_id into [env.sandbox] in wrangler.toml
-npx wrangler r2 bucket create ebay-autopilot-photos-sandbox
 npm run db:init:sandbox
 for s in EBAY_APP_ID EBAY_CERT_ID EBAY_DEV_ID EBAY_RUNAME MCP_TOKEN SIGNING_KEY NTFY_TOPIC; do npx wrangler secret put $s --env sandbox; done
 npm run deploy:sandbox                                 # set PUBLIC_URL in [env.sandbox] to the printed URL, deploy again

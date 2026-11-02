@@ -29,3 +29,6 @@ export const RETURNS = { accepted: true, periodDays: 30, buyerPaysReturnPostage:
 
 /** Shipping: assume K has a box and ships, unless the item is collection only. */
 export const DEFAULT_SHIPPING = "ship" as const;
+
+/** Claude spend cap per UTC day. Runs refuse to start once it's reached (target is $3 to $6 a month). */
+export const CLAUDE_DAILY_BUDGET_USD = 1;

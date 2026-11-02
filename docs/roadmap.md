@@ -4,7 +4,7 @@ The real eBay seller account is connected read-only at Phase 6 and starts accept
 
 Updated 2026-11-02. Design details: [safety-and-environments.md](safety-and-environments.md), [approvals.md](approvals.md), [app-and-dashboard.md](app-and-dashboard.md).
 
-**Current phase: 2. App shell.** Phase 1 finished 2026-11-02.
+**Current phase: 6 needs K. Phases 1–5 are built and running on Sandbox.** The Phase 2 and 3 gates wait for K (install the app, add the Anthropic key).
 
 | # | Phase | Environment | Exit gate |
 | --- | --- | --- | --- |
@@ -35,31 +35,35 @@ Updated 2026-11-02. Design details: [safety-and-environments.md](safety-and-envi
 
 ## Phase 2: App shell (sandbox)
 
-- [ ] `web/` Vite + Preact app served by Workers static assets; Cloudflare Access on `/app/*` and `/api/*`; Access JWT check in the Worker.
-- [ ] `src/api.ts`: proposals list, decide (single and batch), listings, settings, push subscribe.
-- [ ] Inbox, Listings, Activity and Settings screens; environment banner.
-- [ ] Manifest and service worker; Web Push with VAPID; `push_subscriptions` table; test push; notification actions that POST the decision.
-- [ ] `src/notify.ts` sends Web Push first, ntfy as a fallback if configured.
+- [x] `web/` Vite + Preact app served by Workers static assets. Sign-in with `DASHBOARD_KEY` and a signed session cookie instead of Cloudflare Access, which needs K in the Cloudflare dashboard; Access can be added in front later.
+- [x] `src/api.ts`: proposals list, decide (single and batch), listings, settings, push subscribe.
+- [x] Inbox, Listings, Activity and Settings screens; environment banner.
+- [x] Manifest and service worker; Web Push with VAPID; `push_subscriptions` table; test push; notification actions that POST the decision.
+- [x] `src/notify.ts` sends Web Push first, ntfy as a fallback if configured.
+- [ ] K installs the app on Android, turns on notifications in Settings, and approves a Sandbox change from a notification (the exit gate).
 
 ## Phase 3: Claude (sandbox)
 
-- [ ] `ANTHROPIC_API_KEY` secret; `src/claude.ts` tool-use loop over `src/tools.ts` with `claude-sonnet-5-5`.
-- [ ] Listing audit: for each listing, propose title, item specifics, description, price and ad rate, each as its own proposal.
-- [ ] Batch review in the Inbox.
-- [ ] `claude_usage` table logged on every call.
+- [x] `src/claude.ts`: manual tool-use loop over an allowlist of `src/tools.ts` with `claude-sonnet-5-5` (effort medium, cached system prompt, server-side refusal fallbacks), a turn limit and a daily budget (`CLAUDE_DAILY_BUDGET_USD`).
+- [ ] K adds `ANTHROPIC_API_KEY` as a Worker secret (`npx wrangler secret put ANTHROPIC_API_KEY --env sandbox`), then runs a first review.
+- [x] Listing audit (`src/jobs.ts`): per listing, Claude proposes one revision (title, specifics, description) and a price change if comps support it. Ad rates wait until Promoted Listings tools exist. Triggered by **Review with Claude** on each listing.
+- [x] Batch review in the Inbox (Phase 2).
+- [x] `claude_usage` table logged on every call; spend shown in Settings.
 
 ## Phase 4: Metrics and nightly health (sandbox)
 
-- [ ] Nightly sync of orders (Fulfillment API) and traffic (Analytics API).
-- [ ] Rule-based health score per listing, no Claude.
-- [ ] Only flagged listings go to `claude-haiku-5-5` for triage; any change is a proposal.
-- [ ] Metrics and Listing detail screens with charts.
+- [x] Nightly sync of orders (Fulfillment API) and traffic (Analytics API), read-only. Sandbox returns no traffic data, so that step fails there and the rest carry on.
+- [x] Rule-based health flags per listing (`src/health.ts`), no Claude: no watchers after 30 days, watched but not selling, few views, seen but not opened.
+- [x] Only flagged listings (at most 5 a night) go to `claude-haiku-5-5` for triage; any change is a proposal.
+- [x] Metrics screen: 30-day figures, single-series charts (dataviz rules, validated `#008aa3`), nightly check status and flags, Claude spend against the daily budget.
+- [ ] Listing detail screen (price and watcher history per item). Deferred: the Listings screen covers the essentials for now.
 
 ## Phase 5: Buyer messages and offers (sandbox)
 
-- [ ] eBay notifications for questions and Best Offers into the Worker.
-- [ ] Haiku drafts a reply or counter → proposal → push → K approves → sent.
-- [ ] Round trip tested with a second sandbox user acting as buyer.
+- [x] Poll every 15 minutes for unanswered buyer questions (`GetMemberMessages`) and active Best Offers (`GetBestOffers`). Polling is read-only; eBay push notifications would need `SetNotificationPreferences`, a change to the account.
+- [x] Haiku drafts a reply from the listing's own details, or suggests accept, counter or decline for an offer (structured output). K's floor is enforced in code. Without a key, replies wait for K and offers get a plain suggestion.
+- [x] Each becomes a proposal with a push; K can edit the reply or the offer answer in the Inbox, then approve. The write gate sends `AddMemberMessageRTQ` or `RespondToBestOffer`.
+- [ ] Round trip with a second Sandbox user as the buyer: K registers a second test user, asks a question and makes an offer on a test listing, then approves the replies.
 
 ## Phase 6: Connect real account, read-only
 

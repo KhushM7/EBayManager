@@ -66,3 +66,83 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Devices subscribed to Web Push from the installed PWA.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint TEXT PRIMARY KEY,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  user_agent TEXT,
+  created_at INTEGER NOT NULL,
+  last_ok_at INTEGER,
+  last_error TEXT
+);
+
+-- Every Claude API call: tokens and cost, for the daily budget and the Metrics screen.
+CREATE TABLE IF NOT EXISTS claude_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,
+  job TEXT NOT NULL,
+  model TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  cost_usd REAL NOT NULL,
+  stop_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS claude_usage_at ON claude_usage (at);
+
+-- Orders read nightly from the Fulfillment API (read-only), for sales metrics.
+CREATE TABLE IF NOT EXISTS orders (
+  order_id TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL,
+  total REAL,
+  fees REAL,
+  currency TEXT,
+  status TEXT
+);
+CREATE TABLE IF NOT EXISTS order_items (
+  order_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  title TEXT,
+  quantity INTEGER,
+  price REAL,
+  PRIMARY KEY (order_id, item_id)
+);
+
+-- Listing traffic for the last 7 days, read nightly from the Analytics API.
+CREATE TABLE IF NOT EXISTS listing_traffic (
+  item_id TEXT NOT NULL,
+  taken_at INTEGER NOT NULL,
+  views_7d INTEGER,
+  impressions_7d INTEGER,
+  PRIMARY KEY (item_id, taken_at)
+);
+
+-- The nightly health check's flags per listing (latest run only is shown).
+CREATE TABLE IF NOT EXISTS health_flags (
+  item_id TEXT NOT NULL,
+  checked_at INTEGER NOT NULL,
+  flag TEXT NOT NULL,
+  detail TEXT,
+  PRIMARY KEY (item_id, checked_at, flag)
+);
+
+-- Buyer questions and Best Offers already seen by the 15-minute poll, so each is drafted once.
+CREATE TABLE IF NOT EXISTS buyer_messages (
+  message_id TEXT PRIMARY KEY,
+  item_id TEXT,
+  sender TEXT,
+  body TEXT,
+  received_at INTEGER NOT NULL,
+  proposal_id TEXT
+);
+CREATE TABLE IF NOT EXISTS best_offers (
+  best_offer_id TEXT PRIMARY KEY,
+  item_id TEXT,
+  buyer TEXT,
+  price REAL,
+  seen_at INTEGER NOT NULL,
+  proposal_id TEXT
+);

@@ -10,7 +10,7 @@ export const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 /** Trading verbs that only read. Anything else is a write and must go through src/ebay/write.ts. */
-export const READ_VERBS = new Set(["GetMyeBaySelling", "GetItem", "GetBestOffers", "GetMyMessages", "GetUser", "GeteBayOfficialTime"]);
+export const READ_VERBS = new Set(["GetMyeBaySelling", "GetItem", "GetBestOffers", "GetMemberMessages", "GetMyMessages", "GetUser", "GeteBayOfficialTime"]);
 
 /** Calls a read-only Trading API verb and returns the parsed `<Verb>Response` element. */
 export async function trading(env: Env, call: string, innerXml: string): Promise<any> {

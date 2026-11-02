@@ -1,9 +1,11 @@
 import type { Env } from "./env";
 import { consentUrl, exchangeCode, READONLY_SCOPES, userScopes } from "./ebay/auth";
+import { handleApi } from "./api";
 import { handleMcp } from "./mcp";
 import { envPrefix } from "./notify";
-import { decide, expireStale, getProposal, verifyDecision } from "./proposals";
-import { snapshotListings } from "./tools";
+import { pollInbox } from "./inbox";
+import { runNightly } from "./nightly";
+import { decide, getProposal, verifyDecision } from "./proposals";
 
 const html = (body: string, status = 200) =>
   new Response(
@@ -12,13 +14,34 @@ const html = (body: string, status = 200) =>
     { status, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
 
-const escHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+// The dashboard loads only its own code and the Switzer font, and can't be framed.
+const CSP = [
+  "default-src 'self'",
+  "style-src 'self' https://api.fontshare.com",
+  "font-src https://cdn.fontshare.com",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+].join("; ");
+
+function withSecurityHeaders(res: Response): Response {
+  const out = new Response(res.body, res);
+  out.headers.set("Content-Security-Policy", CSP);
+  out.headers.set("X-Content-Type-Options", "nosniff");
+  out.headers.set("Referrer-Policy", "no-referrer");
+  return out;
+}
+
+const escHtml =(s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/mcp") return handleMcp(env, request);
+    if (url.pathname.startsWith("/api/")) return handleApi(env, request, url);
 
     // One-time eBay sign-in. Guarded by MCP_TOKEN so only K can start it. Scopes are read-only unless
     // WRITE_MODE=approval; ?readonly=1 forces read-only (used to test what read-only scopes block).
@@ -54,7 +77,12 @@ export default {
       const s = url.searchParams.get("s") ?? "";
       if ((d !== "approve" && d !== "reject") || !(await verifyDecision(env, id, d, e, s)))
         return html("<h1>Invalid or expired link</h1>", 403);
-      if (request.method === "POST") return html(`<h1>${escHtml(await decide(env, id, d))}</h1>`);
+      if (request.method === "POST") {
+        const result = await decide(env, id, d);
+        // The PWA's service worker asks for JSON when K taps Approve or Reject on a notification.
+        if (request.headers.get("Accept")?.includes("application/json")) return Response.json({ result });
+        return html(`<h1>${escHtml(result)}</h1>`);
+      }
       const p = await getProposal(env, id);
       if (!p) return html("<h1>Not found</h1>", 404);
       return html(`<p><strong>${escHtml(envPrefix(env) || "LIVE ACCOUNT")}</strong></p>
@@ -65,11 +93,13 @@ export default {
     }
 
     if (url.pathname === "/health") return Response.json({ ok: true, ebayEnv: env.EBAY_ENV, writeMode: env.WRITE_MODE });
+    // Everything else is the dashboard and PWA (single-page app); its data comes from /api with K's session.
+    if (env.ASSETS) return withSecurityHeaders(await env.ASSETS.fetch(request));
     return new Response("Not found", { status: 404 });
   },
 
-  // Nightly snapshot and proposal expiry, no Claude involved. The re-evaluation routine reads the snapshots.
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(Promise.all([snapshotListings(env), expireStale(env)]));
+  // 02:00 UTC: the nightly health check (src/nightly.ts). Every 15 minutes: new buyer questions and offers (src/inbox.ts).
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(controller.cron === "0 2 * * *" ? runNightly(env) : pollInbox(env));
   },
 } satisfies ExportedHandler<Env>;

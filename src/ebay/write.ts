@@ -80,6 +80,31 @@ export function callFor(p: Pick<Proposal, "kind" | "item_id" | "payload">): Writ
 </Item>`,
       };
     }
+    case "message": {
+      const body = String(a.body ?? "").trim();
+      if (!body) throw new WriteRefused("The reply is empty. Write it in the Inbox before approving.");
+      return {
+        call: "AddMemberMessageRTQ",
+        xml: `<ItemID>${esc(p.item_id!)}</ItemID><MemberMessage><Body>${esc(body.slice(0, 2000))}</Body><ParentMessageID>${esc(
+          String(a.parentMessageId),
+        )}</ParentMessageID><RecipientID>${esc(String(a.recipientId))}</RecipientID></MemberMessage>`,
+      };
+    }
+    case "best_offer_response": {
+      const action = a.action === "accept" ? "Accept" : a.action === "decline" ? "Decline" : a.action === "counter" ? "Counter" : null;
+      if (!action) throw new WriteRefused(`Unknown offer action ${a.action}`);
+      if (action === "Counter" && !(Number(a.counterPrice) > 0)) throw new WriteRefused("A counter-offer needs a price.");
+      return {
+        call: "RespondToBestOffer",
+        xml: `<ItemID>${esc(p.item_id!)}</ItemID><BestOfferID>${esc(String(a.bestOfferId))}</BestOfferID><Action>${action}</Action>${
+          a.message ? `<SellerResponse>${esc(String(a.message).slice(0, 250))}</SellerResponse>` : ""
+        }${
+          action === "Counter"
+            ? `<CounterOfferPrice currencyID="GBP">${Number(a.counterPrice).toFixed(2)}</CounterOfferPrice><CounterOfferQuantity>1</CounterOfferQuantity>`
+            : ""
+        }`,
+      };
+    }
     default:
       throw new WriteRefused(`Applying ${p.kind} is not built yet`);
   }

@@ -50,9 +50,19 @@ Then:
 `<PUBLIC_URL>/health` shows the environment and write mode. The `pause_writes` tool stops all eBay writes at once;
 `npm run writes:resume:sandbox` resumes them.
 
+## Dashboard and Android app
+
+The Worker also serves the dashboard at its root URL. Sign in with `DASHBOARD_KEY` from `.dev.vars`
+(`node scripts/make-keys.mjs` adds it and `VAPID_KEY` if missing; upload with
+`npx wrangler secret bulk .dev.vars --env sandbox`).
+
+On Android: open the URL in Chrome, choose **Install app**, sign in, then **Settings → Turn on for this device**.
+Approval notifications then carry Approve and Reject buttons that act without opening the app.
+
 ## Develop
 
 ```sh
 npm run typecheck && npm test
 npx wrangler dev        # local, Sandbox, with secrets from .dev.vars; run `npm run db:init:local` first
+MOCK=1 npm run dev:web  # the dashboard on sample data, no account needed
 ```

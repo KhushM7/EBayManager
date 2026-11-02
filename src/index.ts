@@ -1,5 +1,6 @@
 import type { Env } from "./env";
 import { consentUrl, exchangeCode, READONLY_SCOPES, userScopes } from "./ebay/auth";
+import { handleApi } from "./api";
 import { handleMcp } from "./mcp";
 import { envPrefix } from "./notify";
 import { decide, expireStale, getProposal, verifyDecision } from "./proposals";
@@ -19,6 +20,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/mcp") return handleMcp(env, request);
+    if (url.pathname.startsWith("/api/")) return handleApi(env, request, url);
 
     // One-time eBay sign-in. Guarded by MCP_TOKEN so only K can start it. Scopes are read-only unless
     // WRITE_MODE=approval; ?readonly=1 forces read-only (used to test what read-only scopes block).
@@ -54,7 +56,12 @@ export default {
       const s = url.searchParams.get("s") ?? "";
       if ((d !== "approve" && d !== "reject") || !(await verifyDecision(env, id, d, e, s)))
         return html("<h1>Invalid or expired link</h1>", 403);
-      if (request.method === "POST") return html(`<h1>${escHtml(await decide(env, id, d))}</h1>`);
+      if (request.method === "POST") {
+        const result = await decide(env, id, d);
+        // The PWA's service worker asks for JSON when K taps Approve or Reject on a notification.
+        if (request.headers.get("Accept")?.includes("application/json")) return Response.json({ result });
+        return html(`<h1>${escHtml(result)}</h1>`);
+      }
       const p = await getProposal(env, id);
       if (!p) return html("<h1>Not found</h1>", 404);
       return html(`<p><strong>${escHtml(envPrefix(env) || "LIVE ACCOUNT")}</strong></p>
@@ -65,6 +72,8 @@ export default {
     }
 
     if (url.pathname === "/health") return Response.json({ ok: true, ebayEnv: env.EBAY_ENV, writeMode: env.WRITE_MODE });
+    // Everything else is the dashboard and PWA (single-page app); its data comes from /api with K's session.
+    if (env.ASSETS) return env.ASSETS.fetch(request);
     return new Response("Not found", { status: 404 });
   },
 

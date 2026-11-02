@@ -16,6 +16,12 @@ export interface Env {
   /** Optional production keyset used only for Browse comps (public data, no seller account). */
   EBAY_COMPS_APP_ID?: string;
   EBAY_COMPS_CERT_ID?: string;
+  /** Dashboard and PWA static files (web/dist). */
+  ASSETS?: Fetcher;
+  /** K's dashboard sign-in key. Separate from MCP_TOKEN, so Claude's connector can't approve anything. */
+  DASHBOARD_KEY: string;
+  /** VAPID key pair as a P-256 private JWK, for Web Push. */
+  VAPID_KEY?: string;
   MCP_TOKEN: string;
   SIGNING_KEY: string;
   NTFY_TOPIC: string;

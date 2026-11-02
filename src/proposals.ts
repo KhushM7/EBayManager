@@ -118,7 +118,7 @@ export async function proposeAndNotify(
   body: string,
 ) {
   const row = await createProposal(env, p);
-  await push(env, row.dry_run ? `Dry run: ${title}` : title, body, await decisionLinks(env, row));
+  await push(env, row.dry_run ? `Dry run: ${title}` : title, body, await decisionLinks(env, row), row.id);
   return { proposalId: row.id, status: row.dry_run ? "dry run: cannot be applied while writes are off" : "pending K's approval" };
 }
 

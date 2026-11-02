@@ -29,7 +29,7 @@ run_worker_first = true
 # R2 photo storage (binding PHOTOS) is added in Phase 8; R2 isn't enabled on the account yet.
 
 [triggers]
-crons = ["0 2 * * *"]
+crons = ["0 2 * * *", "*/15 * * * *"]
 
 # --- eBay Sandbox: fake listings, approved writes (Phases 1-5) ---
 [env.sandbox]

@@ -128,3 +128,21 @@ CREATE TABLE IF NOT EXISTS health_flags (
   detail TEXT,
   PRIMARY KEY (item_id, checked_at, flag)
 );
+
+-- Buyer questions and Best Offers already seen by the 15-minute poll, so each is drafted once.
+CREATE TABLE IF NOT EXISTS buyer_messages (
+  message_id TEXT PRIMARY KEY,
+  item_id TEXT,
+  sender TEXT,
+  body TEXT,
+  received_at INTEGER NOT NULL,
+  proposal_id TEXT
+);
+CREATE TABLE IF NOT EXISTS best_offers (
+  best_offer_id TEXT PRIMARY KEY,
+  item_id TEXT,
+  buyer TEXT,
+  price REAL,
+  seen_at INTEGER NOT NULL,
+  proposal_id TEXT
+);

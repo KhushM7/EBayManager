@@ -3,6 +3,7 @@ import { consentUrl, exchangeCode, READONLY_SCOPES, userScopes } from "./ebay/au
 import { handleApi } from "./api";
 import { handleMcp } from "./mcp";
 import { envPrefix } from "./notify";
+import { pollInbox } from "./inbox";
 import { runNightly } from "./nightly";
 import { decide, getProposal, verifyDecision } from "./proposals";
 
@@ -97,8 +98,8 @@ export default {
     return new Response("Not found", { status: 404 });
   },
 
-  // 02:00 UTC: read eBay, score listing health by rule, and send only flagged listings to Haiku (src/nightly.ts).
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(runNightly(env));
+  // 02:00 UTC: the nightly health check (src/nightly.ts). Every 15 minutes: new buyer questions and offers (src/inbox.ts).
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(controller.cron === "0 2 * * *" ? runNightly(env) : pollInbox(env));
   },
 } satisfies ExportedHandler<Env>;

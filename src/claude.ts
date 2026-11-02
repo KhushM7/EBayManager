@@ -60,13 +60,64 @@ export interface AgentResult {
 
 const MAX_TOOL_RESULT_CHARS = 20_000;
 
-export async function runAgent(env: Env, run: AgentRun, api?: MessagesApi): Promise<AgentResult> {
+async function client(env: Env, api?: MessagesApi): Promise<MessagesApi> {
   if (!api && !env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set on this Worker yet.");
   const spent = await spentTodayUsd(env);
   if (spent >= CLAUDE_DAILY_BUDGET_USD)
     throw new Error(`Today's Claude budget of $${CLAUDE_DAILY_BUDGET_USD.toFixed(2)} is used up ($${spent.toFixed(2)}).`);
+  return api ?? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }).beta.messages;
+}
 
-  const messagesApi = api ?? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }).beta.messages;
+async function logUsage(env: Env, job: string, model: Model, response: Anthropic.Beta.BetaMessage): Promise<number> {
+  const cost = costUsd(model, response.usage);
+  await env.DB.prepare(
+    `INSERT INTO claude_usage (at, job, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, stop_reason)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      Date.now(),
+      job,
+      model,
+      response.usage.input_tokens,
+      response.usage.output_tokens,
+      response.usage.cache_read_input_tokens ?? 0,
+      response.usage.cache_creation_input_tokens ?? 0,
+      cost,
+      response.stop_reason,
+    )
+    .run();
+  return cost;
+}
+
+/**
+ * One request, no tools: for drafts. With a JSON schema the reply is structured output, parsed and returned;
+ * otherwise the text. Returns null when Claude declined or ran out of room.
+ */
+export async function completeOnce<T = string>(
+  env: Env,
+  req: { job: string; model: Model; system: string; prompt: string; schema?: Record<string, unknown>; effort?: "low" | "medium" | "high" },
+  api?: MessagesApi,
+): Promise<T | null> {
+  const messagesApi = await client(env, api);
+  const response = await messagesApi.create({
+    model: req.model,
+    max_tokens: 4000,
+    system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: req.prompt }],
+    output_config: { effort: req.effort ?? "low", ...(req.schema ? { format: { type: "json_schema" as const, schema: req.schema } } : {}) },
+  });
+  await logUsage(env, req.job, req.model, response);
+  if (response.stop_reason !== "end_turn") return null;
+  const text = response.content
+    .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("")
+    .trim();
+  return (req.schema ? JSON.parse(text) : text) as T;
+}
+
+export async function runAgent(env: Env, run: AgentRun, api?: MessagesApi): Promise<AgentResult> {
+  const messagesApi = await client(env, api);
   const allowed = tools.filter((t) => run.toolNames.includes(t.name));
   // Stable order and a stable system prompt keep the cached prefix (tools, then system) byte-identical.
   const toolDefs: Anthropic.Beta.BetaTool[] = allowed.map((t) => ({
@@ -95,24 +146,7 @@ export async function runAgent(env: Env, run: AgentRun, api?: MessagesApi): Prom
       ...(run.model === MODELS.audit ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
     });
     last = response;
-    const cost = costUsd(run.model, response.usage);
-    total += cost;
-    await env.DB.prepare(
-      `INSERT INTO claude_usage (at, job, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, stop_reason)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-      .bind(
-        Date.now(),
-        run.job,
-        run.model,
-        response.usage.input_tokens,
-        response.usage.output_tokens,
-        response.usage.cache_read_input_tokens ?? 0,
-        response.usage.cache_creation_input_tokens ?? 0,
-        cost,
-        response.stop_reason,
-      )
-      .run();
+    total += await logUsage(env, run.job, run.model, response);
 
     // Thinking and fallback blocks go back unchanged with the rest of the turn.
     messages.push({ role: "assistant", content: response.content });

@@ -127,9 +127,10 @@ describe("write gate", () => {
     expect(ebayCalls()).toHaveLength(0);
   });
 
-  it("approves but does not apply kinds without a builder", async () => {
-    const p = await createProposal(env, { kind: "message", itemId: "111", payload: { text: "hi" } });
-    expect(await decide(env, p.id, "approve")).toMatch(/not built yet/);
+  it("keeps kinds without a builder pending instead of approving them", async () => {
+    const p = await createProposal(env, { kind: "end_listing", itemId: "111", payload: {} });
+    expect(await decide(env, p.id, "approve")).toMatch(/^Not approved yet: .*not built yet/);
+    expect((await getProposal(env, p.id))?.status).toBe("pending");
     expect(ebayCalls()).toHaveLength(0);
   });
 

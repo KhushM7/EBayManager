@@ -4,7 +4,8 @@ import { auditListing } from "./jobs";
 import { runNightly } from "./nightly";
 import { push } from "./notify";
 import { CLAUDE_DAILY_BUDGET_USD } from "./rules";
-import { decide } from "./proposals";
+import { pollInbox } from "./inbox";
+import { applyApproved, decide, editProposal } from "./proposals";
 import { saveSubscription, vapidPublicKey } from "./push";
 import { checkKey, clearCookie, CSRF_HEADER, hasSession, sessionCookie } from "./session";
 import { snapshotListings } from "./tools";
@@ -101,8 +102,18 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
   if (path === "/settings/writes" && method === "POST") {
     const { paused } = await body(request);
     await setWritesPaused(env, Boolean(paused));
-    return json({ writesPaused: Boolean(paused) });
+    // Resuming applies what K approved while paused.
+    const applied = paused ? [] : await applyApproved(env);
+    return json({ writesPaused: Boolean(paused), applied });
   }
+
+  const edit = path.match(/^\/proposals\/([\w-]+)\/edit$/);
+  if (edit && method === "POST") {
+    const result = await editProposal(env, edit[1], await body(request));
+    return json({ result }, result === "Saved" ? 200 : 400);
+  }
+
+  if (path === "/inbox/poll" && method === "POST") return json(await pollInbox(env));
 
   if (path === "/push/subscribe" && method === "POST") {
     const { subscription } = await body(request);

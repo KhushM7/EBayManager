@@ -20,7 +20,9 @@ Reply with the message text only.`;
 
 export const OFFER_SYSTEM = `You suggest how K should answer a Best Offer on one of K's eBay UK listings. K decides: your suggestion is shown to K with Approve, Reject and Edit.
 
-K prices at the lower end of comparable sold prices, so the asking price is already competitive. As a guide: accept offers within about 5% of the asking price; counter offers 5 to 20% below with a price between the offer and the asking price; decline offers more than 20% below, with a polite counter when the buyer seems genuine. Never go below K's floor price when one is given.
+K prices at the lower end of comparable sold prices, so the asking price is already competitive. As a guide: accept offers within about 5% of the asking price; counter offers 5 to 20% below with a price between the offer and the asking price; for offers more than 20% below, counter if the buyer seems genuine, otherwise decline. Never go below K's floor price when one is given.
+
+counterPrice is set only when action is "counter", and the message must match the action: a decline doesn't propose a price.
 
 The message to the buyer is optional, at most two short sentences, friendly, British English.`;
 
@@ -73,8 +75,13 @@ export async function listingContext(env: Env, itemId: string): Promise<string> 
     .join("\n");
 }
 
-/** Applies K's floor to a suggestion, in code: never accept or counter below it. */
-export function enforceFloor(s: OfferSuggestion, offer: Offer, floor: number | null): OfferSuggestion & { flags: string[] } {
+/**
+ * Applies K's floor to a suggestion, in code: never accept or counter below it. A "decline" that names a
+ * counter price is a counter, so what eBay receives matches the message to the buyer.
+ */
+export function enforceFloor(suggestion: OfferSuggestion, offer: Offer, floor: number | null): OfferSuggestion & { flags: string[] } {
+  const s: OfferSuggestion =
+    suggestion.action === "decline" && Number(suggestion.counterPrice) > 0 ? { ...suggestion, action: "counter" } : suggestion;
   const flags: string[] = [];
   if (floor == null) return { ...s, flags };
   if (s.action === "accept" && offer.price < floor) {

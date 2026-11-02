@@ -72,6 +72,12 @@ describe("offer suggestions", () => {
     expect(enforceFloor({ action: "decline", counterPrice: null, message: "", reason: "" }, offer, 10).flags).toEqual([]);
   });
 
+  it("treats a decline that names a counter price as a counter", () => {
+    const s = enforceFloor({ action: "decline", counterPrice: 11, message: "I could do £11.", reason: "" }, offer, null);
+    expect(s).toMatchObject({ action: "counter", counterPrice: 11 });
+    expect(enforceFloor({ action: "decline", counterPrice: null, message: "", reason: "" }, offer, null).action).toBe("decline");
+  });
+
   it("suggests accepting close offers and meeting halfway otherwise", () => {
     expect(defaultSuggestion({ ...offer, price: 11.5 }).action).toBe("accept");
     expect(defaultSuggestion(offer)).toMatchObject({ action: "counter", counterPrice: 10.5 });

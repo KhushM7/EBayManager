@@ -42,12 +42,10 @@ async function whoami() {
   return r.xml.match(/<UserID>([^<]*)<\/UserID>/)?.[1] ?? "unknown";
 }
 
+
 if (cmd === "whoami") {
   console.log(`Token belongs to: ${await whoami()}`);
-  process.exit(0);
-}
-
-if (cmd === "offer") {
+} else if (cmd === "offer") {
   if (!/^\d+$/.test(itemId ?? "") || !(Number(price) > 0)) throw new Error("Usage: offer <itemId> <price> [message]");
   const user = await whoami();
   const seller = (await call("GetItem", `<ItemID>${esc(itemId)}</ItemID>`)).xml.match(/<Seller>[\s\S]*?<UserID>([^<]*)<\/UserID>/)?.[1];

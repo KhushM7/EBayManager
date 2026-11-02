@@ -32,7 +32,11 @@ async function makeEnv(overrides: Partial<Env> = {}): Promise<Env> {
   return e;
 }
 
-const ebayCalls = () => fetchMock.mock.calls.filter(([u]) => String(u).includes("ebay.com"));
+/** eBay calls that could change something: everything except Trading read verbs (Get*). */
+const ebayCalls = () =>
+  fetchMock.mock.calls.filter(
+    ([u, init]) => String(u).includes("ebay.com") && !String((init as any)?.headers?.["X-EBAY-API-CALL-NAME"] ?? "").startsWith("Get"),
+  );
 const price = (e: Env, itemId = "111", newPrice = 9.99) => createProposal(e, { kind: "price", itemId, payload: { newPrice } });
 const setStatus = (e: Env, id: string, status: string) =>
   e.DB.prepare("UPDATE proposals SET status = ? WHERE id = ?").bind(status, id).run();

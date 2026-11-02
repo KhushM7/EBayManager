@@ -1,11 +1,13 @@
 import type { Env } from "../env";
 import { userToken } from "./auth";
+import { assertRest } from "./allowlist";
 import { ebayHosts } from "./hosts";
 
 // Read-only REST calls to the Sell APIs (Fulfillment orders, Analytics traffic). GET only; nothing here
 // changes the account, and the read-only scopes cover both.
 
 async function sellGet(env: Env, path: string): Promise<any> {
+  assertRest("GET", `${ebayHosts(env).api}${path}`);
   const res = await fetch(`${ebayHosts(env).api}${path}`, {
     headers: {
       Authorization: `Bearer ${await userToken(env)}`,

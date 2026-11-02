@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { assertRest } from "./allowlist";
 import { ebayHosts, PRODUCTION_HOSTS } from "./hosts";
 
 // Scope URIs are the same on Sandbox and production.
@@ -51,6 +52,7 @@ interface TokenResponse {
 }
 
 async function tokenRequest(apiHost: string, auth: string, body: Record<string, string>): Promise<TokenResponse> {
+  assertRest("POST", `${apiHost}/identity/v1/oauth2/token`);
   const res = await fetch(`${apiHost}/identity/v1/oauth2/token`, {
     method: "POST",
     headers: { Authorization: auth, "Content-Type": "application/x-www-form-urlencoded" },
@@ -101,18 +103,27 @@ export async function userToken(env: Env): Promise<string> {
   return t.access_token;
 }
 
-let compsCache: { key: string; token: string; expiresAt: number } | undefined;
+const appTokens = new Map<string, { token: string; expiresAt: number }>();
+
+/** Application token (client credentials) for public eBay APIs; links no seller account. Cached per keyset. */
+async function clientToken(api: string, auth: string): Promise<string> {
+  const cached = appTokens.get(api + auth);
+  if (cached && cached.expiresAt - Date.now() > 5 * 60_000) return cached.token;
+  const t = await tokenRequest(api, auth, { grant_type: "client_credentials", scope: SCOPE });
+  appTokens.set(api + auth, { token: t.access_token, expiresAt: Date.now() + t.expires_in * 1000 });
+  return t.access_token;
+}
+
+/** This deployment's own application token (account deletion public keys, Taxonomy). */
+export const appToken = (env: Env) => clientToken(ebayHosts(env).api, basic(env.EBAY_APP_ID, env.EBAY_CERT_ID));
 
 /**
- * Application token (client credentials) for Browse comps. Uses the production keyset when
- * EBAY_COMPS_APP_ID is set, because Sandbox has almost no listings; this links no seller account.
+ * Application token for Browse comps. Uses the production keyset when EBAY_COMPS_APP_ID is set, because
+ * Sandbox has almost no listings; this links no seller account.
  */
 export async function compsAccess(env: Env): Promise<{ token: string; api: string }> {
   const prod = Boolean(env.EBAY_COMPS_APP_ID && env.EBAY_COMPS_CERT_ID);
   const api = prod ? PRODUCTION_HOSTS.api : ebayHosts(env).api;
   const auth = prod ? basic(env.EBAY_COMPS_APP_ID!, env.EBAY_COMPS_CERT_ID!) : basic(env.EBAY_APP_ID, env.EBAY_CERT_ID);
-  if (compsCache?.key === auth && compsCache.expiresAt - Date.now() > 5 * 60_000) return { token: compsCache.token, api };
-  const t = await tokenRequest(api, auth, { grant_type: "client_credentials", scope: SCOPE });
-  compsCache = { key: auth, token: t.access_token, expiresAt: Date.now() + t.expires_in * 1000 };
-  return { token: t.access_token, api };
+  return { token: await clientToken(api, auth), api };
 }

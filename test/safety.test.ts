@@ -18,8 +18,8 @@ const WRITE_VERBS =
   /\b(ReviseFixedPriceItem|ReviseItem|ReviseInventoryStatus|AddFixedPriceItem|AddItem|AddItems|EndFixedPriceItem|EndItem|EndItems|RelistFixedPriceItem|RelistItem|AddMemberMessageRTQ|AddMemberMessageAAQToPartner|RespondToBestOffer|SetUserPreferences|SetNotificationPreferences|UploadSiteHostedPictures|CompleteSale|LeaveFeedback|publishOffer|createOffer|updateOffer|bulkCreateAdsByListingId|bulkUpdateAdsBidByListingId|sendOfferToInterestedBuyers|sendMessage)\b/;
 
 describe("write gate is the only path to eBay writes", () => {
-  it("only src/ebay/write.ts names eBay write calls", () => {
-    expect(filesMatching(WRITE_VERBS)).toEqual(["src/ebay/write.ts"]);
+  it("only src/ebay/write.ts (and the allowlist that names them) names eBay write calls", () => {
+    expect(filesMatching(WRITE_VERBS).sort()).toEqual(["src/ebay/allowlist.ts", "src/ebay/write.ts"]);
   });
 
   it("only the Trading client and the write gate use tradingRequest", () => {
@@ -29,6 +29,7 @@ describe("write gate is the only path to eBay writes", () => {
   it("network calls happen only in reviewed modules", () => {
     // Outgoing calls only; the Worker's own `async fetch(` handler and `env.ASSETS.fetch(` (static files) don't count.
     expect(filesMatching(/(?<!async |[.\w])fetch\(/).sort()).toEqual([
+      "src/deletion.ts",
       "src/ebay/auth.ts",
       "src/ebay/browse.ts",
       "src/ebay/sell.ts",
@@ -40,6 +41,24 @@ describe("write gate is the only path to eBay writes", () => {
 
   it("eBay hosts are chosen in one place", () => {
     expect(filesMatching(/ebay\.com(?!\/oauth\/api_scope)/)).toEqual(["src/ebay/hosts.ts"]);
+  });
+
+  it("every module that calls eBay checks the allowlist first", () => {
+    for (const f of ["src/ebay/auth.ts", "src/ebay/browse.ts", "src/ebay/sell.ts", "src/ebay/trading.ts", "src/deletion.ts"]) {
+      const src = readFileSync(f, "utf8");
+      const fetches = (src.match(/(?<!async |[.\w])fetch\(/g) ?? []).length;
+      const checks = (src.match(/assert(Rest|Trading)\(/g) ?? []).length;
+      expect(checks, f).toBeGreaterThanOrEqual(fetches);
+    }
+  });
+
+  it("every Trading verb the code names is on the allowlist", async () => {
+    const { TRADING_READ, TRADING_CHECK, TRADING_WRITE } = await import("../src/ebay/allowlist");
+    const allowed = new Set([...TRADING_READ, ...TRADING_CHECK, ...TRADING_WRITE]);
+    const named = new Set<string>();
+    for (const f of sourceFiles()) for (const m of readFileSync(f, "utf8").matchAll(/call: "([A-Z]\w+)"|trading\(\s*env,\s*"([A-Z]\w+)"|tradingRequest\(env, "([A-Z]\w+)"/g)) named.add(m[1] ?? m[2] ?? m[3]);
+    expect(named.size).toBeGreaterThan(5);
+    for (const v of named) expect(allowed.has(v), v).toBe(true);
   });
 
   it("prices, messages and offers are locked to approval", () => {

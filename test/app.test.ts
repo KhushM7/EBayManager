@@ -59,7 +59,16 @@ describe("dashboard API", () => {
 
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("<x/>")));
-    env = { DB: fakeD1(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", SIGNING_KEY: "k", DASHBOARD_KEY: "dash-key", MCP_TOKEN: "mcp" } as Env;
+    env = {
+      DB: fakeD1(),
+      EBAY_ENV: "sandbox",
+      WRITE_MODE: "approval",
+      SIGNING_KEY: "k",
+      DASHBOARD_KEY: "dash-key",
+      MCP_TOKEN: "mcp",
+      ALLOW_KEY_LOGIN: "true",
+      PUBLIC_URL: "https://test.example",
+    } as Env;
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -82,7 +91,7 @@ describe("dashboard API", () => {
 
   it("signs in, lists and rejects a proposal, and pauses writes", async () => {
     const cookie = await login();
-    expect(cookie).toMatch(/^__Host-sid=\d+\./);
+    expect(cookie).toMatch(/^__Host-sid=[\w-]{20,}$/);
     const p = await createProposal(env, { kind: "price", itemId: "1", payload: { newPrice: 5 } });
 
     const list = (await (await call("/proposals", {}, { Cookie: cookie })).json()) as any;

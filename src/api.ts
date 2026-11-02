@@ -7,10 +7,31 @@ import { CLAUDE_DAILY_BUDGET_USD } from "./rules";
 import { pollInbox } from "./inbox";
 import { applyApproved, decide, editProposal } from "./proposals";
 import { saveSubscription, vapidPublicKey } from "./push";
-import { checkKey, clearCookie, CSRF_HEADER, hasSession, sessionCookie } from "./session";
+import {
+  addPasskeyOptions,
+  clearCookie,
+  completeAddPasskey,
+  completeLogin,
+  completeRegistration,
+  createInvite,
+  createSession,
+  endSession,
+  listPeople,
+  loginOptions,
+  recordFailure,
+  registrationOptions,
+  removePasskey,
+  removePerson,
+  signOutEverywhere,
+  tooManyAttempts,
+  useRecoveryCode,
+  userCount,
+} from "./auth/users";
+import { checkKey, CSRF_HEADER, getSession, keyLogin } from "./session";
 import { snapshotListings } from "./snapshot";
 
-// JSON API for the dashboard. Everything except sign-in needs K's session cookie.
+// JSON API for the dashboard. Everything except sign-in needs a signed-in person (docs/security.md); some
+// actions are owner-only. Sign-in failures are rate-limited per network.
 
 const json = (data: unknown, status = 200, headers: Record<string, string> = {}) =>
   Response.json(data, { status, headers: { "Cache-Control": "no-store", ...headers } });
@@ -32,19 +53,106 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
 
   if (method !== "GET" && request.headers.get(CSRF_HEADER) !== "1") return json({ error: "Missing request header" }, 403);
 
-  if (path === "/login" && method === "POST") {
-    const { key } = await body(request);
-    if (!checkKey(env, key)) return json({ error: "Wrong key" }, 401);
-    return json({ ok: true }, 200, { "Set-Cookie": await sessionCookie(env) });
-  }
-  if (path === "/logout" && method === "POST") return json({ ok: true }, 200, { "Set-Cookie": clearCookie });
+  // Same-origin only for anything that changes state (with the header above and SameSite=Strict cookies).
+  const origin = request.headers.get("Origin");
+  if (method !== "GET" && origin && origin !== new URL(env.PUBLIC_URL).origin && origin !== url.origin)
+    return json({ error: "Wrong origin" }, 403);
 
-  if (!(await hasSession(env, request))) return json({ error: "Sign in" }, 401);
+  const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
+  const limited = async () => tooManyAttempts(env, `ip:${ip}`, 20, 3_600_000);
+  const fail = async (status: number, error: string) => (await recordFailure(env, `ip:${ip}`), json({ error }, status));
+  const run = async (fn: () => Promise<Response>) => {
+    try {
+      return await fn();
+    } catch (e) {
+      return fail(400, e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  // --- Signing in (no session needed) ---
+  if (path.startsWith("/auth/") || path === "/login" || path === "/setup") {
+    if (await limited()) return json({ error: "Too many attempts. Wait an hour and try again." }, 429);
+    const b = method === "POST" ? await body(request) : {};
+
+    if (path === "/auth/login/options" && method === "POST") return json(await loginOptions(env));
+    if (path === "/auth/login/verify" && method === "POST")
+      return run(async () => {
+        const userId = await completeLogin(env, b.challengeId, b.credential);
+        return json({ ok: true }, 200, { "Set-Cookie": await createSession(env, userId, request) });
+      });
+    if (path === "/auth/recover" && method === "POST")
+      return run(async () => {
+        const userId = await useRecoveryCode(env, b.code);
+        return json({ ok: true, mustAddPasskey: true }, 200, { "Set-Cookie": await createSession(env, userId, request, true) });
+      });
+    if (path === "/auth/register/options" && method === "POST") return run(async () => json(await registrationOptions(env, b.invite)));
+    if (path === "/auth/register/verify" && method === "POST")
+      return run(async () => {
+        const r = await completeRegistration(env, b.challengeId, b.credential, String(b.label ?? ""));
+        return json({ recoveryCodes: r.recoveryCodes }, 200, { "Set-Cookie": await createSession(env, r.userId, request) });
+      });
+    // The owner's first invite, while nobody is registered. Needs DASHBOARD_KEY.
+    if (path === "/setup" && method === "POST") {
+      if ((await userCount(env)) > 0) return json({ error: "Already set up" }, 403);
+      if (!checkKey(env, b.key)) return fail(401, "Wrong key");
+      const token = await createInvite(env, String(b.name ?? "K"), "owner", null);
+      return json({ inviteUrl: `${env.PUBLIC_URL}/join#${token}` });
+    }
+    // Sandbox only.
+    if (path === "/login" && method === "POST") {
+      const cookie = await keyLogin(env, request, b.key);
+      return cookie ? json({ ok: true }, 200, { "Set-Cookie": cookie }) : fail(401, "Wrong key");
+    }
+    return json({ error: "Not found" }, 404);
+  }
+
+  if (path === "/logout" && method === "POST") {
+    await endSession(env, request);
+    return json({ ok: true }, 200, { "Set-Cookie": clearCookie });
+  }
+
+  const session = await getSession(env, request);
+  if (!session) return json({ error: "Sign in" }, 401);
+  const { user } = session;
+  const owner = user.role === "owner";
+  const ownerOnly = () => json({ error: "Only the owner can do that" }, 403);
+
+  // After a recovery code, the only thing allowed is registering a new passkey.
+  if (session.mustAddPasskey && !["/me", "/passkeys/options", "/passkeys/verify"].includes(path))
+    return json({ error: "Register a new passkey first", mustAddPasskey: true }, 403);
+
+  if (path === "/passkeys/options" && method === "POST") return json(await addPasskeyOptions(env, user));
+  if (path === "/passkeys/verify" && method === "POST") {
+    const b = await body(request);
+    return run(async () => json(await completeAddPasskey(env, user, b.challengeId, b.credential, String(b.label ?? ""), session.id)));
+  }
+  const removeKey = path.match(/^\/passkeys\/([\w-]+)\/remove$/);
+  if (removeKey && method === "POST") return run(async () => (await removePasskey(env, user, removeKey[1]), json({ ok: true })));
+
+  if (path === "/people" && method === "GET") return owner ? json(await listPeople(env)) : ownerOnly();
+  if (path === "/people/invite" && method === "POST") {
+    if (!owner) return ownerOnly();
+    const b = await body(request);
+    return run(async () => json({ inviteUrl: `${env.PUBLIC_URL}/join#${await createInvite(env, String(b.name ?? ""), "manager", user.id)}` }));
+  }
+  const person = path.match(/^\/people\/([\w-]+)\/(remove|signout)$/);
+  if (person && method === "POST") {
+    if (!owner && person[1] !== user.id) return ownerOnly();
+    return run(async () => {
+      if (person[2] === "remove") {
+        if (!owner) throw new Error("Only the owner can remove people");
+        await removePerson(env, user, person[1]);
+      } else await signOutEverywhere(env, person[1]);
+      return json({ ok: true });
+    });
+  }
 
   if (path === "/me" && method === "GET") {
     const lastPush = await setting(env, "last_push_at");
     const connected = await env.DB.prepare("SELECT scopes FROM ebay_tokens WHERE id = 1").first<{ scopes: string }>();
     return json({
+      user,
+      mustAddPasskey: session.mustAddPasskey,
       ebayEnv: env.EBAY_ENV,
       writeMode: env.WRITE_MODE,
       writesPaused: await writesPaused(env),
@@ -73,7 +181,7 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
     if (!Array.isArray(ids) || (decision !== "approve" && decision !== "reject")) return json({ error: "Bad request" }, 400);
     // One at a time, each applied and logged on its own, so one failure doesn't block the rest.
     const results: { id: string; result: string }[] = [];
-    for (const id of ids.slice(0, 100)) results.push({ id: String(id), result: await decide(env, String(id), decision) });
+    for (const id of ids.slice(0, 100)) results.push({ id: String(id), result: await decide(env, String(id), decision, user.name) });
     return json({ results });
   }
 
@@ -93,7 +201,7 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
 
   if (path === "/activity" && method === "GET") {
     const { results } = await env.DB.prepare(
-      `SELECT a.id, a.at, a.env, a.proposal_id, a.call, a.outcome, substr(a.response, 1, 300) AS response, p.kind, p.item_id
+      `SELECT a.id, a.at, a.env, a.proposal_id, a.call, a.outcome, a.actor, substr(a.response, 1, 300) AS response, p.kind, p.item_id
        FROM audit_log a LEFT JOIN proposals p ON p.id = a.proposal_id ORDER BY a.id DESC LIMIT 200`,
     ).all();
     return json(results);
@@ -101,6 +209,8 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
 
   if (path === "/settings/writes" && method === "POST") {
     const { paused } = await body(request);
+    // Anyone can pause; only the owner can resume.
+    if (!paused && !owner) return ownerOnly();
     await setWritesPaused(env, Boolean(paused));
     // Resuming applies what K approved while paused.
     const applied = paused ? [] : await applyApproved(env);
@@ -109,7 +219,7 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
 
   const edit = path.match(/^\/proposals\/([\w-]+)\/edit$/);
   if (edit && method === "POST") {
-    const result = await editProposal(env, edit[1], await body(request));
+    const result = await editProposal(env, edit[1], await body(request), user.name);
     return json({ result }, result === "Saved" ? 200 : 400);
   }
 

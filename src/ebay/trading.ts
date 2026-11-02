@@ -1,6 +1,7 @@
 import { XMLParser } from "fast-xml-parser";
 import type { Env } from "../env";
 import { userToken } from "./auth";
+import { assertTrading, TRADING_READ } from "./allowlist";
 import { ebayHosts, PRODUCTION_HOSTS } from "./hosts";
 
 const COMPAT_LEVEL = "1349";
@@ -9,12 +10,13 @@ const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_
 export const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-/** Trading verbs that only read. Anything else is a write and must go through src/ebay/write.ts. */
-export const READ_VERBS = new Set(["GetMyeBaySelling", "GetItem", "GetBestOffers", "GetMemberMessages", "GetMyMessages", "GetUser", "GeteBayOfficialTime"]);
+/** Trading verbs that only read (src/ebay/allowlist.ts). Anything else goes through src/ebay/write.ts. */
+export const READ_VERBS = TRADING_READ;
 
 /** Calls a read-only Trading API verb and returns the parsed `<Verb>Response` element. */
 export async function trading(env: Env, call: string, innerXml: string): Promise<any> {
   if (!READ_VERBS.has(call)) throw new Error(`${call} is not a read call; eBay writes go through the write gate`);
+  assertTrading(call, "read");
   return tradingRequest(env, call, innerXml);
 }
 
@@ -26,6 +28,7 @@ export async function tradingRequest(env: Env, call: string, innerXml: string): 
   <WarningLevel>High</WarningLevel>
   ${innerXml}
 </${call}Request>`;
+  assertTrading(call, "any");
   const res = await fetch(`${ebayHosts(env).api}/ws/api.dll`, {
     method: "POST",
     headers: {

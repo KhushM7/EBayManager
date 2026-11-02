@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { assertRest } from "./allowlist";
 import { compsAccess } from "./auth";
 
 export interface Comp {
@@ -33,6 +34,7 @@ export async function searchActiveComps(
   u.searchParams.set("filter", filters.join(","));
   if (opts.categoryId) u.searchParams.set("category_ids", opts.categoryId);
 
+  assertRest("GET", u.toString());
   const res = await fetch(u, {
     headers: {
       Authorization: `Bearer ${token}`,

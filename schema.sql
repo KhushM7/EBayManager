@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS proposals (
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   decided_at INTEGER,
+  decided_by TEXT,
   result TEXT
 );
 CREATE INDEX IF NOT EXISTS proposals_status ON proposals (status, created_at);
@@ -58,7 +59,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
   call TEXT NOT NULL,
   request TEXT NOT NULL,
   response TEXT,
-  outcome TEXT NOT NULL -- applied | refused | failed
+  outcome TEXT NOT NULL, -- applied | refused | failed
+  actor TEXT            -- who approved it (user name), or auto-apply
 );
 
 -- Key/value switches. writes_paused = '1' is the kill switch.
@@ -146,3 +148,59 @@ CREATE TABLE IF NOT EXISTS best_offers (
   seen_at INTEGER NOT NULL,
   proposal_id TEXT
 );
+
+-- People (docs/security.md): K as owner and at most two managers, each with passkeys.
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL,            -- owner | manager
+  created_at INTEGER NOT NULL,
+  disabled INTEGER NOT NULL DEFAULT 0,
+  is_test INTEGER NOT NULL DEFAULT 0  -- the Sandbox-only key login; never counts toward the three
+);
+CREATE TABLE IF NOT EXISTS credentials (
+  id TEXT PRIMARY KEY,           -- passkey credential ID (base64url)
+  user_id TEXT NOT NULL,
+  alg INTEGER NOT NULL,          -- -7 ES256 | -257 RS256
+  public_key TEXT NOT NULL,      -- JWK
+  sign_count INTEGER NOT NULL DEFAULT 0,
+  label TEXT,
+  created_at INTEGER NOT NULL,
+  last_used_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS recovery_codes (
+  code_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  used_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS invites (
+  token_hash TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL,
+  created_by TEXT,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  id_hash TEXT PRIMARY KEY,      -- SHA-256 of the cookie token; the token itself is never stored
+  user_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  user_agent TEXT,
+  must_add_passkey INTEGER NOT NULL DEFAULT 0,
+  revoked INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS auth_challenges (
+  id TEXT PRIMARY KEY,
+  challenge TEXT NOT NULL,
+  purpose TEXT NOT NULL,         -- register | add | login
+  data TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS auth_attempts (
+  key TEXT NOT NULL,             -- ip:<address> | setup
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS auth_attempts_key ON auth_attempts (key, at);

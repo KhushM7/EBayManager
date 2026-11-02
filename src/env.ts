@@ -18,12 +18,18 @@ export interface Env {
   EBAY_COMPS_CERT_ID?: string;
   /** Dashboard and PWA static files (web/dist). */
   ASSETS?: Fetcher;
-  /** K's dashboard sign-in key. Separate from MCP_TOKEN, so Claude's connector can't approve anything. */
+  /** Bootstraps the owner's invite when nobody is registered; on Sandbox only, also a test sign-in. */
   DASHBOARD_KEY: string;
   /** VAPID key pair as a P-256 private JWK, for Web Push. */
   VAPID_KEY?: string;
   /** K's Anthropic API key, for the audit and nightly triage. */
   ANTHROPIC_API_KEY?: string;
+  /** "true" on Sandbox only: DASHBOARD_KEY signs in as a test owner. */
+  ALLOW_KEY_LOGIN?: string;
+  /** "true" to serve /mcp (Sandbox). Off in production. */
+  MCP_ENABLED?: string;
+  /** Verification token for eBay marketplace account deletion notifications (32 to 80 characters). */
+  EBAY_DELETION_TOKEN?: string;
   MCP_TOKEN: string;
   SIGNING_KEY: string;
   NTFY_TOPIC: string;

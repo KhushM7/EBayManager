@@ -63,7 +63,8 @@ Updated 2026-11-02. Design details: [safety-and-environments.md](safety-and-envi
 - [x] Poll every 15 minutes for unanswered buyer questions (`GetMemberMessages`) and active Best Offers (`GetBestOffers`). Polling is read-only; eBay push notifications would need `SetNotificationPreferences`, a change to the account.
 - [x] Haiku drafts a reply from the listing's own details, or suggests accept, counter or decline for an offer (structured output). K's floor is enforced in code. Without a key, replies wait for K and offers get a plain suggestion.
 - [x] Each becomes a proposal with a push; K can edit the reply or the offer answer in the Inbox, then approve. The write gate sends `AddMemberMessageRTQ` or `RespondToBestOffer`.
-- [ ] Round trip with a second Sandbox user as the buyer: K registers a second test user, asks a question and makes an offer on a test listing, then approves the replies.
+- [x] Offer round trip on 2026-11-02: test buyer offered £9 (via `scripts/sandbox-buyer.mjs`, since the Sandbox website fails on buyer pages), Claude suggested an answer, K edited it to a £11 counter and approved from the app, and the buyer saw the counter.
+- [ ] Question round trip: not testable on Sandbox (its message pages fail and there is no buyer API for pre-sale questions). Checked in Phase 6 instead, where real questions produce dry-run drafts that can't be sent.
 
 ## Phase 6: Connect real account, read-only
 

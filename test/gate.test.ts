@@ -159,6 +159,15 @@ describe("listing builder", () => {
     expect(xml).toContain("<ShipToLocations>None</ShipToLocations>");
     expect(xml).not.toContain("ShippingDetails");
   });
+  it("turns Best Offer on in a revision and on new listings when asked", () => {
+    const rev = callFor({ kind: "revise", item_id: "9", payload: JSON.stringify({ bestOfferEnabled: true }) });
+    expect(rev.xml).toContain("<BestOfferDetails><BestOfferEnabled>true</BestOfferEnabled></BestOfferDetails>");
+    const on = callFor({ kind: "create_listing", item_id: null, payload: JSON.stringify({ ...base, bestOffer: true }) });
+    expect(on.xml).toContain("<BestOfferEnabled>true</BestOfferEnabled>");
+    const off = callFor({ kind: "create_listing", item_id: null, payload: JSON.stringify(base) });
+    expect(off.xml).not.toContain("BestOffer");
+  });
+
   it("posted items use Royal Mail 2nd class at the given cost", () => {
     const { xml } = callFor({ kind: "create_listing", item_id: null, payload: JSON.stringify({ ...base, shippingCost: 2.85 }) });
     expect(xml).toContain("UK_RoyalMailSecondClassStandard");

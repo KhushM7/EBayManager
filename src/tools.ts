@@ -116,26 +116,34 @@ export const tools: Tool[] = [
   {
     name: "propose_listing_revision",
     description:
-      "Propose a new title, description and/or item specifics for a listing. Nothing changes on eBay until K approves. Item specifics replace the listing's current set, so include every specific to keep.",
+      "Propose a new title, description, item specifics and/or Best Offer setting for a listing. Nothing changes on eBay until K approves. Item specifics replace the listing's current set, so include every specific to keep.",
     inputSchema: obj(
       {
         item_id: { type: "string" },
         title: { type: "string", maxLength: 80 },
         description: { type: "string", description: "HTML or plain text" },
         item_specifics: { type: "object", additionalProperties: { type: "array", items: { type: "string" } } },
+        best_offer_enabled: { type: "boolean", description: "Let buyers make offers (K answers every offer)" },
         reason: { type: "string" },
       },
       ["item_id", "reason"],
     ),
     run: async (env, a) => {
-      if (!a.title && !a.description && !a.item_specifics) throw new Error("Give a title, description or item specifics.");
-      const changed = [a.title && "title", a.description && "description", a.item_specifics && "item specifics"].filter(Boolean);
+      const bestOffer = typeof a.best_offer_enabled === "boolean" ? a.best_offer_enabled : undefined;
+      if (!a.title && !a.description && !a.item_specifics && bestOffer === undefined)
+        throw new Error("Give a title, description, item specifics or Best Offer setting.");
+      const changed = [
+        a.title && "title",
+        a.description && "description",
+        a.item_specifics && "item specifics",
+        bestOffer !== undefined && `Best Offer ${bestOffer ? "on" : "off"}`,
+      ].filter(Boolean);
       return proposeAndNotify(
         env,
         {
           kind: "revise",
           itemId: a.item_id,
-          payload: { title: a.title, description: a.description, itemSpecifics: a.item_specifics },
+          payload: { title: a.title, description: a.description, itemSpecifics: a.item_specifics, bestOfferEnabled: bestOffer },
           reason: a.reason,
         },
         `Revise ${changed.join(", ")}`,
@@ -160,6 +168,7 @@ export const tools: Tool[] = [
         collection_only: { type: "boolean" },
         picture_urls: { type: "array", items: { type: "string" } },
         item_specifics: { type: "object", additionalProperties: { type: "array", items: { type: "string" } } },
+        best_offer: { type: "boolean", description: "Let buyers make offers (K answers every offer)" },
         reason: { type: "string" },
       },
       ["title", "description", "category_id", "price", "condition_id", "postcode", "reason"],
@@ -177,6 +186,7 @@ export const tools: Tool[] = [
         collectionOnly: Boolean(a.collection_only),
         pictureUrls: a.picture_urls ?? [],
         itemSpecifics: a.item_specifics,
+        bestOffer: Boolean(a.best_offer),
       };
       // eBay checks the listing first; a rejected listing never reaches K. Throws with eBay's reason.
       const { fees } = await verifyNewListing(env, payload);

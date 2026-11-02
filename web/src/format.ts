@@ -24,7 +24,8 @@ export function describe(p: Proposal): { what: string; figure: string } {
       return { what: a.oldPrice != null ? `Price ${money(a.oldPrice)} to ${money(a.newPrice)}` : `Set price`, figure: money(a.newPrice) };
     case "revise": {
       const parts = [a.title && "title", a.description && "description", a.itemSpecifics && "item specifics"].filter(Boolean);
-      return { what: `New ${parts.join(", ")}`, figure: "" };
+      const offer = typeof a.bestOfferEnabled === "boolean" ? `Best Offer ${a.bestOfferEnabled ? "on" : "off"}` : "";
+      return { what: parts.length ? `New ${parts.join(", ")}${offer ? `, ${offer}` : ""}` : `Turn ${offer}`, figure: "" };
     }
     case "create_listing":
       return { what: `List ${a.title}${a.collectionOnly ? ", collection only" : ""}`, figure: money(a.price) };

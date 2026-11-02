@@ -26,6 +26,9 @@ interface WriteCall {
   xml: string;
 }
 
+const bestOfferXml = (on: unknown) =>
+  typeof on === "boolean" ? `<BestOfferDetails><BestOfferEnabled>${on}</BestOfferEnabled></BestOfferDetails>` : "";
+
 const cdata = (s: string) => `<![CDATA[${s.replace(/]]>/g, "]]]]><![CDATA[>")}]]>`;
 
 function specificsXml(specifics: Record<string, string | string[]> | undefined): string {
@@ -51,8 +54,9 @@ export function callFor(p: Pick<Proposal, "kind" | "item_id" | "payload">): Writ
         a.title ? `<Title>${esc(a.title)}</Title>` : "",
         a.description ? `<Description>${cdata(a.description)}</Description>` : "",
         specificsXml(a.itemSpecifics),
+        bestOfferXml(a.bestOfferEnabled),
       ].join("");
-      if (!fields) throw new Error("Revision has no title, description or item specifics");
+      if (!fields) throw new Error("Revision has no title, description, item specifics or Best Offer setting");
       return { call: "ReviseFixedPriceItem", xml: `<Item><ItemID>${esc(p.item_id!)}</ItemID>${fields}</Item>` };
     }
     case "create_listing": {
@@ -73,6 +77,7 @@ export function callFor(p: Pick<Proposal, "kind" | "item_id" | "payload">): Writ
   <Country>GB</Country><Currency>GBP</Currency><Site>UK</Site>
   <PostalCode>${esc(a.postcode)}</PostalCode>
   <DispatchTimeMax>2</DispatchTimeMax><ListingDuration>GTC</ListingDuration><ListingType>FixedPriceItem</ListingType>
+  ${bestOfferXml(a.bestOffer === true ? true : undefined)}
   ${pictures ? `<PictureDetails>${pictures}</PictureDetails>` : ""}
   ${specificsXml(a.itemSpecifics)}
   <ReturnPolicy><ReturnsAcceptedOption>ReturnsAccepted</ReturnsAcceptedOption><ReturnsWithinOption>Days_${RETURNS.periodDays}</ReturnsWithinOption><ShippingCostPaidByOption>Buyer</ShippingCostPaidByOption></ReturnPolicy>

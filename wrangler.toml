@@ -26,7 +26,9 @@ binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = true
 
-# R2 photo storage (binding PHOTOS) is added in Phase 8; R2 isn't enabled on the account yet.
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "ebay-autopilot-photos-local"
 
 [triggers]
 crons = ["0 2 * * *", "*/15 * * * *"]
@@ -38,6 +40,9 @@ name = "ebay-autopilot-sandbox"
 [env.sandbox.vars]
 EBAY_ENV = "sandbox"
 WRITE_MODE = "approval"
+# Sandbox only: DASHBOARD_KEY test sign-in and the Claude connector. Never set these in production.
+ALLOW_KEY_LOGIN = "true"
+MCP_ENABLED = "true"
 EBAY_MARKETPLACE = "EBAY_GB"
 EBAY_SITE_ID = "3"
 PUBLIC_URL = "https://ebay-autopilot-sandbox.ebay-autopilot.workers.dev"
@@ -47,6 +52,10 @@ directory = "web/dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = true
+
+[[env.sandbox.r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "ebay-autopilot-photos-sandbox"
 
 [[env.sandbox.d1_databases]]
 binding = "DB"
@@ -62,7 +71,7 @@ EBAY_ENV = "production"
 WRITE_MODE = "off"
 EBAY_MARKETPLACE = "EBAY_GB"
 EBAY_SITE_ID = "3"
-PUBLIC_URL = "https://ebay-autopilot-production.<your-subdomain>.workers.dev"
+PUBLIC_URL = "https://ebay-autopilot-production.ebay-autopilot.workers.dev"
 
 [env.production.assets]
 directory = "web/dist"
@@ -70,15 +79,20 @@ binding = "ASSETS"
 not_found_handling = "single-page-application"
 run_worker_first = true
 
+[[env.production.r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "ebay-autopilot-photos-production"
+
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "ebay-autopilot-production"
-database_id = "<filled in by `npx wrangler d1 create ebay-autopilot-production` at Phase 6>"
+database_id = "2a62955a-1e02-4e70-a82b-e2b8fc7892ce"
 
 # Secrets, per environment (`npx wrangler secret put NAME --env sandbox`), never committed:
 #   EBAY_APP_ID, EBAY_CERT_ID, EBAY_DEV_ID, EBAY_RUNAME   that environment's eBay keyset
 #   EBAY_COMPS_APP_ID, EBAY_COMPS_CERT_ID                 optional production keyset for Browse comps only
-#   MCP_TOKEN      bearer token for /mcp and /oauth/start
+#   MCP_TOKEN      bearer token for /mcp (Sandbox only)
+#   EBAY_DELETION_TOKEN  verification token for marketplace account deletion notifications (production)
 #   DASHBOARD_KEY  K's dashboard sign-in key (never given to Claude's connector)
 #   ANTHROPIC_API_KEY  K's Anthropic key for the listing review and nightly triage
 #   VAPID_KEY      Web Push key pair, a P-256 private JWK (`node scripts/make-keys.mjs`)

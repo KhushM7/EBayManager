@@ -17,6 +17,8 @@ export async function api<T = any>(path: string, init: { method?: string; body?:
 }
 
 export interface Me {
+  user: { id: string; name: string; role: "owner" | "manager" };
+  mustAddPasskey: boolean;
   ebayEnv: "sandbox" | "production";
   writeMode: string;
   writesPaused: boolean;
@@ -40,6 +42,7 @@ export interface Proposal {
   created_at: number;
   expires_at: number;
   decided_at: number | null;
+  decided_by: string | null;
   result: string | null;
 }
 
@@ -65,6 +68,7 @@ export interface Activity {
   proposal_id: string | null;
   call: string;
   outcome: "applied" | "refused" | "failed";
+  actor: string | null;
   response: string | null;
   kind: string | null;
   item_id: string | null;

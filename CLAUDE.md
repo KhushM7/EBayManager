@@ -4,7 +4,7 @@ Automates K's eBay selling: improve existing listings, re-evaluate unsold ones, 
 
 Full plan (decisions, eBay API map, rollout): https://claude.ai/artifact/JowUE86DsPhFBsswMms8jf
 
-Design docs: [roadmap](docs/roadmap.md), [security](docs/security.md), [pricing and promotion](docs/pricing-and-promotion.md), [listing assistant](docs/listing-assistant.md), [go-live tests](docs/go-live-tests.md), [safety and environments](docs/safety-and-environments.md), [approvals](docs/approvals.md), [app and dashboard](docs/app-and-dashboard.md).
+Design docs: [roadmap](docs/roadmap.md), [security](docs/security.md), [pricing and promotion](docs/pricing-and-promotion.md), [sold-price data](docs/sold-price-data.md), [listing assistant](docs/listing-assistant.md), [go-live tests](docs/go-live-tests.md), [safety and environments](docs/safety-and-environments.md), [approvals](docs/approvals.md), [app and dashboard](docs/app-and-dashboard.md).
 
 ## Decisions (2026-11-02)
 
@@ -81,6 +81,6 @@ Current phase: **6, production preparation** (see [docs/roadmap.md](docs/roadmap
 
 ## Open items
 
-- Sold-price data: Marketplace Insights access has not been requested yet. Until it is, Terapeak is the fallback.
+- Sold-price data: Marketplace Insights isn't available to this app; prices use estimated sold prices from sanctioned sources plus K's Terapeak checks ([sold-price-data.md](docs/sold-price-data.md)). Never scrape eBay or automate its website.
 - Production keyset (Phase 6): opt out of marketplace account deletion notifications, since the app stores no other users' data.
 - No CI is set up yet.

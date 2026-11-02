@@ -2,7 +2,7 @@
 
 Every price, offer answer and ad rate is a proposal K approves. The research behind each one goes much further than one search. It builds a market picture of what the same item in the same condition is listed for and has sold for, and how crowded that market is. The aim is the most profit that still sells the item quickly.
 
-Decided 2026-11-02. Sold-price data comes from eBay's Marketplace Insights API once eBay grants access (K applies now); until then, from K's own sales and active listings, clearly labelled.
+Decided 2026-11-02. eBay's Marketplace Insights API isn't available to this app, so sold prices are **estimated** from sanctioned sources only, with a confidence level: see [sold-price-data.md](sold-price-data.md).
 
 ## The market picture
 
@@ -12,7 +12,7 @@ For each item, the app builds a **market picture**, stored with every price prop
 2. **Find comparables.** eBay Browse `search` by the exact product (EPID or GTIN when known, else a precise keyword query), the same category, UK sellers, and the same condition group. It runs several searches (exact, slightly broader, other conditions) and keeps only true matches. Claude checks each candidate's title and specifics and drops accessories, parts, bundles and wrong models.
 3. **Price on the buyer's total.** Each comparable's price **plus postage** is what buyers compare, so it's normalised that way, separately for collection-only items.
 4. **Condition adjustment.** Comparables in other conditions are adjusted with stated ratios (new, like new, very good, good, acceptable, for parts), calibrated from the comparables themselves when there are enough.
-5. **Sold prices, when available.** Marketplace Insights gives prices actually paid over 90 days. Until it's granted, K's own past sales of similar items and the low end of active listings stand in, and the proposal says which was used.
+5. **Estimated sold prices.** From K's own sales, live sales on comparable listings (`estimatedSoldQuantity`), comparables tracked over time, Terapeak figures K enters when confidence is low and the item is worth it, and the low end of active listings. Each proposal shows the band, its confidence and its sources ([sold-price-data.md](sold-price-data.md)).
 6. **Saturation.** The number of active comparables, against how many sold recently (sell-through), and how many sellers there are. A crowded market with few sales pushes the price to the low end and favours promotion; a thin market with steady sales allows the upper middle.
 7. **Original retail price and specifications** from manufacturer or retailer pages (Claude web search, cited) when the product is identified exactly. They're used only as a ceiling and for facts, never as the price.
 

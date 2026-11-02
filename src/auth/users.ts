@@ -9,7 +9,7 @@ export const MAX_USERS = 3;
 const SESSION_IDLE_MS = 12 * 3_600_000;
 const SESSION_MAX_MS = 7 * 86_400_000;
 const INVITE_TTL_MS = 24 * 3_600_000;
-const CHALLENGE_TTL_MS = 5 * 60_000;
+const CHALLENGE_TTL_MS = 10 * 60_000;
 export const COOKIE = "__Host-sid";
 
 export type Role = "owner" | "manager";
@@ -272,4 +272,23 @@ export async function removePasskey(env: Env, actor: User, credentialId: string)
   if (!row) throw new Error("Passkey not found");
   if (row.user_id !== actor.id && actor.role !== "owner") throw new Error("Only the owner can remove someone else's passkey");
   await env.DB.prepare("DELETE FROM credentials WHERE id = ?").bind(credentialId).run();
+}
+
+// --- Connecting eBay (owner only) ---
+
+/** Records the owner starting the eBay sign-in; returns the state to send to eBay. */
+export async function startOAuth(env: Env, userId: string, readonly: boolean): Promise<string> {
+  const { id } = await newChallenge(env, "oauth", { userId, readonly });
+  return id;
+}
+
+/** Accepts the callback's state once, if an owner started it in the last few minutes. */
+export async function finishOAuth(env: Env, state: string): Promise<{ readonly: boolean } | null> {
+  try {
+    const { data } = await takeChallenge(env, state, "oauth");
+    const owner = await env.DB.prepare("SELECT 1 FROM users WHERE id = ? AND role = 'owner' AND disabled = 0").bind(data.userId).first();
+    return owner ? { readonly: Boolean(data.readonly) } : null;
+  } catch {
+    return null;
+  }
 }

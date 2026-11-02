@@ -2,6 +2,7 @@ import type { Env } from "./env";
 import { consentUrl, exchangeCode, READONLY_SCOPES, userScopes } from "./ebay/auth";
 import { handleAccountDeletion } from "./deletion";
 import { handleApi } from "./api";
+import { finishOAuth, startOAuth } from "./auth/users";
 import { getSession } from "./session";
 import { handleMcp } from "./mcp";
 import { envPrefix } from "./notify";
@@ -19,8 +20,8 @@ const html = (body: string, status = 200) =>
 // The dashboard loads only its own code and the Switzer font, and can't be framed.
 const CSP = [
   "default-src 'self'",
-  "style-src 'self' https://api.fontshare.com",
-  "font-src https://cdn.fontshare.com",
+  "style-src 'self'",
+  "font-src 'self'",
   "img-src 'self' data:",
   "connect-src 'self'",
   "frame-ancestors 'none'",
@@ -54,23 +55,25 @@ export default {
       if (!session || session.user.role !== "owner" || session.mustAddPasskey)
         return html("<h1>Sign in to EBayManager as the owner first, then open this link again.</h1>", 401);
       const readonly = url.searchParams.get("readonly") === "1";
-      const state = `${crypto.randomUUID()}.${readonly ? "r" : "f"}`;
+      // The owner's start is recorded server-side; the callback accepts only that state, once, within 10 minutes.
+      // (The session cookie is SameSite=Strict, so it isn't sent on eBay's redirect back.)
+      const state = await startOAuth(env, session.user.id, readonly);
       return new Response(null, {
         status: 302,
         headers: {
           Location: consentUrl(env, state, userScopes(env, readonly)),
-          "Set-Cookie": `oauth_state=${state}; HttpOnly; Secure; Path=/oauth; Max-Age=600`,
+          "Set-Cookie": `oauth_state=${state}; HttpOnly; Secure; SameSite=Lax; Path=/oauth; Max-Age=600`,
         },
       });
     }
     if (url.pathname === "/oauth/callback") {
-      const session = await getSession(env, request);
-      if (!session || session.user.role !== "owner") return html("<h1>Sign in as the owner first</h1>", 401);
       const cookie = request.headers.get("Cookie") ?? "";
       const state = url.searchParams.get("state");
       const code = url.searchParams.get("code");
       if (!code || !state || !cookie.includes(`oauth_state=${state}`)) return html("<h1>Sign-in check failed</h1>", 400);
-      const scopes = userScopes(env, state.endsWith(".r"));
+      const started = await finishOAuth(env, state);
+      if (!started) return html("<h1>This eBay sign-in expired or wasn't started by the owner. Start again from Settings.</h1>", 400);
+      const scopes = userScopes(env, started.readonly);
       await exchangeCode(env, code, scopes);
       const kind = scopes === READONLY_SCOPES ? "read-only" : "full";
       return html(`<h1>eBay ${escHtml(env.EBAY_ENV)} connected</h1><p>Scopes: ${kind}. You can close this tab.</p>`);

@@ -37,11 +37,11 @@ export function DraftEditor({ p, onSaved, onSignedOut }: { p: Proposal; onSaved:
     return (
       <div class="draft">
         <blockquote class="quote">
-          <span class="muted small">{a.recipientId} asked</span>
+          <span class="muted small" style={{ display: "block" }}>{a.recipientId} asked</span>
           {a.question}
         </blockquote>
         {editing ? (
-          <form class="form draft-form" onSubmit={save}>
+          <form class="form" onSubmit={save}>
             <label for={`reply-${p.id}`}>Your reply</label>
             <textarea id={`reply-${p.id}`} rows={4} maxLength={2000} value={body} onInput={(e) => setBody(e.currentTarget.value)} required />
             {error && <p class="error">{error}</p>}
@@ -77,7 +77,7 @@ export function DraftEditor({ p, onSaved, onSignedOut }: { p: Proposal; onSaved:
       </p>
       {a.buyerMessage && <blockquote class="quote">{a.buyerMessage}</blockquote>}
       {editing ? (
-        <form class="form draft-form" onSubmit={save}>
+        <form class="form" onSubmit={save}>
           <fieldset class="choices">
             <legend>Your answer</legend>
             {["accept", "counter", "decline"].map((x) => (

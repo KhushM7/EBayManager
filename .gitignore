@@ -4,3 +4,5 @@ node_modules/
 web/dist/
 .taste-skill/
 .sandbox-buyer-token
+.prod.vars
+.owner-invite-*.txt

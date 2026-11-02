@@ -73,7 +73,7 @@ export function Metrics({ onSignedOut }: { me: Me; reloadMe: () => void; onSigne
   };
 
   if (error) return <p class="error">{error}</p>;
-  if (!data) return <h1 class="rise">Metrics</h1>;
+  if (!data) return <h1 class="title-in">Metrics</h1>;
 
   const s = data.sold30;
   const approved = (data.proposals.applied ?? 0) + (data.proposals.approved ?? 0);
@@ -82,12 +82,16 @@ export function Metrics({ onSignedOut }: { me: Me; reloadMe: () => void; onSigne
 
   return (
     <>
-      <h1 class="rise">{s?.items ? `${plural(s.items, "item")} sold in 30 days` : "How your listings are doing"}</h1>
+      <div class="page-head">
+        <h1 class="title-in">Metrics</h1>
+        <p>The last 30 days, read from eBay every night.</p>
+      </div>
+      <div class="paper">
+      <p class="kind">Revenue, last 30 days</p>
+      <p class="receipt-total">{money(s?.revenue ?? 0)}</p>
+      <p>{s?.items ? `${plural(s.items, "item")} sold.` : "No sales yet."}</p>
+      <div class="receipt-tear">
       <dl class="figures">
-        <div>
-          <dt>Revenue, last 30 days</dt>
-          <dd>{money(s?.revenue ?? 0)}</dd>
-        </div>
         <div>
           <dt>eBay fees, last 30 days</dt>
           <dd>{money(s?.fees ?? 0)}</dd>
@@ -111,20 +115,22 @@ export function Metrics({ onSignedOut }: { me: Me; reloadMe: () => void; onSigne
           <dd>{duration(data.medianMinutesToDecide)}</dd>
         </div>
       </dl>
+      </div>
+      </div>
 
-      <section class="section">
+      <section class="section paper stack">
         <h2>Listings</h2>
         <Chart title="Active listings" kind="line" points={data.listings.map((r) => ({ day: r.day, value: r.active }))} format={count} />
         <Chart title="Total asking value" kind="line" points={data.listings.map((r) => ({ day: r.day, value: r.asking }))} format={money} />
         <Chart title="Watchers" kind="line" points={data.listings.map((r) => ({ day: r.day, value: r.watchers }))} format={count} />
       </section>
 
-      <section class="section">
+      <section class="section paper">
         <h2>Sales</h2>
         <Chart title="Revenue per day" kind="bar" points={daily(data.sales, 30, (r) => r.revenue)} format={money} />
       </section>
 
-      <section class="section">
+      <section class="section paper">
         <h2>Nightly check</h2>
         {data.lastNightly ? (
           <p>
@@ -155,7 +161,7 @@ export function Metrics({ onSignedOut }: { me: Me; reloadMe: () => void; onSigne
         </button>
       </section>
 
-      <section class="section">
+      <section class="section paper">
         <h2>Claude</h2>
         <Chart
           title="Claude spend per day"

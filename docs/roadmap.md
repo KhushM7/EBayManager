@@ -14,7 +14,7 @@ Updated 2026-11-02 (plan v3). Design: [security.md](security.md), [pricing-and-p
 | 8 | **Go live, approve everything** | Production | Go-live tests I1 to I5 |
 | 9 | Auto-apply settings for listing edits (title, description, specifics), each with a "Done" notification | Production | K switches one on |
 | 10 | Listing assistant: photos with coaching, no-assumption facts, publish | Production | First listing published via an approved proposal |
-| later | Marketplace Insights sold prices (when eBay grants access), Cloudflare Access in front | Production | — |
+| later | Optional third-party sold data (off by default, see sold-price-data.md), Cloudflare Access in front | Production | — |
 
 ## Phase 1: Safety foundation (sandbox)
 
@@ -65,21 +65,22 @@ Updated 2026-11-02 (plan v3). Design: [security.md](security.md), [pricing-and-p
 
 ## Phase 6: Production preparation
 
-- [ ] Passkey (WebAuthn) sign-in per person, recovery codes, server-side sessions (12 h idle, 7 days max), sign out everywhere ([security.md](security.md)).
-- [ ] Users: owner plus at most 2 managers, single-use 24-hour invite links, roles enforced on every route; who did what recorded on proposals and in Activity.
-- [ ] Production decide links need the signed link **and** the device's session; replies and offer acceptances can require opening the app (on by default in production).
-- [ ] `src/ebay/allowlist.ts`: every eBay call checked against the list in security.md, with a test.
-- [ ] `/mcp` off in production; `/oauth/start` needs the owner's session; sign-in rate limits.
-- [ ] Marketplace account deletion endpoint: answers eBay's challenge, verifies signed notifications, deletes that buyer's stored data.
-- [ ] Production Worker deployed with `WRITE_MODE=off`, its own D1 and R2, and production secrets in K's gitignored `.prod.vars`.
-- [ ] K: activate the production keyset (endpoint and verification token entered in the portal), create the production RuName, apply for Marketplace Insights access.
+- [x] Passkey (WebAuthn) sign-in per person, recovery codes, server-side sessions (12 h idle, 7 days max), sign out everywhere ([security.md](security.md)).
+- [x] Users: owner plus at most 2 managers, single-use 24-hour invite links, roles enforced on every route; who did what recorded on proposals and in Activity.
+- [x] Production decide links need the signed link **and** the device's session; replies and offer acceptances can require opening the app (on by default in production).
+- [x] `src/ebay/allowlist.ts`: every eBay call checked against the list in security.md, with a test.
+- [x] `/mcp` off in production; `/oauth/start` needs the owner's session; sign-in rate limits.
+- [x] Marketplace account deletion endpoint: answers eBay's challenge, verifies signed notifications, deletes that buyer's stored data.
+- [x] Production Worker deployed with `WRITE_MODE=off`, its own D1 and R2, and production secrets in K's gitignored `.prod.vars`: https://ebay-autopilot-production.ebay-autopilot.workers.dev. `node scripts/check-production.mjs` runs the remote go-live checks (17 passing on 2026-11-02).
+- [x] App redesigned (tasteskill "The page is the object": each change is a parcel label with a tear-off stub; eBay colours as the four states; Rokkitt and Literata self-hosted; phone and desktop layouts).
+- [ ] K: activate the production keyset (endpoint and verification token entered in the portal), create the production RuName. (Marketplace Insights isn't available to this app: see [sold-price-data.md](sold-price-data.md).)
 - [ ] K connects the real account read-only.
 
 ## Phase 7: Read-only on the real account
 
 - [ ] First-day audit and report: listings, sold history, ended listings, messages, settings ([listing-assistant.md](listing-assistant.md)).
 - [ ] Reply style guide from K's past replies, used by every draft.
-- [ ] Market pictures and the pricing engine for prices, offers and counters ([pricing-and-promotion.md](pricing-and-promotion.md)).
+- [ ] Market pictures and the pricing engine for prices, offers and counters ([pricing-and-promotion.md](pricing-and-promotion.md)), with sold prices estimated from sanctioned sources and a Terapeak check step ([sold-price-data.md](sold-price-data.md)).
 - [ ] Promotion research: propose only when the market is saturated and the rate pays back, below eBay's suggestion.
 - [ ] The redesigned app (tasteskill; eBay-based colours made K's own, logo, separate phone and desktop layouts, same features).
 - [ ] One full nightly cycle with all of it, then go-live tests A to H.

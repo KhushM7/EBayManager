@@ -309,3 +309,24 @@ describe("marketplace account deletion", () => {
     expect(await forgetUser(env, "")).toBe(0);
   });
 });
+
+describe("connecting eBay", () => {
+  it("accepts eBay's redirect without the session cookie, but only for a state the owner started", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ access_token: "a", expires_in: 7200, refresh_token: "r", refresh_token_expires_in: 1e7 })));
+    env = { ...env, EBAY_APP_ID: "app", EBAY_CERT_ID: "cert", EBAY_RUNAME: "runame" } as Env;
+    const { json } = await api("/setup", { key: "boot-key-123", name: "K" });
+    const owner = await join(json.inviteUrl);
+
+    const start = await worker.fetch(new Request(`${ORIGIN}/oauth/start`, { headers: { Cookie: owner.cookie } }), env);
+    expect(start.status).toBe(302);
+    const state = new URL(start.headers.get("Location")!).searchParams.get("state")!;
+    const stateCookie = (start.headers.get("Set-Cookie") ?? "").split(";")[0];
+
+    // eBay's redirect back: no session cookie (SameSite=Strict), only the state cookie.
+    const callback = (s: string) => worker.fetch(new Request(`${ORIGIN}/oauth/callback?code=c&state=${s}`, { headers: { Cookie: stateCookie } }), env);
+    expect((await callback(state)).status).toBe(200);
+    expect(await env.DB.prepare("SELECT scopes FROM ebay_tokens").first()).not.toBeNull();
+    expect((await callback(state)).status).toBe(400);
+    expect((await callback("made-up")).status).toBe(400);
+  });
+});

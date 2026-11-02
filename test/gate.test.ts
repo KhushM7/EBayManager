@@ -175,6 +175,28 @@ describe("listing builder", () => {
   });
 });
 
+describe("title lock", () => {
+  it("knows when eBay won't change a title or description", async () => {
+    const { titleLockReason } = await import("../src/ebay/trading");
+    expect(titleLockReason({ BestOfferDetails: { BestOfferCount: 1 } })).toMatch(/pending offer/);
+    expect(titleLockReason({ SellingStatus: { QuantitySold: "1" } })).toMatch(/sale/);
+    expect(titleLockReason({ BestOfferDetails: { BestOfferCount: 0 }, SellingStatus: { QuantitySold: 0 } })).toBeNull();
+  });
+
+  it("keeps a title revision pending when an offer arrived after it was proposed", async () => {
+    fetchMock.mockImplementation(async (_u: string, init: RequestInit) => {
+      const call = (init.headers as Record<string, string>)["X-EBAY-API-CALL-NAME"];
+      if (call === "GetItem")
+        return new Response(`<GetItemResponse><Ack>Success</Ack><Item><ItemID>111</ItemID><BestOfferDetails><BestOfferCount>1</BestOfferCount></BestOfferDetails></Item></GetItemResponse>`);
+      return new Response(OK_XML);
+    });
+    const p = await createProposal(env, { kind: "revise", itemId: "111", payload: { title: "New title" } });
+    expect(await decide(env, p.id, "approve")).toMatch(/^Not approved yet: .*pending offer/);
+    expect((await getProposal(env, p.id))?.status).toBe("pending");
+    expect(ebayCalls().filter(([, i]) => (i as any).headers["X-EBAY-API-CALL-NAME"] === "ReviseFixedPriceItem")).toHaveLength(0);
+  });
+});
+
 describe("environment safety", () => {
   it("fails closed when EBAY_ENV is missing or misspelt", () => {
     expect(() => ebayHosts({ EBAY_ENV: "" })).toThrow();

@@ -1,4 +1,5 @@
 import type { Env } from "./env";
+import { getItem, titleLockReason } from "./ebay/trading";
 import { callFor, ebayWrite, WriteRefused } from "./ebay/write";
 import { push } from "./notify";
 import { PROPOSAL_TTL_DAYS } from "./rules";
@@ -193,6 +194,14 @@ export async function decide(env: Env, id: string, decision: "approve" | "reject
     callFor(p);
   } catch (e) {
     return `Not approved yet: ${e instanceof Error ? e.message : String(e)}`;
+  }
+  // An offer can arrive after a revision was proposed; eBay would then refuse a new title or description.
+  if (p.kind === "revise" && p.item_id) {
+    const a = JSON.parse(p.payload);
+    if (a.title || a.description) {
+      const lock = titleLockReason(await getItem(env, p.item_id).catch(() => null));
+      if (lock) return `Not approved yet: ${lock}. Approve it again after that.`;
+    }
   }
 
   const approved = await env.DB.prepare("UPDATE proposals SET status = 'approved', decided_at = ? WHERE id = ? AND status = 'pending'")

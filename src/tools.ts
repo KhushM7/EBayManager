@@ -1,5 +1,5 @@
 import type { Env } from "./env";
-import { getActiveListings, getItem } from "./ebay/trading";
+import { getActiveListings, getItem, titleLockReason } from "./ebay/trading";
 import { searchActiveComps } from "./ebay/browse";
 import { listProposals, proposeAndNotify } from "./proposals";
 import { gateClosedReason, setWritesPaused, verifyNewListing } from "./ebay/write";
@@ -129,6 +129,10 @@ export const tools: Tool[] = [
       ["item_id", "reason"],
     ),
     run: async (env, a) => {
+      if (a.title || a.description) {
+        const lock = titleLockReason(await getItem(env, a.item_id));
+        if (lock) throw new Error(`Not proposed: ${lock}. Item specifics and the Best Offer setting can still change.`);
+      }
       const bestOffer = typeof a.best_offer_enabled === "boolean" ? a.best_offer_enabled : undefined;
       if (!a.title && !a.description && !a.item_specifics && bestOffer === undefined)
         throw new Error("Give a title, description, item specifics or Best Offer setting.");

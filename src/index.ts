@@ -3,8 +3,8 @@ import { consentUrl, exchangeCode, READONLY_SCOPES, userScopes } from "./ebay/au
 import { handleApi } from "./api";
 import { handleMcp } from "./mcp";
 import { envPrefix } from "./notify";
-import { decide, expireStale, getProposal, verifyDecision } from "./proposals";
-import { snapshotListings } from "./tools";
+import { runNightly } from "./nightly";
+import { decide, getProposal, verifyDecision } from "./proposals";
 
 const html = (body: string, status = 200) =>
   new Response(
@@ -97,8 +97,8 @@ export default {
     return new Response("Not found", { status: 404 });
   },
 
-  // Nightly snapshot and proposal expiry, no Claude involved. The re-evaluation routine reads the snapshots.
+  // 02:00 UTC: read eBay, score listing health by rule, and send only flagged listings to Haiku (src/nightly.ts).
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(Promise.all([snapshotListings(env), expireStale(env)]));
+    ctx.waitUntil(runNightly(env));
   },
 } satisfies ExportedHandler<Env>;

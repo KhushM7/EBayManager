@@ -92,3 +92,39 @@ CREATE TABLE IF NOT EXISTS claude_usage (
   stop_reason TEXT
 );
 CREATE INDEX IF NOT EXISTS claude_usage_at ON claude_usage (at);
+
+-- Orders read nightly from the Fulfillment API (read-only), for sales metrics.
+CREATE TABLE IF NOT EXISTS orders (
+  order_id TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL,
+  total REAL,
+  fees REAL,
+  currency TEXT,
+  status TEXT
+);
+CREATE TABLE IF NOT EXISTS order_items (
+  order_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  title TEXT,
+  quantity INTEGER,
+  price REAL,
+  PRIMARY KEY (order_id, item_id)
+);
+
+-- Listing traffic for the last 7 days, read nightly from the Analytics API.
+CREATE TABLE IF NOT EXISTS listing_traffic (
+  item_id TEXT NOT NULL,
+  taken_at INTEGER NOT NULL,
+  views_7d INTEGER,
+  impressions_7d INTEGER,
+  PRIMARY KEY (item_id, taken_at)
+);
+
+-- The nightly health check's flags per listing (latest run only is shown).
+CREATE TABLE IF NOT EXISTS health_flags (
+  item_id TEXT NOT NULL,
+  checked_at INTEGER NOT NULL,
+  flag TEXT NOT NULL,
+  detail TEXT,
+  PRIMARY KEY (item_id, checked_at, flag)
+);

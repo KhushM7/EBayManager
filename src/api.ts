@@ -1,6 +1,7 @@
 import type { Env } from "./env";
 import { gateClosedReason, setWritesPaused, writesPaused } from "./ebay/write";
 import { auditListing } from "./jobs";
+import { runNightly } from "./nightly";
 import { push } from "./notify";
 import { CLAUDE_DAILY_BUDGET_USD } from "./rules";
 import { decide } from "./proposals";
@@ -165,5 +166,78 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
     });
   }
 
+  if (path === "/nightly" && method === "POST") return json(await runNightly(env));
+
+  if (path === "/metrics" && method === "GET") return json(await metrics(env));
+
   return json({ error: "Not found" }, 404);
+}
+
+const DAY = 86_400_000;
+
+/** Everything the Metrics screen draws, from D1 only (no eBay or Claude calls). */
+export async function metrics(env: Env) {
+  const since = Date.now() - 90 * DAY;
+  const since30 = Date.now() - 30 * DAY;
+  const all = async <T>(sql: string, ...args: unknown[]) => (await env.DB.prepare(sql).bind(...args).all<T>()).results;
+
+  // The last snapshot of each day.
+  const listings = await all<{ day: string; active: number; asking: number; watchers: number }>(
+    `SELECT date(s.taken_at / 1000, 'unixepoch') AS day, COUNT(*) AS active, SUM(s.price * MAX(s.quantity_available, 1)) AS asking,
+            SUM(s.watch_count) AS watchers
+     FROM listing_snapshots s
+     WHERE s.taken_at >= ? AND s.taken_at = (SELECT MAX(taken_at) FROM listing_snapshots x WHERE date(x.taken_at / 1000, 'unixepoch') = date(s.taken_at / 1000, 'unixepoch'))
+     GROUP BY day ORDER BY day`,
+    since,
+  );
+  const sales = await all<{ day: string; orders: number; revenue: number; fees: number }>(
+    `SELECT date(created_at / 1000, 'unixepoch') AS day, COUNT(*) AS orders, SUM(total) AS revenue, SUM(fees) AS fees
+     FROM orders WHERE created_at >= ? GROUP BY day ORDER BY day`,
+    since,
+  );
+  const spend = await all<{ day: string; usd: number; calls: number }>(
+    `SELECT date(at / 1000, 'unixepoch') AS day, SUM(cost_usd) AS usd, COUNT(*) AS calls FROM claude_usage WHERE at >= ? GROUP BY day ORDER BY day`,
+    since,
+  );
+  const sold30 = await env.DB.prepare(
+    `SELECT COUNT(DISTINCT i.item_id) AS items, COALESCE(SUM(o.total), 0) AS revenue, COALESCE(SUM(o.fees), 0) AS fees
+     FROM orders o JOIN order_items i ON i.order_id = o.order_id WHERE o.created_at >= ?`,
+  )
+    .bind(since30)
+    .first<{ items: number; revenue: number; fees: number }>();
+  // Days from a listing's start to its sale, for items sold in the last 30 days that were snapshotted.
+  const daysToSell = await env.DB.prepare(
+    `SELECT AVG((o.created_at - st.ms) / 86400000.0) AS days
+     FROM orders o JOIN order_items i ON i.order_id = o.order_id
+     JOIN (SELECT item_id, (julianday(MIN(start_time)) - 2440587.5) * 86400000 AS ms FROM listing_snapshots GROUP BY item_id) st
+       ON st.item_id = i.item_id
+     WHERE o.created_at >= ?`,
+  )
+    .bind(since30)
+    .first<{ days: number | null }>();
+  const proposals = await all<{ status: string; n: number }>(
+    "SELECT status, COUNT(*) AS n FROM proposals WHERE created_at >= ? GROUP BY status",
+    since30,
+  );
+  const decideTimes = await all<{ mins: number }>(
+    "SELECT (decided_at - created_at) / 60000.0 AS mins FROM proposals WHERE decided_at IS NOT NULL AND status IN ('applied', 'approved', 'rejected', 'failed') AND created_at >= ? ORDER BY mins",
+    since30,
+  );
+  const flags = await all<{ item_id: string; flag: string; detail: string; title: string | null }>(
+    `SELECT f.item_id, f.flag, f.detail, (SELECT title FROM listing_snapshots s WHERE s.item_id = f.item_id ORDER BY taken_at DESC LIMIT 1) AS title
+     FROM health_flags f WHERE f.checked_at = (SELECT MAX(checked_at) FROM health_flags)`,
+  );
+  const last = await env.DB.prepare("SELECT value FROM settings WHERE key = 'last_nightly'").first<{ value: string }>();
+  const active = listings.at(-1)?.active ?? 0;
+  return {
+    listings,
+    sales,
+    spend,
+    sold30: { ...sold30, sellThrough: sold30 && sold30.items + active > 0 ? sold30.items / (sold30.items + active) : null },
+    avgDaysToSell: daysToSell?.days ?? null,
+    proposals: Object.fromEntries(proposals.map((p) => [p.status, p.n])),
+    medianMinutesToDecide: decideTimes.length ? decideTimes[Math.floor(decideTimes.length / 2)].mins : null,
+    flags,
+    lastNightly: last ? JSON.parse(last.value) : null,
+  };
 }

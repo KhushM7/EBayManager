@@ -31,6 +31,7 @@ describe("write gate is the only path to eBay writes", () => {
     expect(filesMatching(/(?<!async |[.\w])fetch\(/).sort()).toEqual([
       "src/ebay/auth.ts",
       "src/ebay/browse.ts",
+      "src/ebay/sell.ts",
       "src/ebay/trading.ts",
       "src/notify.ts",
       "src/push.ts",

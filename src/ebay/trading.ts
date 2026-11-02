@@ -1,22 +1,32 @@
 import { XMLParser } from "fast-xml-parser";
 import type { Env } from "../env";
 import { userToken } from "./auth";
+import { ebayHosts, PRODUCTION_HOSTS } from "./hosts";
 
 const COMPAT_LEVEL = "1349";
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
 
-const esc = (s: string) =>
+export const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-/** Calls a Trading API verb and returns the parsed `<Verb>Response` element. */
+/** Trading verbs that only read. Anything else is a write and must go through src/ebay/write.ts. */
+export const READ_VERBS = new Set(["GetMyeBaySelling", "GetItem", "GetBestOffers", "GetMyMessages", "GetUser", "GeteBayOfficialTime"]);
+
+/** Calls a read-only Trading API verb and returns the parsed `<Verb>Response` element. */
 export async function trading(env: Env, call: string, innerXml: string): Promise<any> {
+  if (!READ_VERBS.has(call)) throw new Error(`${call} is not a read call; eBay writes go through the write gate`);
+  return tradingRequest(env, call, innerXml);
+}
+
+/** Sends any Trading verb. Only this file and src/ebay/write.ts may call it (enforced by test). */
+export async function tradingRequest(env: Env, call: string, innerXml: string): Promise<any> {
   const body = `<?xml version="1.0" encoding="utf-8"?>
 <${call}Request xmlns="urn:ebay:apis:eBLBaseComponents">
   <ErrorLanguage>en_GB</ErrorLanguage>
   <WarningLevel>High</WarningLevel>
   ${innerXml}
 </${call}Request>`;
-  const res = await fetch("https://api.ebay.com/ws/api.dll", {
+  const res = await fetch(`${ebayHosts(env).api}/ws/api.dll`, {
     method: "POST",
     headers: {
       "X-EBAY-API-CALL-NAME": call,
@@ -51,7 +61,7 @@ export interface ActiveListing {
   url: string;
 }
 
-export function toActiveListing(item: any): ActiveListing {
+export function toActiveListing(item: any, web = PRODUCTION_HOSTS.web): ActiveListing {
   const price = item.SellingStatus?.CurrentPrice ?? item.BuyItNowPrice;
   return {
     itemId: String(item.ItemID),
@@ -61,7 +71,7 @@ export function toActiveListing(item: any): ActiveListing {
     quantityAvailable: Number(item.QuantityAvailable ?? item.Quantity ?? 0),
     watchCount: Number(item.WatchCount ?? 0),
     startTime: String(item.ListingDetails?.StartTime ?? ""),
-    url: String(item.ListingDetails?.ViewItemURL ?? `https://www.ebay.co.uk/itm/${item.ItemID}`),
+    url: String(item.ListingDetails?.ViewItemURL ?? `${web}/itm/${item.ItemID}`),
   };
 }
 
@@ -76,7 +86,7 @@ export async function getActiveListings(env: Env): Promise<ActiveListing[]> {
        <DetailLevel>ReturnAll</DetailLevel>`,
     );
     const items = [doc.ActiveList?.ItemArray?.Item ?? []].flat();
-    out.push(...items.map(toActiveListing));
+    out.push(...items.map((i) => toActiveListing(i, ebayHosts(env).web)));
     const pages = Number(doc.ActiveList?.PaginationResult?.TotalNumberOfPages ?? 1);
     if (page >= pages) return out;
   }
@@ -90,13 +100,4 @@ export async function getItem(env: Env, itemId: string): Promise<any> {
     `<ItemID>${esc(itemId)}</ItemID><DetailLevel>ReturnAll</DetailLevel><IncludeItemSpecifics>true</IncludeItemSpecifics><IncludeWatchCount>true</IncludeWatchCount>`,
   );
   return doc.Item;
-}
-
-/** Changes a fixed-price listing's price. Only ever called from an approved proposal. */
-export async function revisePrice(env: Env, itemId: string, price: number): Promise<void> {
-  await trading(
-    env,
-    "ReviseFixedPriceItem",
-    `<Item><ItemID>${esc(itemId)}</ItemID><StartPrice>${price.toFixed(2)}</StartPrice></Item>`,
-  );
 }

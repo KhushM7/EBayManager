@@ -17,7 +17,7 @@ export async function handleRpc(env: Env, req: RpcRequest): Promise<object | nul
         capabilities: { tools: {} },
         serverInfo: { name: "ebay-autopilot", version: "0.1.0" },
         instructions:
-          "K's eBay seller tools. Prices and buyer messages are never changed directly: use propose_* tools, which wait for K's approval.",
+          "K's eBay seller tools. Nothing on eBay is ever changed directly: use the propose_* tools, which wait for K's approval.",
       });
     case "ping":
       return result(req.id, {});

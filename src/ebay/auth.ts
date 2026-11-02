@@ -1,26 +1,44 @@
 import type { Env } from "../env";
+import { ebayHosts, PRODUCTION_HOSTS } from "./hosts";
 
-const AUTH_HOST = "https://auth.ebay.com";
-const API_HOST = "https://api.ebay.com";
+// Scope URIs are the same on Sandbox and production.
+const SCOPE = "https://api.ebay.com/oauth/api_scope";
 
-// Scopes for the seller's user token. Trading API calls accept this token too.
-export const USER_SCOPES = [
-  "https://api.ebay.com/oauth/api_scope",
-  "https://api.ebay.com/oauth/api_scope/sell.inventory",
-  "https://api.ebay.com/oauth/api_scope/sell.marketing",
-  "https://api.ebay.com/oauth/api_scope/sell.account",
-  "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
-  "https://api.ebay.com/oauth/api_scope/sell.analytics.readonly",
+/** Full seller scopes, requested only when WRITE_MODE=approval. */
+export const FULL_SCOPES = [
+  SCOPE,
+  `${SCOPE}/sell.inventory`,
+  `${SCOPE}/sell.marketing`,
+  `${SCOPE}/sell.account`,
+  `${SCOPE}/sell.fulfillment`,
+  `${SCOPE}/sell.analytics.readonly`,
 ];
 
-const basic = (env: Env) => "Basic " + btoa(`${env.EBAY_APP_ID}:${env.EBAY_CERT_ID}`);
+/**
+ * Read-only scopes. These stop REST writes at eBay's end, but the Trading API ignores scopes,
+ * so WRITE_MODE and the write gate remain the real guard (docs/safety-and-environments.md).
+ */
+export const READONLY_SCOPES = [
+  SCOPE,
+  `${SCOPE}/sell.inventory.readonly`,
+  `${SCOPE}/sell.marketing.readonly`,
+  `${SCOPE}/sell.account.readonly`,
+  `${SCOPE}/sell.fulfillment.readonly`,
+  `${SCOPE}/sell.analytics.readonly`,
+];
 
-export function consentUrl(env: Env, state: string): string {
-  const u = new URL(`${AUTH_HOST}/oauth2/authorize`);
+/** Read-only unless writes are on and read-only wasn't asked for. */
+export const userScopes = (env: Env, readonly = false) =>
+  readonly || env.WRITE_MODE !== "approval" ? READONLY_SCOPES : FULL_SCOPES;
+
+const basic = (appId: string, certId: string) => "Basic " + btoa(`${appId}:${certId}`);
+
+export function consentUrl(env: Env, state: string, scopes: string[]): string {
+  const u = new URL(`${ebayHosts(env).auth}/oauth2/authorize`);
   u.searchParams.set("client_id", env.EBAY_APP_ID);
   u.searchParams.set("redirect_uri", env.EBAY_RUNAME);
   u.searchParams.set("response_type", "code");
-  u.searchParams.set("scope", USER_SCOPES.join(" "));
+  u.searchParams.set("scope", scopes.join(" "));
   u.searchParams.set("state", state);
   return u.toString();
 }
@@ -32,31 +50,31 @@ interface TokenResponse {
   refresh_token_expires_in?: number;
 }
 
-async function tokenRequest(env: Env, body: Record<string, string>): Promise<TokenResponse> {
-  const res = await fetch(`${API_HOST}/identity/v1/oauth2/token`, {
+async function tokenRequest(apiHost: string, auth: string, body: Record<string, string>): Promise<TokenResponse> {
+  const res = await fetch(`${apiHost}/identity/v1/oauth2/token`, {
     method: "POST",
-    headers: { Authorization: basic(env), "Content-Type": "application/x-www-form-urlencoded" },
+    headers: { Authorization: auth, "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(body),
   });
   if (!res.ok) throw new Error(`eBay token request failed: ${res.status} ${await res.text()}`);
   return res.json();
 }
 
-export async function exchangeCode(env: Env, code: string): Promise<void> {
-  const t = await tokenRequest(env, {
+export async function exchangeCode(env: Env, code: string, scopes: string[]): Promise<void> {
+  const t = await tokenRequest(ebayHosts(env).api, basic(env.EBAY_APP_ID, env.EBAY_CERT_ID), {
     grant_type: "authorization_code",
     code,
     redirect_uri: env.EBAY_RUNAME,
   });
   const now = Date.now();
   await env.DB.prepare(
-    `INSERT INTO ebay_tokens (id, access_token, access_expires_at, refresh_token, refresh_expires_at)
-     VALUES (1, ?, ?, ?, ?)
+    `INSERT INTO ebay_tokens (id, access_token, access_expires_at, refresh_token, refresh_expires_at, scopes)
+     VALUES (1, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET access_token = excluded.access_token,
        access_expires_at = excluded.access_expires_at, refresh_token = excluded.refresh_token,
-       refresh_expires_at = excluded.refresh_expires_at`,
+       refresh_expires_at = excluded.refresh_expires_at, scopes = excluded.scopes`,
   )
-    .bind(t.access_token, now + t.expires_in * 1000, t.refresh_token, now + (t.refresh_token_expires_in ?? 0) * 1000)
+    .bind(t.access_token, now + t.expires_in * 1000, t.refresh_token, now + (t.refresh_token_expires_in ?? 0) * 1000, scopes.join(" "))
     .run();
 }
 
@@ -66,14 +84,16 @@ export async function userToken(env: Env): Promise<string> {
     access_token: string;
     access_expires_at: number;
     refresh_token: string;
+    scopes: string;
   }>();
   if (!row) throw new Error("eBay is not connected yet. Open /oauth/start to sign in.");
   if (row.access_expires_at - Date.now() > 5 * 60_000) return row.access_token;
 
-  const t = await tokenRequest(env, {
+  // Refresh with the scopes K consented to; asking for more would fail.
+  const t = await tokenRequest(ebayHosts(env).api, basic(env.EBAY_APP_ID, env.EBAY_CERT_ID), {
     grant_type: "refresh_token",
     refresh_token: row.refresh_token,
-    scope: USER_SCOPES.join(" "),
+    scope: row.scopes,
   });
   await env.DB.prepare("UPDATE ebay_tokens SET access_token = ?, access_expires_at = ? WHERE id = 1")
     .bind(t.access_token, Date.now() + t.expires_in * 1000)
@@ -81,15 +101,18 @@ export async function userToken(env: Env): Promise<string> {
   return t.access_token;
 }
 
-let appTokenCache: { token: string; expiresAt: number } | undefined;
+let compsCache: { key: string; token: string; expiresAt: number } | undefined;
 
-/** Application token (client credentials) for public APIs such as Browse. */
-export async function appToken(env: Env): Promise<string> {
-  if (appTokenCache && appTokenCache.expiresAt - Date.now() > 5 * 60_000) return appTokenCache.token;
-  const t = await tokenRequest(env, {
-    grant_type: "client_credentials",
-    scope: "https://api.ebay.com/oauth/api_scope",
-  });
-  appTokenCache = { token: t.access_token, expiresAt: Date.now() + t.expires_in * 1000 };
-  return t.access_token;
+/**
+ * Application token (client credentials) for Browse comps. Uses the production keyset when
+ * EBAY_COMPS_APP_ID is set, because Sandbox has almost no listings; this links no seller account.
+ */
+export async function compsAccess(env: Env): Promise<{ token: string; api: string }> {
+  const prod = Boolean(env.EBAY_COMPS_APP_ID && env.EBAY_COMPS_CERT_ID);
+  const api = prod ? PRODUCTION_HOSTS.api : ebayHosts(env).api;
+  const auth = prod ? basic(env.EBAY_COMPS_APP_ID!, env.EBAY_COMPS_CERT_ID!) : basic(env.EBAY_APP_ID, env.EBAY_CERT_ID);
+  if (compsCache?.key === auth && compsCache.expiresAt - Date.now() > 5 * 60_000) return { token: compsCache.token, api };
+  const t = await tokenRequest(api, auth, { grant_type: "client_credentials", scope: SCOPE });
+  compsCache = { key: auth, token: t.access_token, expiresAt: Date.now() + t.expires_in * 1000 };
+  return { token: t.access_token, api };
 }

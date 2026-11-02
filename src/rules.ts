@@ -1,10 +1,21 @@
-// K's house rules (confirmed 2026-10-12). The prompt never enforces these; the code does.
+// K's house rules (selling rules confirmed 2026-10-12, approval rules 2026-11-02). The prompt never enforces these; the code does.
 
-/** Every price, new or changed, needs K's approval. No auto-applied price changes. */
-export const PRICE_CHANGES_NEED_APPROVAL = true;
+/**
+ * Every eBay write needs K's approval: the write gate (src/ebay/write.ts) applies only proposals K approved.
+ * These kinds can never be auto-applied, whatever a future auto-apply setting says.
+ */
+export const LOCKED_KINDS = [
+  "price",
+  "message",
+  "best_offer_response",
+  "offer_to_watchers",
+  "create_listing",
+  "end_listing",
+  "policy",
+] as const;
 
-/** Every buyer message, counter-offer or offer response needs K's approval. */
-export const MESSAGES_NEED_APPROVAL = true;
+/** A pending proposal expires after this many days, and so do its signed approval links. */
+export const PROPOSAL_TTL_DAYS = 7;
 
 /** Pricing target: lower end of comparable sold prices, adjusted for condition. */
 export const TARGET_COMP_PERCENTILE = 0.3;

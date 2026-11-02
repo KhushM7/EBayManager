@@ -37,11 +37,19 @@ describe("comp summary", () => {
 });
 
 describe("approval links", () => {
-  it("only accepts the matching signature and decision", async () => {
-    const sig = await signDecision(env, "p1", "approve");
-    expect(await verifyDecision(env, "p1", "approve", sig)).toBe(true);
-    expect(await verifyDecision(env, "p1", "reject", sig)).toBe(false);
-    expect(await verifyDecision(env, "p2", "approve", sig)).toBe(false);
+  it("only accepts the matching signature, decision and expiry", async () => {
+    const exp = Date.now() + 60_000;
+    const sig = await signDecision(env, "p1", "approve", exp);
+    expect(await verifyDecision(env, "p1", "approve", exp, sig)).toBe(true);
+    expect(await verifyDecision(env, "p1", "reject", exp, sig)).toBe(false);
+    expect(await verifyDecision(env, "p2", "approve", exp, sig)).toBe(false);
+    expect(await verifyDecision(env, "p1", "approve", exp + 1, sig)).toBe(false);
+  });
+
+  it("rejects an expired link even with a valid signature", async () => {
+    const exp = Date.now() - 1;
+    const sig = await signDecision(env, "p1", "approve", exp);
+    expect(await verifyDecision(env, "p1", "approve", exp, sig)).toBe(false);
   });
 });
 

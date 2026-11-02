@@ -2,26 +2,74 @@ name = "ebay-autopilot"
 main = "src/index.ts"
 compatibility_date = "2025-09-01"
 
+# Top level = local development only (`npx wrangler dev`): eBay Sandbox, local D1 and R2.
+# Deploy with `npm run deploy:sandbox` or `npm run deploy:production`, never a bare `wrangler deploy`.
+# See docs/safety-and-environments.md.
+
 [vars]
-# EBAY_GB = UK site. Change to EBAY_US etc. if you sell elsewhere.
+EBAY_ENV = "sandbox"
+WRITE_MODE = "approval"
+# EBAY_GB = UK site.
 EBAY_MARKETPLACE = "EBAY_GB"
 EBAY_SITE_ID = "3"
-PUBLIC_URL = "https://ebay-autopilot.<your-subdomain>.workers.dev"
+PUBLIC_URL = "http://localhost:8787"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "ebay-autopilot"
-database_id = "<filled in by `wrangler d1 create ebay-autopilot`>"
+database_name = "ebay-autopilot-local"
+database_id = "local"
 
 [[r2_buckets]]
 binding = "PHOTOS"
-bucket_name = "ebay-autopilot-photos"
-
-# Secrets (set with `wrangler secret put NAME`, never committed):
-#   EBAY_APP_ID, EBAY_CERT_ID, EBAY_DEV_ID, EBAY_RUNAME
-#   MCP_TOKEN      bearer token Claude uses to call /mcp
-#   SIGNING_KEY    HMAC key for one-tap approval links
-#   NTFY_TOPIC     private ntfy topic for push notifications
+bucket_name = "ebay-autopilot-photos-local"
 
 [triggers]
 crons = ["0 2 * * *"]
+
+# --- eBay Sandbox: fake listings, approved writes (Phases 1-5) ---
+[env.sandbox]
+name = "ebay-autopilot-sandbox"
+
+[env.sandbox.vars]
+EBAY_ENV = "sandbox"
+WRITE_MODE = "approval"
+EBAY_MARKETPLACE = "EBAY_GB"
+EBAY_SITE_ID = "3"
+PUBLIC_URL = "https://ebay-autopilot-sandbox.<your-subdomain>.workers.dev"
+
+[[env.sandbox.d1_databases]]
+binding = "DB"
+database_name = "ebay-autopilot-sandbox"
+database_id = "<filled in by `npx wrangler d1 create ebay-autopilot-sandbox`>"
+
+[[env.sandbox.r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "ebay-autopilot-photos-sandbox"
+
+# --- Production: K's real account. WRITE_MODE stays "off" (read-only) until the go-live checklist in Phase 7. ---
+[env.production]
+name = "ebay-autopilot-production"
+
+[env.production.vars]
+EBAY_ENV = "production"
+WRITE_MODE = "off"
+EBAY_MARKETPLACE = "EBAY_GB"
+EBAY_SITE_ID = "3"
+PUBLIC_URL = "https://ebay-autopilot-production.<your-subdomain>.workers.dev"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "ebay-autopilot-production"
+database_id = "<filled in by `npx wrangler d1 create ebay-autopilot-production` at Phase 6>"
+
+[[env.production.r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "ebay-autopilot-photos-production"
+
+# Secrets, per environment (`npx wrangler secret put NAME --env sandbox`), never committed:
+#   EBAY_APP_ID, EBAY_CERT_ID, EBAY_DEV_ID, EBAY_RUNAME   that environment's eBay keyset
+#   EBAY_COMPS_APP_ID, EBAY_COMPS_CERT_ID                 optional production keyset for Browse comps only
+#   MCP_TOKEN      bearer token for /mcp and /oauth/start
+#   SIGNING_KEY    HMAC key for approval links
+#   NTFY_TOPIC     private ntfy topic for push notifications
+# For `wrangler dev`, put the Sandbox values in .dev.vars (gitignored).

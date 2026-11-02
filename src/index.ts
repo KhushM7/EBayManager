@@ -1,7 +1,8 @@
 import type { Env } from "./env";
-import { consentUrl, exchangeCode } from "./ebay/auth";
+import { consentUrl, exchangeCode, READONLY_SCOPES, userScopes } from "./ebay/auth";
 import { handleMcp } from "./mcp";
-import { decide, getProposal, verifyDecision } from "./proposals";
+import { envPrefix } from "./notify";
+import { decide, expireStale, getProposal, verifyDecision } from "./proposals";
 import { snapshotListings } from "./tools";
 
 const html = (body: string, status = 200) =>
@@ -19,13 +20,18 @@ export default {
 
     if (url.pathname === "/mcp") return handleMcp(env, request);
 
-    // One-time eBay sign-in. Guarded by MCP_TOKEN so only K can start it.
+    // One-time eBay sign-in. Guarded by MCP_TOKEN so only K can start it. Scopes are read-only unless
+    // WRITE_MODE=approval; ?readonly=1 forces read-only (used to test what read-only scopes block).
     if (url.pathname === "/oauth/start") {
       if (url.searchParams.get("key") !== env.MCP_TOKEN) return new Response("Unauthorized", { status: 401 });
-      const state = crypto.randomUUID();
+      const readonly = url.searchParams.get("readonly") === "1";
+      const state = `${crypto.randomUUID()}.${readonly ? "r" : "f"}`;
       return new Response(null, {
         status: 302,
-        headers: { Location: consentUrl(env, state), "Set-Cookie": `oauth_state=${state}; HttpOnly; Secure; Path=/oauth; Max-Age=600` },
+        headers: {
+          Location: consentUrl(env, state, userScopes(env, readonly)),
+          "Set-Cookie": `oauth_state=${state}; HttpOnly; Secure; Path=/oauth; Max-Age=600`,
+        },
       });
     }
     if (url.pathname === "/oauth/callback") {
@@ -33,8 +39,10 @@ export default {
       const state = url.searchParams.get("state");
       const code = url.searchParams.get("code");
       if (!code || !state || !cookie.includes(`oauth_state=${state}`)) return html("<h1>Sign-in check failed</h1>", 400);
-      await exchangeCode(env, code);
-      return html("<h1>eBay connected</h1><p>You can close this tab.</p>");
+      const scopes = userScopes(env, state.endsWith(".r"));
+      await exchangeCode(env, code, scopes);
+      const kind = scopes === READONLY_SCOPES ? "read-only" : "full";
+      return html(`<h1>eBay ${escHtml(env.EBAY_ENV)} connected</h1><p>Scopes: ${kind}. You can close this tab.</p>`);
     }
 
     // Approval links: GET shows the proposal, only the POST from K's tap decides (link previews can't approve).
@@ -42,23 +50,26 @@ export default {
     if (m) {
       const id = m[1];
       const d = url.searchParams.get("d") as "approve" | "reject";
+      const e = Number(url.searchParams.get("e"));
       const s = url.searchParams.get("s") ?? "";
-      if ((d !== "approve" && d !== "reject") || !(await verifyDecision(env, id, d, s))) return html("<h1>Invalid link</h1>", 403);
+      if ((d !== "approve" && d !== "reject") || !(await verifyDecision(env, id, d, e, s)))
+        return html("<h1>Invalid or expired link</h1>", 403);
       if (request.method === "POST") return html(`<h1>${escHtml(await decide(env, id, d))}</h1>`);
       const p = await getProposal(env, id);
       if (!p) return html("<h1>Not found</h1>", 404);
-      return html(`<h1>${d === "approve" ? "Approve" : "Reject"} this ${p.kind} change?</h1>
+      return html(`<p><strong>${escHtml(envPrefix(env) || "LIVE ACCOUNT")}</strong></p>
+<h1>${d === "approve" ? "Approve" : "Reject"} this ${p.kind} change?</h1>
 <p>Item ${escHtml(p.item_id ?? "")} · status ${p.status}</p><p>${escHtml(p.reason ?? "")}</p>
 <pre>${escHtml(JSON.stringify(JSON.parse(p.payload), null, 2))}</pre>
 <form method="post"><button>${d === "approve" ? "Approve" : "Reject"}</button></form>`);
     }
 
-    if (url.pathname === "/health") return Response.json({ ok: true });
+    if (url.pathname === "/health") return Response.json({ ok: true, ebayEnv: env.EBAY_ENV, writeMode: env.WRITE_MODE });
     return new Response("Not found", { status: 404 });
   },
 
-  // Nightly snapshot, no Claude involved. The re-evaluation routine reads these.
+  // Nightly snapshot and proposal expiry, no Claude involved. The re-evaluation routine reads the snapshots.
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(snapshotListings(env));
+    ctx.waitUntil(Promise.all([snapshotListings(env), expireStale(env)]));
   },
 } satisfies ExportedHandler<Env>;

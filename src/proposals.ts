@@ -1,7 +1,19 @@
 import type { Env } from "./env";
-import { revisePrice } from "./ebay/trading";
+import { ebayWrite, WriteRefused } from "./ebay/write";
+import { push } from "./notify";
+import { PROPOSAL_TTL_DAYS } from "./rules";
 
-export type ProposalKind = "price" | "revise" | "promote" | "offer_to_watchers" | "message" | "best_offer_response";
+export type ProposalKind =
+  | "price"
+  | "revise"
+  | "create_listing"
+  | "end_listing"
+  | "relist"
+  | "promote"
+  | "offer_to_watchers"
+  | "message"
+  | "best_offer_response"
+  | "policy";
 
 export interface Proposal {
   id: string;
@@ -10,13 +22,17 @@ export interface Proposal {
   payload: string;
   reason: string | null;
   status: string;
+  dry_run: number;
   created_at: number;
+  expires_at: number;
 }
 
+/** Records a proposal. While WRITE_MODE is off it is a dry run that can never be applied. */
 export async function createProposal(
   env: Env,
   p: { kind: ProposalKind; itemId?: string; payload: unknown; reason?: string },
 ): Promise<Proposal> {
+  const now = Date.now();
   const row: Proposal = {
     id: crypto.randomUUID(),
     kind: p.kind,
@@ -24,13 +40,25 @@ export async function createProposal(
     payload: JSON.stringify(p.payload),
     reason: p.reason ?? null,
     status: "pending",
-    created_at: Date.now(),
+    dry_run: env.WRITE_MODE === "approval" ? 0 : 1,
+    created_at: now,
+    expires_at: now + PROPOSAL_TTL_DAYS * 86_400_000,
   };
-  await env.DB.prepare(
-    "INSERT INTO proposals (id, kind, item_id, payload, reason, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  )
-    .bind(row.id, row.kind, row.item_id, row.payload, row.reason, row.status, row.created_at)
-    .run();
+  const statements = [
+    env.DB.prepare(
+      "INSERT INTO proposals (id, kind, item_id, payload, reason, status, dry_run, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).bind(row.id, row.kind, row.item_id, row.payload, row.reason, row.status, row.dry_run, row.created_at, row.expires_at),
+  ];
+  // A newer proposal of the same kind for the same item supersedes the pending one.
+  if (row.item_id)
+    statements.unshift(
+      env.DB.prepare("UPDATE proposals SET status = 'expired', decided_at = ? WHERE item_id = ? AND kind = ? AND status = 'pending'").bind(
+        now,
+        row.item_id,
+        row.kind,
+      ),
+    );
+  await env.DB.batch(statements);
   return row;
 }
 
@@ -45,6 +73,13 @@ export async function getProposal(env: Env, id: string): Promise<Proposal | null
   return env.DB.prepare("SELECT * FROM proposals WHERE id = ?").bind(id).first<Proposal>();
 }
 
+/** Marks pending proposals past their expiry as expired. Runs nightly. */
+export async function expireStale(env: Env): Promise<void> {
+  await env.DB.prepare("UPDATE proposals SET status = 'expired', decided_at = ? WHERE status = 'pending' AND expires_at < ?")
+    .bind(Date.now(), Date.now())
+    .run();
+}
+
 // --- One-tap approval links. Only a link signed with SIGNING_KEY can approve; Claude never holds that key path. ---
 
 async function hmac(key: string, msg: string): Promise<string> {
@@ -55,56 +90,69 @@ async function hmac(key: string, msg: string): Promise<string> {
   return btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-export const signDecision = (env: Env, id: string, decision: "approve" | "reject") =>
-  hmac(env.SIGNING_KEY, `${id}:${decision}`);
+export const signDecision = (env: Env, id: string, decision: "approve" | "reject", expiresAt: number) =>
+  hmac(env.SIGNING_KEY, `${id}:${decision}:${expiresAt}`);
 
-export async function verifyDecision(env: Env, id: string, decision: "approve" | "reject", sig: string) {
-  const expected = await signDecision(env, id, decision);
+export async function verifyDecision(env: Env, id: string, decision: "approve" | "reject", expiresAt: number, sig: string) {
+  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) return false;
+  const expected = await signDecision(env, id, decision, expiresAt);
   if (expected.length !== sig.length) return false;
   let diff = 0;
   for (let i = 0; i < sig.length; i++) diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
   return diff === 0;
 }
 
-export async function decisionLinks(env: Env, id: string) {
-  return {
-    approve: `${env.PUBLIC_URL}/decide/${id}?d=approve&s=${await signDecision(env, id, "approve")}`,
-    reject: `${env.PUBLIC_URL}/decide/${id}?d=reject&s=${await signDecision(env, id, "reject")}`,
-  };
+/** Signed approve/reject links, valid until the proposal expires. Dry runs get none. */
+export async function decisionLinks(env: Env, p: Proposal) {
+  if (p.dry_run) return undefined;
+  const link = async (d: "approve" | "reject") =>
+    `${env.PUBLIC_URL}/decide/${p.id}?d=${d}&e=${p.expires_at}&s=${await signDecision(env, p.id, d, p.expires_at)}`;
+  return { approve: await link("approve"), reject: await link("reject") };
 }
 
-/** Applies an approved proposal to eBay. Kinds not built yet stay approved for a later phase. */
-export async function applyProposal(env: Env, p: Proposal): Promise<string> {
-  const payload = JSON.parse(p.payload);
-  switch (p.kind) {
-    case "price":
-      await revisePrice(env, p.item_id!, Number(payload.newPrice));
-      return `Price set to ${payload.newPrice}`;
-    default:
-      return `Approved; applying ${p.kind} arrives in a later phase`;
-  }
+/** Records a proposal and pushes it to K's phone with Approve/Reject (or marked as a dry run). */
+export async function proposeAndNotify(
+  env: Env,
+  p: Parameters<typeof createProposal>[1],
+  title: string,
+  body: string,
+) {
+  const row = await createProposal(env, p);
+  await push(env, row.dry_run ? `Dry run: ${title}` : title, body, await decisionLinks(env, row));
+  return { proposalId: row.id, status: row.dry_run ? "dry run: cannot be applied while writes are off" : "pending K's approval" };
 }
 
 export async function decide(env: Env, id: string, decision: "approve" | "reject"): Promise<string> {
   const p = await getProposal(env, id);
   if (!p) return "Not found";
   if (p.status !== "pending") return `Already ${p.status}`;
+  const now = Date.now();
+  if (p.expires_at < now) {
+    await env.DB.prepare("UPDATE proposals SET status = 'expired', decided_at = ? WHERE id = ?").bind(now, id).run();
+    return "Expired";
+  }
   if (decision === "reject") {
-    await env.DB.prepare("UPDATE proposals SET status = 'rejected', decided_at = ? WHERE id = ?").bind(Date.now(), id).run();
+    await env.DB.prepare("UPDATE proposals SET status = 'rejected', decided_at = ? WHERE id = ? AND status = 'pending'").bind(now, id).run();
     return "Rejected";
   }
+  if (p.dry_run) return "Dry run: this proposal can't be applied";
+
+  const approved = await env.DB.prepare("UPDATE proposals SET status = 'approved', decided_at = ? WHERE id = ? AND status = 'pending'")
+    .bind(now, id)
+    .run();
+  if (!approved.meta.changes) return "Already decided";
   try {
-    const result = await applyProposal(env, p);
-    const status = result.startsWith("Approved;") ? "approved" : "applied";
-    await env.DB.prepare("UPDATE proposals SET status = ?, decided_at = ?, result = ? WHERE id = ?")
-      .bind(status, Date.now(), result, id)
-      .run();
+    const result = await ebayWrite(env, id);
+    await env.DB.prepare("UPDATE proposals SET status = 'applied', result = ? WHERE id = ?").bind(result, id).run();
     return result;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    await env.DB.prepare("UPDATE proposals SET status = 'failed', decided_at = ?, result = ? WHERE id = ?")
-      .bind(Date.now(), msg, id)
-      .run();
+    if (e instanceof WriteRefused) {
+      // Stays approved; nothing reached eBay.
+      await env.DB.prepare("UPDATE proposals SET result = ? WHERE id = ?").bind(msg, id).run();
+      return `Approved, not applied: ${msg}`;
+    }
+    await env.DB.prepare("UPDATE proposals SET status = 'failed', result = ? WHERE id = ?").bind(msg, id).run();
     return `Failed: ${msg}`;
   }
 }

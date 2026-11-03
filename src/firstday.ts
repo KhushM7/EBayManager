@@ -567,9 +567,13 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
     return `${q.length} answered questions, ${sent.length} sent messages`;
   });
   await stepRun(steps, "style", async () => {
+    // A failed read of the messages is not "no replies": never replace a guide on missing evidence.
+    if (steps.questions?.startsWith("failed") && steps.sent?.startsWith("failed")) return "kept: past messages couldn't be read this run";
     if (style?.editedBy && !opts.relearnStyle) return `kept: edited by ${style.editedBy}`;
     if (style?.source.learned && (style.version ?? 1) >= STYLE_VERSION && !opts.relearnStyle) return "kept: already learned";
-    style = await learnStyle(env, replies);
+    const learned = await learnStyle(env, replies);
+    if (!learned.source.learned && style?.source.learned) return "kept: the new run had nothing to learn from";
+    style = learned;
     await saveStyle(env, style);
     return style.source.learned ? `learned from ${style.source.replies} replies` : "default guide (no replies to learn from, or no Claude key)";
   });

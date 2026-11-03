@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 import { assertRest } from "./allowlist";
-import { compsAccess } from "./auth";
+import { appToken, compsAccess } from "./auth";
+import { ebayHosts } from "./hosts";
 
 export interface Comp {
   itemId: string;
@@ -55,6 +56,22 @@ export async function searchActiveComps(
     shipping: cheapestPostage(s.shippingOptions),
   }));
   return { activeCount: Number(data.total ?? comps.length), ...summarize(comps.map((c) => c.price)), comps };
+}
+
+/** Item specifics eBay requires or recommends for a category (Taxonomy, EBAY_GB tree 3), most important first. */
+export async function categoryAspects(env: Env, categoryId: string): Promise<{ name: string; required: boolean }[]> {
+  const u = new URL(`${ebayHosts(env).api}/commerce/taxonomy/v1/category_tree/3/get_item_aspects_for_category`);
+  u.searchParams.set("category_id", categoryId);
+  assertRest("GET", u.toString());
+  const res = await fetch(u, { headers: { Authorization: `Bearer ${await appToken(env)}` } });
+  if (!res.ok) throw new Error(`Taxonomy aspects failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
+  return toAspects(await res.json());
+}
+
+export function toAspects(data: any): { name: string; required: boolean }[] {
+  return (data?.aspects ?? [])
+    .filter((a: any) => a.aspectConstraint?.aspectRequired || a.aspectConstraint?.aspectUsage === "RECOMMENDED")
+    .map((a: any) => ({ name: String(a.localizedAspectName), required: a.aspectConstraint?.aspectRequired === true }));
 }
 
 function cheapestPostage(options: any[] | undefined): number | null {

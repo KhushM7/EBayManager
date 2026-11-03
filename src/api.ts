@@ -33,6 +33,10 @@ import { MONTHLY_CAP, providerEnabled, usedThisMonth, type Provider } from "./so
 import { evaluateProviders } from "./solddata-eval";
 import { priceListing } from "./pricing/engine";
 import { cleanSale } from "./salesreport";
+import { latestReport, runFirstDayAudit } from "./firstday";
+import { getAnsweredQuestions, getSentMessages } from "./ebay/history";
+import { editStyle, getStyle, learnStyle, saveStyle } from "./style";
+import { reviewPromotions } from "./promotion";
 
 // JSON API for the dashboard. Everything except sign-in needs a signed-in person (docs/security.md); some
 // actions are owner-only. Sign-in failures are rate-limited per network.
@@ -294,6 +298,39 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
     if (!Number.isInteger(id)) return json({ error: "Bad id" }, 400);
     await env.DB.prepare("UPDATE bundle_advice SET status = 'dismissed' WHERE id = ? AND status = 'open'").bind(id).run();
     return json({ ok: true });
+  }
+
+  // The first-day audit (docs/listing-assistant.md). Reading the report is open to all three; running it
+  // spends sold-data searches and a Claude call, so owner only. Read-only on eBay either way.
+  if (path === "/firstday" && method === "GET") return json({ report: await latestReport(env) });
+  if (path === "/firstday/run" && method === "POST") {
+    if (!owner) return ownerOnly();
+    const b = await body(request);
+    return run(async () => json({ report: await runFirstDayAudit(env, { relearnStyle: b.relearnStyle === true }) }));
+  }
+
+  // K's reply style guide: everyone can read it; only K edits or relearns it (it's K's voice).
+  if (path === "/style" && method === "GET") return json({ style: await getStyle(env) });
+  if (path === "/style" && method === "POST") {
+    if (!owner) return ownerOnly();
+    const b = await body(request);
+    if (typeof b.style !== "object" || !b.style) return json({ error: "Send the guide" }, 400);
+    return run(async () => json({ style: await editStyle(env, b.style, user.name) }));
+  }
+  if (path === "/style/learn" && method === "POST") {
+    if (!owner) return ownerOnly();
+    return run(async () => {
+      const replies = [...(await getAnsweredQuestions(env)), ...(await getSentMessages(env).catch(() => []))];
+      const style = await learnStyle(env, replies);
+      await saveStyle(env, style);
+      return json({ style });
+    });
+  }
+
+  // Promotion research on listings with a recent market picture (normally nightly).
+  if (path === "/promotion/review" && method === "POST") {
+    if (!owner) return ownerOnly();
+    return run(async () => json({ result: await reviewPromotions(env) }));
   }
 
   if (path === "/usage" && method === "GET") {

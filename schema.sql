@@ -275,3 +275,11 @@ CREATE TABLE IF NOT EXISTS bundle_advice (
   detail TEXT NOT NULL,
   status TEXT NOT NULL           -- open | dismissed | replaced | done
 );
+
+-- The first-day audit's reports (src/firstday.ts), newest shown in the app.
+CREATE TABLE IF NOT EXISTS audit_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,
+  env TEXT NOT NULL,
+  report TEXT NOT NULL
+);

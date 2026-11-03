@@ -495,8 +495,10 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
       policies = await getBusinessPolicies(env);
       policiesNote = `${policies.returns.length} return, ${policies.postage.length} postage and ${policies.payment.length} payment policies.`;
     } catch (e) {
-      policiesNote = "No business policies could be read (the account may not use them), so each listing's own return and postage settings were checked instead.";
-      throw e;
+      const msg = e instanceof Error ? e.message : String(e);
+      // 20403: the account doesn't use business policies, which is normal; each listing then carries its own.
+      if (!/20403|not eligible for Business Policy/i.test(msg)) throw e;
+      policiesNote = "This account doesn't use business policies, so each listing's own return and postage settings were checked instead.";
     }
     return policiesNote;
   });

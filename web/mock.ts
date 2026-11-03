@@ -119,6 +119,10 @@ export function mockApi(): Plugin {
             lastNightly: { at: now - 5 * h, steps: { snapshot: "3 listings", orders: "0 orders", traffic: "failed: 500", health: "1 flagged", triage: "skipped" }, triaged: 0, proposals: 0 },
           });
         }
+        if (p === "/firstday") return send({ report: mockReport });
+        if (p === "/firstday/run") { await new Promise((r) => setTimeout(r, 800)); return send({ report: { ...mockReport, at: Date.now() } }); }
+        if (p === "/style" && req.method === "GET") return send({ style: mockStyle });
+        if (p === "/style") { Object.assign(mockStyle, body.style, { editedBy: "K", at: Date.now() }); return send({ style: mockStyle }); }
         if (p === "/usage") return send({ today: { usd: 0.04, calls: 6 }, month: { usd: 0.61, calls: 88 }, byJob: [{ job: "audit", calls: 40, usd: 0.52 }, { job: "triage", calls: 48, usd: 0.09 }], dailyBudgetUsd: 1, apiKeySet: false });
         if (p === "/audit") { await new Promise((r) => setTimeout(r, 600)); return send({ error: "ANTHROPIC_API_KEY is not set on this Worker yet." }, 503); }
         if (p === "/settings/writes") { me.writesPaused = Boolean(body.paused); (me as any).writesBlocked = me.writesPaused ? "Writes are paused" : null; return send({ writesPaused: me.writesPaused }); }
@@ -127,3 +131,69 @@ export function mockApi(): Plugin {
     },
   };
 }
+
+// The first-day audit report and style guide (src/firstday.ts, src/style.ts), sample data.
+const day = 86_400_000;
+const mockStyle = {
+  tone: "Warm and brief",
+  length: "One or two sentences",
+  greeting: "Hi there,",
+  signOff: "Thanks, K",
+  habits: ["British English", "Answers the question first", "No emoji"],
+  phrasings: [
+    { topic: "Postage", example: "I post within [n] working days by Royal Mail, tracked." },
+    { topic: "Offers", example: "You're welcome to make an offer through the listing." },
+  ],
+  avoid: ["Agreeing prices in messages"],
+  source: { replies: 14, from: "2025-11-20", to: "2026-10-30", learned: true },
+  at: Date.now() - 2 * day,
+  editedBy: null,
+};
+const finding = (severity: string, title: string, detail: string, fix: string, itemTitle: string | null = null, area = "listing") => ({ area, severity, title, detail, fix, itemTitle });
+const mockReport = {
+  at: Date.now() - 3 * 3_600_000,
+  env: "production",
+  seller: { userId: "k-sells", feedbackScore: 41, positivePercent: 100, businessType: "Private" },
+  listings: [
+    {
+      itemId: "178305367532", title: "Samsung Galaxy Buds 2 Pro Case", url: null, price: 18.99, postage: 2.7, collectionOnly: false, listedDays: 113, watchers: 5, views7d: 2,
+      photos: 3, specifics: 2, descriptionChars: 90,
+      pricing: { strategy: "compete", price: 15.5, why: "A crowded market: 14 weeks of supply at the recent sales rate.", confidence: 0.55 },
+      promotion: { action: "promote", rate: 2.5, why: "Saturated market and 113 days listed without a sale. A 2.5% general ad should cut the wait from about 60 to 48 days.", suggestedRate: 6.4 },
+      findings: [finding("high", "Above the market by 23%", "Compete at £15.50.", "proposal"), finding("medium", "Short title", "Uses 31 of 80 characters.", "claude"), finding("medium", "Thin description", "90 characters.", "claude")],
+    },
+    {
+      itemId: "178310678490", title: "Designer ceiling lights x2, brushed brass", url: null, price: 45, postage: null, collectionOnly: true, listedDays: 111, watchers: 0, views7d: 1,
+      photos: 2, specifics: 1, descriptionChars: 0,
+      pricing: { strategy: "ask", price: null, why: "", confidence: 0, question: "Which brand and model are the lights, and what diameter?" },
+      promotion: null,
+      findings: [finding("high", "No description", "Say what it is.", "claude"), finding("high", "2 photos", "Buyers want every side.", "you"), finding("medium", "Engine needs your answer", "Which brand and model are the lights?", "you")],
+    },
+  ],
+  sold: {
+    count: 23, revenue: 612.4, median: 21.5, first: "2025-03-08", last: "2026-09-27",
+    byMonth: [{ month: "2025-03", sales: 4, revenue: 88 }, { month: "2025-06", sales: 6, revenue: 140.5 }, { month: "2026-01", sales: 7, revenue: 201.9 }, { month: "2026-09", sales: 6, revenue: 182 }],
+    top: [{ title: "Sony WH-1000XM3 headphones", price: 95, date: "2026-01-14" }, { title: "Kindle Paperwhite 10th gen", price: 48, date: "2025-06-02" }],
+    avgDaysToSell: 18.4, timedSales: 5, feeShare: null, askingVsSold: [],
+  },
+  unsold: [{ itemId: "1", title: "Phone case bundle", price: 9.99, days: 30, watchers: 3, views: 80, likely: "3 people watched it but nobody bought: the price was probably a little high." }],
+  messages: { replies: 14, questionsAnswered: 9, note: "Learned from 14 of your past messages." },
+  settings: {
+    policies: {
+      returns: [{ id: "r1", name: "Returns accepted", accepted: true, periodDays: 30, buyerPaysReturnPostage: true }],
+      postage: [{ id: "f1", name: "Royal Mail 2nd", handlingDays: 2, services: [{ service: "UK_RoyalMailSecondClassStandard", cost: 2.7, free: false }], collection: false }],
+      payment: [{ id: "p1", name: "eBay payments" }],
+    },
+    note: "1 return, 1 postage and 1 payment policies.",
+  },
+  findings: [
+    finding("high", "Above the market by 23%", "Compete at £15.50: a crowded market.", "proposal", "Samsung Galaxy Buds 2 Pro Case"),
+    finding("high", "No description", "Say what it is, its condition in plain words, and what's included.", "claude", "Designer ceiling lights x2, brushed brass"),
+    finding("high", "2 photos", "Buyers want every side, labels and any flaws. eBay allows 24.", "you", "Designer ceiling lights x2, brushed brass"),
+    finding("medium", "Promote at 2.5%", "Saturated market and 113 days listed without a sale.", "proposal", "Samsung Galaxy Buds 2 Pro Case", "promotion"),
+    finding("medium", "Ended unsold: Phone case bundle", "3 people watched it but nobody bought: the price was probably a little high.", "you", "Phone case bundle", "unsold"),
+  ],
+  proposals: [{ id: "x", kind: "price", itemId: "178305367532" }, { id: "y", kind: "promote", itemId: "178305367532" }],
+  forClaude: ["178305367532", "178310678490"],
+  steps: { snapshot: "4 listings", listings: "4 read in full", prices: "2 priced, 1 proposed, 1 need your answer", promotion: "4 checked, 1 proposed", messages: "9 answered questions, 5 sent messages", style: "learned from 14 replies", policies: "1 return, 1 postage and 1 payment policies." },
+};

@@ -18,9 +18,13 @@ A one-off, read-only review of the whole account, shown as a report in the app w
 
 The audit makes **no** changes. Its suggestions become dry-run proposals in Phase 6, and real proposals once changes are on.
 
+Built 2026-11-03 (`src/firstday.ts`). Price and promotion fixes come from the pricing engine and promotion research; return policies that break K's rule become `policy` proposals; titles, item specifics and descriptions go to the Claude listing review, which K starts per listing (or for all) from the Audit screen. Missing item specifics are checked against eBay's required and recommended aspects for each category (Taxonomy). eBay's sold and unsold lists only go back 60 days; older sales come from the imported Seller Hub report. Buyer IDs are never stored.
+
 ## Replies in K's voice
 
 Reply drafts follow the style guide from the audit (and anything K edits later). The rules are unchanged: only facts from the listing, no price agreements, everything kept on eBay.
+
+Built 2026-11-03 (`src/style.ts`): tone, length, greeting, sign-off, habits, example phrasings (item details replaced by placeholders) and things K avoids, stored in `settings.reply_style`. Contact details are scrubbed in code. It's added to the drafting prompts after the rules, which win where they conflict. Relearning never overwrites K's edits unless K asks.
 
 ## New listings from photos
 

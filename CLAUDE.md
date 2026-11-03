@@ -8,7 +8,7 @@ Design docs: [roadmap](docs/roadmap.md), [pricing engine](docs/pricing-engine.md
 
 ## Decisions (2026-11-02)
 
-- **Sandbox first.** Everything is built and tested on eBay Sandbox. K's real seller account is connected read-only at Phase 6 and accepts approved writes only from Phase 7. See [safety-and-environments.md](docs/safety-and-environments.md).
+- **Sandbox first.** Everything is built and tested on eBay Sandbox. K's real seller account is connected read-only at Phase 6 and accepts approved writes only from Phase 8. See [safety-and-environments.md](docs/safety-and-environments.md).
 - **Every eBay write needs approval**, not only prices and messages. Strict at launch. Later, K may opt eligible kinds into auto-apply. See [approvals.md](docs/approvals.md).
 - **One PWA is both the website and the app.** The dashboard is an installable Android PWA with Web Push Approve/Reject, served by the same Worker. ntfy becomes an optional fallback. See [app-and-dashboard.md](docs/app-and-dashboard.md).
 
@@ -42,7 +42,7 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 - **Every eBay write needs approval.** Anything that changes the eBay account goes through a proposal (`src/proposals.ts`). It changes eBay only after K approves it from a push notification or the dashboard Inbox. Signed links work by POST only. Never add a tool or code path that writes to eBay directly.
 - **Locked kinds.** `price`, `message`, `best_offer_response`, `offer_to_watchers`, `create_listing`, `end_listing` and `policy` can never be auto-applied, whatever the dashboard settings say.
 - **One write gate.** Only `ebayWrite()` in `src/ebay/write.ts` may call eBay write endpoints. It refuses unless `WRITE_MODE=approval`, the kill switch is off and the proposal is approved. Every write is recorded in `audit_log`.
-- **No real account before Phase 6.** Never point the Worker at K's production seller account, or add production seller credentials, before Phase 6 of [the roadmap](docs/roadmap.md). Production Browse comps through the app token are allowed because they link no account.
+- **Read-only until Phase 8.** K's real account is connected read-only (Phase 6). Never set `WRITE_MODE=approval` in production, or request write scopes, before Phase 8 and the go-live tests.
 - **Pricing target.** The pricing engine (`src/pricing/`, [pricing-engine.md](docs/pricing-engine.md)) prices toward the cheaper end of current sales of the same item without going below its long-run value, holds at a higher price when a dip is temporary, and asks K when it can't identify the item. K's floor is enforced in code; the engine moves at most 10% a step, and a bigger jump or a second change within 7 days is flagged on the label. Updated by K on 2026-11-03.
 - **Returns.** Always accepted, and the buyer pays return postage. This is set as an eBay business policy.
 - **Shipping.** Assume K has a box and ships the item, unless they say collection only.
@@ -77,16 +77,21 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 npm install
 npm run typecheck && npm test   # tsc + vitest
 npx wrangler dev                # local, Sandbox; secrets in .dev.vars
-npm run deploy:sandbox          # see README for first-time setup
-# npm run deploy:production     # not before Phase 6
+npm run deploy:sandbox          # Claude may run this
+npm run deploy:production       # K runs this, then: node scripts/check-production.mjs
 ```
 
-## Next steps
+Production is read-only (`WRITE_MODE=off`). Claude can read production D1 for diagnosis (`npx wrangler d1 execute ebay-autopilot-production --env production --remote --json --command "SELECT ..."`), but K runs anything that changes production: deploys, migrations (`migrations/*.sql`, also appended to `schema.sql`) and secrets (`npx wrangler secret bulk .prod.vars --env production`). Never print secrets or `.prod.vars`.
 
-Current phase: **6, production preparation** (see [docs/roadmap.md](docs/roadmap.md)). Phases 0–5 are done on Sandbox; the Sandbox Worker is live at https://ebay-autopilot-sandbox.ebay-autopilot.workers.dev.
+## Where things stand (2026-11-03)
+
+- Phases 0–6 are done. K's real eBay account is connected **read-only** to production: https://ebay-autopilot-production.ebay-autopilot.workers.dev (Sandbox: https://ebay-autopilot-sandbox.ebay-autopilot.workers.dev).
+- The pricing engine is built (`src/pricing/`, [pricing-engine.md](docs/pricing-engine.md)). It prices listings, Best Offers and counters, audits and a nightly price review, and the code enforces that prices come from it. In K's backtest against 5 real sales it was 12.4% off on average (4 priced), against CompsAPI 27.1% and Trawl 77%.
+- K's past sales (23, from 2025-03 to 2026-09) are imported from the Seller Hub orders report. eBay's APIs return only 90 days.
+- **Current phase: 7, read-only on the real account.** Next, in order: the first-day audit and report (listings, sold history, ended listings, messages, settings), the reply style guide from K's past replies, and promotion research. Then one full nightly cycle and go-live tests A to H ([go-live-tests.md](docs/go-live-tests.md)). See [roadmap.md](docs/roadmap.md).
 
 ## Open items
 
-- Sold-price data: Marketplace Insights isn't available; prices use an estimated sold price from K's sales, eBay data, and Trawl or CompsAPI sold records (whichever wins K's test), with hard monthly caps ([sold-price-data.md](docs/sold-price-data.md)). Never scrape eBay or automate its website.
-- Production keyset (Phase 6): opt out of marketplace account deletion notifications, since the app stores no other users' data.
+- Sold-price data: Marketplace Insights isn't available. Prices come from Trawl and CompsAPI, pooled, with hard monthly caps (Trawl 250, CompsAPI 100) and a 30-day cache ([sold-price-data.md](docs/sold-price-data.md)). Never scrape eBay or automate its website.
+- The engine assumes 0% eBay final value fees (a UK private seller). Add a fee setting if K sells as a business.
 - No CI is set up yet.

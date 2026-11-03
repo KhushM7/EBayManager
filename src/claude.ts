@@ -16,6 +16,9 @@ const PRICES: Record<Model, { input: number; output: number; cacheWrite: number;
   "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01 },
 };
 
+/** Per web search (server tool), USD. */
+export const WEB_SEARCH_USD = 0.01;
+
 export function costUsd(model: Model, u: Anthropic.Beta.BetaUsage): number {
   const p = PRICES[model];
   const m =
@@ -23,7 +26,8 @@ export function costUsd(model: Model, u: Anthropic.Beta.BetaUsage): number {
     u.output_tokens * p.output +
     (u.cache_creation_input_tokens ?? 0) * p.cacheWrite +
     (u.cache_read_input_tokens ?? 0) * p.cacheRead;
-  return m / 1_000_000;
+  // Web searches cost $10 per 1,000 on top of tokens.
+  return m / 1_000_000 + (u.server_tool_use?.web_search_requests ?? 0) * WEB_SEARCH_USD;
 }
 
 export async function spentTodayUsd(env: Env): Promise<number> {
@@ -60,7 +64,7 @@ export interface AgentResult {
 
 const MAX_TOOL_RESULT_CHARS = 20_000;
 
-async function client(env: Env, api?: MessagesApi): Promise<MessagesApi> {
+export async function client(env: Env, api?: MessagesApi): Promise<MessagesApi> {
   if (!api && !env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set on this Worker yet.");
   const spent = await spentTodayUsd(env);
   if (spent >= CLAUDE_DAILY_BUDGET_USD)
@@ -68,7 +72,7 @@ async function client(env: Env, api?: MessagesApi): Promise<MessagesApi> {
   return api ?? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }).beta.messages;
 }
 
-async function logUsage(env: Env, job: string, model: Model, response: Anthropic.Beta.BetaMessage): Promise<number> {
+export async function logUsage(env: Env, job: string, model: Model, response: Anthropic.Beta.BetaMessage): Promise<number> {
   const cost = costUsd(model, response.usage);
   await env.DB.prepare(
     `INSERT INTO claude_usage (at, job, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, stop_reason)

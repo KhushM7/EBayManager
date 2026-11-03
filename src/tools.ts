@@ -6,6 +6,7 @@ import { listProposals, proposeAndNotify } from "./proposals";
 import { gateClosedReason, setWritesPaused, verifyNewListing } from "./ebay/write";
 import { MAX_PRICE_STEP, MIN_DAYS_BETWEEN_PRICE_CHANGES } from "./rules";
 import { currentPricing, priceListing } from "./pricing/engine";
+import { specsFor } from "./specs";
 
 export interface Tool {
   name: string;
@@ -26,12 +27,17 @@ export const tools: Tool[] = [
   {
     name: "get_listing",
     description:
-      "Full detail for one listing: description, item specifics, condition, photos, category, and FactsFromK: facts K has written about the item (measurements, faults, what's included), which are true and may be used, cited as 'from K'.",
+      "Full detail for one listing: description, item specifics, condition, photos, category; FactsFromK: facts K has written about the item (measurements, faults, what's included), true and usable, cited as 'from K'; and PublishedSpecs: the manufacturer's published specifications for the exact product, each with its source page, usable for item specifics and the description, cited with the source.",
     inputSchema: obj({ item_id: { type: "string" } }, ["item_id"]),
     run: async (env, a) => {
       const item = await getItem(env, a.item_id);
       const s = await env.DB.prepare("SELECT notes FROM item_settings WHERE item_id = ?").bind(a.item_id).first<{ notes: string | null }>();
-      return { ...item, FactsFromK: s?.notes ?? null };
+      const published = await specsFor(env, item);
+      return {
+        ...item,
+        FactsFromK: s?.notes ?? null,
+        PublishedSpecs: published?.exact ? { product: published.product, specs: published.specs } : null,
+      };
     },
   },
   {

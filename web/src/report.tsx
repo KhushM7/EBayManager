@@ -34,6 +34,7 @@ interface ListingAudit {
   promotion: { action: string; rate: number | null; why: string; suggestedRate: number | null; currentRate?: number | null } | null;
   advice?: { action: "revise" | "relist"; why: string };
   factsFromK?: string | null;
+  published?: { product: string | null; exact: boolean; note: string; specs: { name: string; value: string; source: string; sourceTitle: string }[] } | null;
   findings: Finding[];
 }
 
@@ -102,6 +103,29 @@ function postageText(l: ListingAudit): string | null {
   if (l.postageKind === "free") return "free postage";
   if (l.postageKind === "calculated") return "buyer pays postage (set by eBay per buyer)";
   return l.postage != null ? `buyer pays ${money(l.postage)} postage` : null;
+}
+
+/** The manufacturer's published specs Claude found for the exact product, each with its source. */
+function Published({ p }: { p: NonNullable<ListingAudit["published"]> }) {
+  if (!p.exact) return <p class="wide small muted" style={{ margin: "4px 0 0" }}>Published specs: not looked up, because {p.note.charAt(0).toLowerCase() + p.note.slice(1)}</p>;
+  if (!p.specs.length) return <p class="wide small muted" style={{ margin: "4px 0 0" }}>Published specs for the {p.product}: none found.</p>;
+  return (
+    <details class="wide small" style={{ margin: "4px 0 0" }}>
+      <summary>
+        {p.specs.length} published specs for the {p.product}
+      </summary>
+      <ul>
+        {p.specs.map((s) => (
+          <li>
+            {s.name}: <strong>{s.value}</strong>{" "}
+            <a href={s.source} target="_blank" rel="noopener noreferrer">
+              {s.sourceTitle || new URL(s.source).hostname}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
 }
 
 /** K's facts about one item (measurements, faults, what's included) and the floor price. */
@@ -319,6 +343,7 @@ export function Report({ me, onSignedOut, onChanged }: ScreenProps) {
                   <strong>{l.advice.action === "relist" ? "Relist" : "Revise"}.</strong> {l.advice.why.replace(/^(Revise|Relist)[^:]*: /, "")}
                 </p>
               )}
+              {l.published && <Published p={l.published} />}
               {owner && <Facts itemId={l.itemId} initial={l.factsFromK ?? null} onSignedOut={onSignedOut} />}
               {fixes[l.itemId]?.note && <p class="wide result">{fixes[l.itemId].note}</p>}
               {fixes[l.itemId]?.error && <p class="wide error">{fixes[l.itemId].error}</p>}

@@ -21,6 +21,7 @@ import { RETURNS } from "./rules";
 import { snapshotListings } from "./snapshot";
 import { providerEnabled } from "./solddata";
 import { getStyle, learnStyle, saveStyle, STYLE_VERSION, type StyleGuide } from "./style";
+import { specsFor, type SpecLookup } from "./specs";
 
 // The first-day audit (docs/listing-assistant.md): a read-only review of the whole account once it's
 // connected. It reads every active listing in full, the sold history (K's imported Seller Hub sales and eBay's
@@ -78,6 +79,8 @@ export interface ListingAudit {
   advice: { action: "revise" | "relist"; why: string };
   /** Facts K has written about the item. */
   factsFromK: string | null;
+  /** The manufacturer's published specs for the exact product, with sources. */
+  published: { product: string | null; exact: boolean; note: string; specs: { name: string; value: string; source: string; sourceTitle: string }[] } | null;
   findings: Finding[];
 }
 
@@ -139,6 +142,17 @@ export const stripHtml = (html: string) =>
 
 const RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 
+/** Published-spec lookups per audit run (stored ones are free; each new one is a Sonnet run with up to 4 searches). */
+const MAX_SPEC_LOOKUPS = 20;
+
+const words = (s: string) => s.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+/** A description that says nothing beyond the title (eBay may hold the title as the description). */
+export function repeatsTitle(description: string, title: string): boolean {
+  const t = new Set(words(title));
+  const extra = words(description).filter((w) => !t.has(w));
+  return extra.length < 5;
+}
+
 const MEASURE = /width|height|length|depth|weight|dimension|diameter|size|capacity/i;
 const CONDITION_WORDS = /condition|scratch|scuff|mark|wear|worn|dent|chip|crack|stain|tested|fully working|works|excellent|good|immaculate|like new|pristine/i;
 const FAULT_WORDS = /fault|not working|doesn.?t work|broken|issue|problem|untested|won.?t|works but|no power|missing/i;
@@ -174,6 +188,7 @@ export function auditListing(
     pricedAt?: number | null;
     promotion?: ListingPromotion | null;
     factsFromK?: string | null;
+    published?: SpecLookup | null;
     now?: number;
   } = {},
 ): ListingAudit {
@@ -218,14 +233,30 @@ export function auditListing(
   const req = missing.filter((a) => a.required).map((a) => a.name);
   const rec = missing.filter((a) => !a.required).map((a) => a.name);
   if (req.length) add("high", "Required item specifics missing", req.join(", "), "claude");
-  // Measurements need a tape measure, not Claude; the rest Claude fills only where the listing (or K) states it.
-  const measured = rec.filter((n) => MEASURE.test(n));
-  const other = rec.filter((n) => !MEASURE.test(n));
+  // Published specs for the exact product fill what they can; only what isn't published needs K.
+  const pub = ctx.published;
+  const published = new Set((pub?.specs ?? []).map((s) => s.name.toLowerCase()));
+  const fromWeb = [...req, ...rec].filter((n) => published.has(n.toLowerCase()));
+  if (fromWeb.length)
+    add(
+      "medium",
+      `${fromWeb.length} specifics found in published specs`,
+      `${fromWeb.join(", ")}, from the published specifications for the ${pub!.product}. Claude fills them in, with the source on the label.`,
+      "claude",
+    );
+  const measured = rec.filter((n) => MEASURE.test(n) && !published.has(n.toLowerCase()));
+  const other = rec.filter((n) => !MEASURE.test(n) && !published.has(n.toLowerCase()));
   if (measured.length)
     add(
       "medium",
       "Measurements missing",
-      `${measured.join(", ")}. Buyers filter by these. Measure the item and add them as facts, then Claude can fill them in.`,
+      `${measured.join(", ")}. ${
+        !pub
+          ? "The published specifications haven't been looked up yet (it needs the Claude key)."
+          : !pub.exact
+            ? `They can't be looked up until the exact product is known: ${pub.note}`
+            : `Not published for the ${pub.product}, so they'd need measuring.`
+      } Add them as facts and Claude fills them in.`,
       "you",
     );
   if (other.length >= 2)
@@ -234,7 +265,13 @@ export function auditListing(
     add("medium", "Few item specifics", `Only ${specificNames.length}. Buyers filter search by them (brand, model, colour, size).`, "claude");
 
   // Description and condition.
-  if (!description) add("high", "No description", "Say what it is, its condition in plain words, and what's included.", "claude");
+  if (!description || repeatsTitle(description, title))
+    add(
+      "high",
+      "No description",
+      description ? "The description only repeats the title. Say what it is, its condition in plain words, and what's included." : "Say what it is, its condition in plain words, and what's included.",
+      "claude",
+    );
   else if (description.length < 200) add("medium", "Thin description", `${description.length} characters. Add condition, what's included and measurements if known.`, "claude");
   const conditionNote = String(item?.ConditionDescription ?? "").trim();
   if (conditionId === 7000 && !conditionNote && !FAULT_WORDS.test(description))
@@ -295,6 +332,7 @@ export function auditListing(
     promotion: p ? { action: p.advice.action, rate: p.advice.rate, why: p.advice.why, suggestedRate: p.suggestedRate, currentRate: p.currentRate } : null,
     advice: reviseOrRelist({ watchers: Number(item?.WatchCount ?? 0), listedDays: input.listedDays ?? null, views7d: ctx.views7d ?? null }),
     factsFromK: ctx.factsFromK ?? null,
+    published: pub ? { product: pub.product, exact: pub.exact, note: pub.note, specs: pub.specs } : null,
     findings: f,
   };
 }
@@ -461,6 +499,7 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
   // 4. Per-listing checks, with the category's item specifics from eBay.
   const listings: ListingAudit[] = [];
   const aspectsByCategory = new Map<string, { name: string; required: boolean }[] | null>();
+  let lookups = 0;
   await stepRun(steps, "checks", async () => {
     for (const item of items) {
       const cat = String(item?.PrimaryCategory?.CategoryID ?? "");
@@ -480,6 +519,7 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
           pricedAt: priced?.at ?? null,
           promotion: promos.find((p) => p.itemId === id) ?? null,
           factsFromK: facts?.notes ?? null,
+          published: lookups++ < MAX_SPEC_LOOKUPS ? await specsFor(env, item) : null,
           now: at,
         }),
       );

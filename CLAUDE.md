@@ -69,6 +69,7 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/nightly.ts`, `src/health.ts`, `src/ebay/sell.ts` | The 02:00 run: snapshot, orders and traffic sync, rule-based health flags, Haiku triage of flagged listings |
 | `src/pricing/` | The pricing engine: `model.ts` (maths, pure), `identify.ts` (Claude identify and match), `engine.ts`, `learn.ts`, `bundles.ts` |
 | `src/solddata.ts`, `src/solddata-eval.ts`, `src/salesreport.ts` | Trawl and CompsAPI sold data (capped, cached), K's comparison test, the Seller Hub orders report import |
+| `src/specs.ts` | Published specifications for an exactly identified product (Sonnet + web search), each with a verified source |
 | `src/firstday.ts`, `src/style.ts`, `src/promotion.ts`, `src/ebay/history.ts` | First-day audit report, K's reply style guide, Promoted Listings research, and the account-history reads they use |
 | `src/inbox.ts`, `src/ebay/inbox.ts` | The 15-minute poll: buyer questions and Best Offers, Haiku drafts, floor enforced in code |
 

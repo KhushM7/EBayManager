@@ -50,7 +50,7 @@ describe("checking one listing", () => {
     });
     const titles = a.findings.map((f) => f.title);
     expect(titles).toEqual(
-      expect.arrayContaining(["Returns not accepted", "Short title", "Required item specifics missing", "3 other recommended item specifics missing", "Thin description", "1 photo", "Best Offer off"]),
+      expect.arrayContaining(["Returns not accepted", "Short title", "Required item specifics missing", "3 other recommended item specifics missing", "No description", "1 photo", "Best Offer off"]),
     );
     expect(a.missingRequired).toEqual(["Brand"]);
     expect(a.findings.find((f) => f.title === "Short title")!.fix).toBe("claude");

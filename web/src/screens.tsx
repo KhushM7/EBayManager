@@ -3,6 +3,8 @@ import { api, SignedOut, type Activity as Row, type Device, type Listing, type M
 import { DraftEditor, EDITABLE } from "./drafts";
 import { ago, daysSince, describe, money } from "./format";
 import { addPasskey } from "./passkey";
+import { SoldDataCard } from "./solddata";
+import { BundleAdvice, PriceCheck } from "./pricing";
 
 export interface ScreenProps {
   me: Me;
@@ -129,6 +131,7 @@ export function Inbox({ me, onSignedOut, onChanged }: ScreenProps) {
           <span class="state state-held">Held</span> Approved changes wait for now: {me.writesBlocked.toLowerCase()}.
         </p>
       )}
+      {waiting && <BundleAdvice onSignedOut={onSignedOut} />}
       <div class="tabs" role="tablist">
         {STATUSES.map((s) => (
           <button role="tab" aria-selected={s.id === status} class="tab" onClick={() => setStatus(s.id)}>
@@ -262,7 +265,7 @@ export function Aside({ me, go, waiting, onSignedOut, here }: ScreenProps & { wa
 
 // ---------------------------------------------------------------- Listings
 
-export function Listings({ onSignedOut, onChanged }: ScreenProps) {
+export function Listings({ me, onSignedOut, onChanged }: ScreenProps) {
   const { data, error, reload } = useData<Listing[]>("/listings", onSignedOut);
   const [refreshing, setRefreshing] = useState(false);
   const [reviews, setReviews] = useState<Record<string, { busy?: boolean; note?: string; error?: string }>>({});
@@ -337,11 +340,17 @@ export function Listings({ onSignedOut, onChanged }: ScreenProps) {
             {l.pending > 0 && <p class="wide flag" style={{ margin: 0 }}>{plural(l.pending, "label")} waiting in the Inbox</p>}
             {reviews[l.item_id]?.note && <p class="wide result">{reviews[l.item_id].note}</p>}
             {reviews[l.item_id]?.error && <p class="wide error">{reviews[l.item_id].error}</p>}
-            <p class="wide" style={{ margin: "6px 0 0" }}>
+            <div class="wide" style={{ margin: "6px 0 0" }}>
               <button class="btn-link" disabled={reviews[l.item_id]?.busy} onClick={() => review(l.item_id)}>
                 {reviews[l.item_id]?.busy ? "Claude is reviewing (up to a minute)" : "Review with Claude"}
               </button>
-            </p>
+              {me.user.role === "owner" && (
+                <>
+                  {" · "}
+                  <PriceCheck itemId={l.item_id} onSignedOut={onSignedOut} />
+                </>
+              )}
+            </div>
           </li>
         ))}
       </ol>
@@ -682,6 +691,8 @@ export function Settings(props: ScreenProps) {
             <PeopleCard {...props} />
           </div>
         )}
+
+        <SoldDataCard owner={owner} onSignedOut={onSignedOut} />
 
         <section class="paper">
           <h2>Claude</h2>

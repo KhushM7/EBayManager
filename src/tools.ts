@@ -5,6 +5,7 @@ import { searchActiveComps } from "./ebay/browse";
 import { listProposals, proposeAndNotify } from "./proposals";
 import { gateClosedReason, setWritesPaused, verifyNewListing } from "./ebay/write";
 import { MAX_PRICE_STEP, MIN_DAYS_BETWEEN_PRICE_CHANGES } from "./rules";
+import { currentPricing, priceListing } from "./pricing/engine";
 
 export interface Tool {
   name: string;
@@ -43,6 +44,23 @@ export const tools: Tool[] = [
     run: (env, a) => searchActiveComps(env, a.query, { conditionIds: a.condition_ids, categoryId: a.category_id }),
   },
   {
+    name: "price_check",
+    description:
+      "Run the pricing engine on one of K's listings: identifies the item (and a bundle's parts), finds true matching sold sales and current listings, reads the market (clearing price, long-run price, trend, weeks of supply, regime) and recommends a strategy (compete, hold, clear, or ask K) with a price and three options showing expected days to sell. Prices are what K lists; totals include postage. Use its price and 'why' for any price proposal.",
+    inputSchema: obj({ item_id: { type: "string" } }, ["item_id"]),
+    run: async (env, a) => {
+      // A check from today is reused (the nightly review may have just run one).
+      const r = (await currentPricing(env, a.item_id, 1)) ?? (await priceListing(env, a.item_id));
+      // A compact view for Claude: the decision and the market, not every matched title.
+      return {
+        decision: r.decision,
+        method: r.method,
+        identity: { product: r.identity.product, group: r.identity.group, priceable: r.identity.priceable },
+        components: r.components.map((c) => ({ name: c.name, query: c.query, market: c.market, matched: c.matched, evidence: c.evidence.sold.slice(0, 3), errors: c.errors })),
+      };
+    },
+  },
+  {
     name: "set_item_settings",
     description: "Record K's floor price or collection-only flag for an item. Only call with values K stated.",
     inputSchema: obj(
@@ -74,6 +92,9 @@ export const tools: Tool[] = [
         .first<{ floor_price: number | null }>();
       if (settings?.floor_price != null && a.new_price < settings.floor_price)
         throw new Error(`Below K's floor of ${settings.floor_price}; not proposed.`);
+      // Every price comes from the pricing engine: one of its three options from a check in the last 3 days.
+      const engine = await enginePriceCheck(env, a.item_id, a.new_price);
+      a.reason = `${a.reason}\nEngine: ${engine}`;
 
       const last = await env.DB.prepare(
         "SELECT price FROM listing_snapshots WHERE item_id = ? ORDER BY taken_at DESC LIMIT 1",
@@ -224,3 +245,21 @@ export const tools: Tool[] = [
     run: (env) => snapshotListings(env),
   },
 ];
+
+/**
+ * A price proposal must be one of the pricing engine's options (within 1%) from a check in the last 3 days,
+ * and the engine must not be asking K a question instead. Returns the engine's summary for the reason.
+ */
+export async function enginePriceCheck(env: Env, itemId: string, price: number): Promise<string> {
+  const row = await env.DB.prepare("SELECT result FROM price_decisions WHERE item_id = ? AND at > ? ORDER BY at DESC LIMIT 1")
+    .bind(itemId, Date.now() - 3 * 86_400_000)
+    .first<{ result: string }>();
+  if (!row) throw new Error("Run price_check for this item first: prices come from the pricing engine. Not proposed.");
+  const d = JSON.parse(row.result).decision as { strategy: string; price: number | null; options: { price: number }[]; why: string; question?: string };
+  if (d.strategy === "ask" || d.price == null)
+    throw new Error(`The pricing engine can't price this yet: ${d.question ?? d.why} Put that question in your note for K. Not proposed.`);
+  const allowed = [d.price, ...d.options.map((o) => o.price)];
+  if (!allowed.some((p) => Math.abs(price - p) <= p * 0.01))
+    throw new Error(`£${price} isn't one of the engine's prices (${allowed.map((p) => `£${p.toFixed(2)}`).join(", ")}). Use its recommended price. Not proposed.`);
+  return `${d.strategy}, recommended £${d.price.toFixed(2)}. ${d.why}`;
+}

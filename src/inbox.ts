@@ -3,6 +3,8 @@ import { completeOnce, MODELS } from "./claude";
 import { getActiveOffers, getUnansweredQuestions, type Offer, type Question } from "./ebay/inbox";
 import { getItem } from "./ebay/trading";
 import { proposeAndNotify } from "./proposals";
+import { currentPricing } from "./pricing/engine";
+import { answerOffer } from "./pricing/offers";
 
 // Every 15 minutes: read new buyer questions and Best Offers (read-only polling, so no eBay notification
 // settings need changing), draft a reply or suggest a response with Haiku, and file each as a proposal.
@@ -18,25 +20,8 @@ export const QUESTION_SYSTEM = `You draft K's reply to a buyer's question about 
 
 Reply with the message text only.`;
 
-export const OFFER_SYSTEM = `You suggest how K should answer a Best Offer on one of K's eBay UK listings. K decides: your suggestion is shown to K with Approve, Reject and Edit.
-
-K prices at the lower end of comparable sold prices, so the asking price is already competitive. As a guide: accept offers within about 5% of the asking price; counter offers 5 to 20% below with a price between the offer and the asking price; for offers more than 20% below, counter if the buyer seems genuine, otherwise decline. Never go below K's floor price when one is given.
-
-counterPrice is set only when action is "counter", and the message must match the action: a decline doesn't propose a price.
-
-The message to the buyer is optional, at most two short sentences, friendly, British English.`;
-
-const OFFER_SCHEMA = {
-  type: "object",
-  properties: {
-    action: { type: "string", enum: ["accept", "counter", "decline"] },
-    counterPrice: { type: ["number", "null"] },
-    message: { type: "string" },
-    reason: { type: "string" },
-  },
-  required: ["action", "counterPrice", "message", "reason"],
-  additionalProperties: false,
-};
+/** Claude only words the message: the action and any counter price come from the pricing engine, in code. */
+export const OFFER_SYSTEM = `You write the short message K sends a buyer with K's answer to their Best Offer on eBay UK. The answer and any counter price are already decided; your message must match them exactly and never mention any other price. At most two short, friendly sentences in British English. For a counter, you may say briefly that it's a fair price for the item. For a decline, thank them and invite a better offer. No pressure tactics, no contact details. Reply with the message text only.`;
 
 interface OfferSuggestion {
   action: "accept" | "counter" | "decline";
@@ -140,27 +125,44 @@ async function handleQuestion(env: Env, q: Question) {
     .run();
 }
 
+/**
+ * The pricing engine answers an offer (accept if it beats carrying on, else counter); the plain guide stands
+ * in only when the engine has no market for the item. Claude then words the message, nothing else.
+ */
 async function handleOffer(env: Env, o: Offer) {
   const floor = await floorFor(env, o.itemId);
-  let suggestion = defaultSuggestion(o);
-  let drafted = false;
+  const plain = defaultSuggestion(o);
+  let suggestion: OfferSuggestion = { ...plain, reason: `${plain.reason} No market price for this item yet, so this is the simple guide.` };
+  let engine: { strategy: string; price: number | null; reservation: number } | null = null;
   try {
-    if (env.ANTHROPIC_API_KEY) {
-      const s = await completeOnce<OfferSuggestion>(env, {
-        job: `offer:${o.itemId}`,
-        model: MODELS.triage,
-        system: OFFER_SYSTEM,
-        prompt: `Listing details:\n${await listingContext(env, o.itemId)}\n\nOffer: £${o.price.toFixed(2)} from ${o.buyer}${
-          o.buyerMessage ? `, who wrote: "${o.buyerMessage}"` : ""
-        }\nK's floor price: ${floor == null ? "not set" : `£${floor.toFixed(2)}`}`,
-        schema: OFFER_SCHEMA,
-      });
-      if (s) (suggestion = s), (drafted = true);
+    const r = await currentPricing(env, o.itemId);
+    const main = r?.components[0];
+    const a = r && answerOffer({ offer: o.price, asking: o.listPrice ?? o.price, decision: r.decision, market: main?.market ?? null, postage: main?.typicalPostage ?? 0, floor });
+    if (r && a) {
+      suggestion = { action: a.action, counterPrice: a.counterPrice, message: "", reason: a.reason };
+      engine = { strategy: r.decision.strategy, price: r.decision.price, reservation: a.reservation };
     }
   } catch {
     // Keep the plain suggestion.
   }
   const s = enforceFloor(suggestion, o, floor);
+  let drafted = false;
+  try {
+    if (env.ANTHROPIC_API_KEY && s.action !== "accept") {
+      const what = s.action === "counter" ? `counter at £${Number(s.counterPrice).toFixed(2)}` : "decline";
+      const msg = await completeOnce<string>(env, {
+        job: `offer:${o.itemId}`,
+        model: MODELS.triage,
+        system: OFFER_SYSTEM,
+        prompt: `Listing details:\n${await listingContext(env, o.itemId)}\n\nOffer: £${o.price.toFixed(2)}${
+          o.buyerMessage ? `; the buyer wrote: "${o.buyerMessage}"` : ""
+        }\nK's answer: ${what}`,
+      });
+      if (msg) (s.message = msg.slice(0, 500)), (drafted = true);
+    }
+  } catch {
+    // No message: K can add one in the Inbox.
+  }
   const what = s.action === "accept" ? "accept" : s.action === "decline" ? "decline" : `counter at £${Number(s.counterPrice).toFixed(2)}`;
   const out = await proposeAndNotify(
     env,
@@ -180,6 +182,7 @@ async function handleOffer(env: Env, o: Offer) {
         message: s.message,
         flags: s.flags,
         drafted,
+        engine,
       },
       reason: s.reason,
     },

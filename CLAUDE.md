@@ -4,7 +4,7 @@ Automates K's eBay selling: improve existing listings, re-evaluate unsold ones, 
 
 Full plan (decisions, eBay API map, rollout): https://claude.ai/artifact/JowUE86DsPhFBsswMms8jf
 
-Design docs: [roadmap](docs/roadmap.md), [security](docs/security.md), [pricing and promotion](docs/pricing-and-promotion.md), [sold-price data](docs/sold-price-data.md), [listing assistant](docs/listing-assistant.md), [go-live tests](docs/go-live-tests.md), [safety and environments](docs/safety-and-environments.md), [approvals](docs/approvals.md), [app and dashboard](docs/app-and-dashboard.md).
+Design docs: [roadmap](docs/roadmap.md), [pricing engine](docs/pricing-engine.md), [security](docs/security.md), [pricing and promotion](docs/pricing-and-promotion.md), [sold-price data](docs/sold-price-data.md), [listing assistant](docs/listing-assistant.md), [go-live tests](docs/go-live-tests.md), [safety and environments](docs/safety-and-environments.md), [approvals](docs/approvals.md), [app and dashboard](docs/app-and-dashboard.md).
 
 ## Decisions (2026-11-02)
 
@@ -27,6 +27,10 @@ Design docs: [roadmap](docs/roadmap.md), [security](docs/security.md), [pricing 
 - **Go live after one nightly read-only cycle** and the [go-live tests](docs/go-live-tests.md), not 7 days.
 - **Everything needs approval at launch**, including titles, descriptions and specifics. Later, owner-only switches let those three apply automatically with a "Done" notification. Prices, offers, replies and promotion never auto-apply.
 - **Prices, offers and promotion come from a market picture**: the same item in the same condition, postage-inclusive, with saturation and sold prices. Promotion only when it pays, below eBay's suggested rate. See [pricing-and-promotion.md](docs/pricing-and-promotion.md).
+
+## Decisions (2026-11-03)
+
+- **A learning pricing engine** replaces the fixed percentile rule: Claude identifies the item and checks every comparable, both sold-data providers are pooled, the market is classed (normal, race to the bottom, decline, thin), and the price maximises expected profit allowing for time to sell. It learns from listings that sell or sit. Bundles are priced as the sum of their parts, and weekly advice suggests combining or splitting listings. See [pricing-engine.md](docs/pricing-engine.md).
 - **Never assume item facts**: look up specifications only for an exactly identified product, with sources; otherwise ask. Coach photos for someone new to selling. See [listing-assistant.md](docs/listing-assistant.md).
 - **First-day audit** of listings, sold history, messages (reply style) and settings once the real account connects.
 - **UI redesign** with the tasteskill: eBay-based colours made K's own, a logo, separate phone and desktop layouts with the same features.
@@ -39,7 +43,7 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 - **Locked kinds.** `price`, `message`, `best_offer_response`, `offer_to_watchers`, `create_listing`, `end_listing` and `policy` can never be auto-applied, whatever the dashboard settings say.
 - **One write gate.** Only `ebayWrite()` in `src/ebay/write.ts` may call eBay write endpoints. It refuses unless `WRITE_MODE=approval`, the kill switch is off and the proposal is approved. Every write is recorded in `audit_log`.
 - **No real account before Phase 6.** Never point the Worker at K's production seller account, or add production seller credentials, before Phase 6 of [the roadmap](docs/roadmap.md). Production Browse comps through the app token are allowed because they link no account.
-- **Pricing target.** Price at the lower end of comparable sold prices, adjusted for condition.
+- **Pricing target.** The pricing engine (`src/pricing/`, [pricing-engine.md](docs/pricing-engine.md)) prices toward the cheaper end of current sales of the same item without going below its long-run value, holds at a higher price when a dip is temporary, and asks K when it can't identify the item. K's floor is enforced in code; the engine moves at most 10% a step, and a bigger jump or a second change within 7 days is flagged on the label. Updated by K on 2026-11-03.
 - **Returns.** Always accepted, and the buyer pays return postage. This is set as an eBay business policy.
 - **Shipping.** Assume K has a box and ships the item, unless they say collection only.
 - **Negotiation.** K leads it. Claude only drafts replies, and K approves each message and counter-offer.
@@ -63,6 +67,8 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `scripts/` | `make-keys.mjs` (DASHBOARD_KEY, VAPID_KEY into .dev.vars), `make-icons.mjs` |
 | `src/claude.ts`, `src/jobs.ts` | Claude tool-use loop (allowlisted tools, cost log, daily budget) and the jobs that use it |
 | `src/nightly.ts`, `src/health.ts`, `src/ebay/sell.ts` | The 02:00 run: snapshot, orders and traffic sync, rule-based health flags, Haiku triage of flagged listings |
+| `src/pricing/` | The pricing engine: `model.ts` (maths, pure), `identify.ts` (Claude identify and match), `engine.ts`, `learn.ts`, `bundles.ts` |
+| `src/solddata.ts`, `src/solddata-eval.ts`, `src/salesreport.ts` | Trawl and CompsAPI sold data (capped, cached), K's comparison test, the Seller Hub orders report import |
 | `src/inbox.ts`, `src/ebay/inbox.ts` | The 15-minute poll: buyer questions and Best Offers, Haiku drafts, floor enforced in code |
 
 ## Commands
@@ -81,6 +87,6 @@ Current phase: **6, production preparation** (see [docs/roadmap.md](docs/roadmap
 
 ## Open items
 
-- Sold-price data: Marketplace Insights isn't available to this app; prices use estimated sold prices from sanctioned sources plus K's Terapeak checks ([sold-price-data.md](docs/sold-price-data.md)). Never scrape eBay or automate its website.
+- Sold-price data: Marketplace Insights isn't available; prices use an estimated sold price from K's sales, eBay data, and Trawl or CompsAPI sold records (whichever wins K's test), with hard monthly caps ([sold-price-data.md](docs/sold-price-data.md)). Never scrape eBay or automate its website.
 - Production keyset (Phase 6): opt out of marketplace account deletion notifications, since the app stores no other users' data.
 - No CI is set up yet.

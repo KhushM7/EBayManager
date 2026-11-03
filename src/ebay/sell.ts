@@ -47,14 +47,21 @@ export function toOrder(o: any): Order {
 }
 
 /** Orders created in the last `days` days, across pages. */
+/** Orders created in the last `days` days (up to two years), in 90-day windows: eBay answers at most 90 days per lookup. */
 export async function getRecentOrders(env: Env, days = 90): Promise<Order[]> {
-  const from = new Date(Date.now() - days * 86_400_000).toISOString();
+  const DAY = 86_400_000;
+  const now = Date.now();
   const out: Order[] = [];
-  for (let offset = 0; ; offset += 200) {
-    const data = await sellGet(env, `/sell/fulfillment/v1/order?filter=${encodeURIComponent(`creationdate:[${from}..]`)}&limit=200&offset=${offset}`);
-    out.push(...(data.orders ?? []).map(toOrder));
-    if (!data.next || (data.orders ?? []).length === 0) return out;
+  for (let end = now; end > now - Math.min(days, 730) * DAY; end -= 90 * DAY) {
+    const start = Math.max(end - 90 * DAY, now - Math.min(days, 730) * DAY);
+    const range = `creationdate:[${new Date(start).toISOString()}..${new Date(end).toISOString()}]`;
+    for (let offset = 0; ; offset += 200) {
+      const data = await sellGet(env, `/sell/fulfillment/v1/order?filter=${encodeURIComponent(range)}&limit=200&offset=${offset}`);
+      out.push(...(data.orders ?? []).map(toOrder));
+      if (!data.next || (data.orders ?? []).length === 0) break;
+    }
   }
+  return out;
 }
 
 const yyyymmdd = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, "");

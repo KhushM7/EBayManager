@@ -118,7 +118,7 @@ describe("audit job", () => {
   it("offers only read and propose tools, all of which exist", () => {
     const names = tools.map((t) => t.name);
     for (const t of AUDIT_TOOLS) expect(names).toContain(t);
-    expect(AUDIT_TOOLS.every((t) => /^(get_|search_|list_|propose_)/.test(t))).toBe(true);
+    expect(AUDIT_TOOLS.every((t) => /^(get_|search_|list_|price_check$|propose_)/.test(t))).toBe(true);
   });
 
   it("keeps the system prompt free of anything that changes per run", () => {

@@ -29,6 +29,10 @@ import {
 } from "./auth/users";
 import { checkKey, CSRF_HEADER, getSession, keyLogin } from "./session";
 import { snapshotListings } from "./snapshot";
+import { MONTHLY_CAP, providerEnabled, usedThisMonth, type Provider } from "./solddata";
+import { evaluateProviders } from "./solddata-eval";
+import { priceListing } from "./pricing/engine";
+import { cleanSale } from "./salesreport";
 
 // JSON API for the dashboard. Everything except sign-in needs a signed-in person (docs/security.md); some
 // actions are owner-only. Sign-in failures are rate-limited per network.
@@ -263,6 +267,35 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
     }
   }
 
+  // The pricing engine on one listing (docs/pricing-engine.md). Read-only on eBay; spends sold-data
+  // searches and a few Haiku calls, so owner only.
+  if (path === "/pricing/check" && method === "POST") {
+    if (!owner) return ownerOnly();
+    const { itemId } = await body(request);
+    if (typeof itemId !== "string" || !/^\d{6,20}$/.test(itemId)) return json({ error: "Bad item id" }, 400);
+    return run(async () => json(await priceListing(env, itemId)));
+  }
+
+  if (path === "/pricing/latest" && method === "GET") {
+    const { results } = await env.DB.prepare(
+      `SELECT item_id, at, strategy, price, total, predicted_days, result FROM price_decisions d
+       WHERE at = (SELECT MAX(at) FROM price_decisions x WHERE x.item_id = d.item_id) AND item_id IS NOT NULL`,
+    ).all<any>();
+    return json(results.map((r) => ({ ...r, result: JSON.parse(r.result) })));
+  }
+
+  if (path === "/pricing/advice" && method === "GET") {
+    const { results } = await env.DB.prepare("SELECT id, at, detail FROM bundle_advice WHERE status = 'open' ORDER BY id").all<any>();
+    return json(results.map((r) => ({ id: r.id, at: r.at, ...JSON.parse(r.detail) })));
+  }
+
+  if (path === "/pricing/advice/dismiss" && method === "POST") {
+    const { id } = await body(request);
+    if (!Number.isInteger(id)) return json({ error: "Bad id" }, 400);
+    await env.DB.prepare("UPDATE bundle_advice SET status = 'dismissed' WHERE id = ? AND status = 'open'").bind(id).run();
+    return json({ ok: true });
+  }
+
   if (path === "/usage" && method === "GET") {
     const day = new Date();
     day.setUTCHours(0, 0, 0, 0);
@@ -290,6 +323,47 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
   if (path === "/nightly" && method === "POST") return json(await runNightly(env));
 
   if (path === "/metrics" && method === "GET") return json(await metrics(env));
+
+  if (path === "/solddata" && method === "GET") {
+    const providers = await Promise.all(
+      (["trawl", "compsapi"] as Provider[]).map(async (p) => ({ provider: p, enabled: providerEnabled(env, p), used: await usedThisMonth(env, p), cap: MONTHLY_CAP[p] })),
+    );
+    const last = await setting(env, "solddata_eval");
+    return json({ providers, primary: await setting(env, "solddata_primary"), lastEval: last ? JSON.parse(last) : null });
+  }
+
+  // Past sales from Seller Hub's orders report (eBay's APIs only return 90 days). The browser has already
+  // dropped every buyer column; the server re-validates each sale and stores only the sales fields.
+  if (path === "/sales/import" && method === "POST") {
+    if (!owner) return ownerOnly();
+    const { sales } = await body(request);
+    if (!Array.isArray(sales) || sales.length > 5000) return json({ error: "Send at most 5,000 sales" }, 400);
+    const clean = sales.map(cleanSale).filter((s): s is NonNullable<ReturnType<typeof cleanSale>> => s !== null);
+    let imported = 0;
+    for (let i = 0; i < clean.length; i += 50) {
+      const batch = clean.slice(i, i + 50).flatMap((s) => [
+        env.DB.prepare(
+          "INSERT OR IGNORE INTO orders (order_id, created_at, total, fees, currency, status) VALUES (?, ?, ?, NULL, 'GBP', 'IMPORTED')",
+        ).bind(s.orderId, Date.parse(`${s.date}T12:00:00Z`), Math.round((s.price * s.quantity + (s.shipping ?? 0)) * 100) / 100),
+        env.DB.prepare("INSERT OR IGNORE INTO order_items (order_id, item_id, title, quantity, price) VALUES (?, ?, ?, ?, ?)").bind(
+          s.orderId,
+          s.itemId,
+          s.title,
+          s.quantity,
+          Math.round(s.price * s.quantity * 100) / 100,
+        ),
+      ]);
+      const res = await env.DB.batch(batch);
+      imported += res.filter((_, j) => j % 2 === 1).reduce((n, r: any) => n + (r.meta?.changes ?? 0), 0);
+    }
+    return json({ received: sales.length, valid: clean.length, imported, alreadyThere: clean.length - imported });
+  }
+
+  // Spends up to 5 searches per provider, so owner only.
+  if (path === "/solddata/evaluate" && method === "POST") {
+    if (!owner) return ownerOnly();
+    return run(async () => json(await evaluateProviders(env)));
+  }
 
   return json({ error: "Not found" }, 404);
 }

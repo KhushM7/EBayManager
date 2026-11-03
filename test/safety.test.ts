@@ -36,6 +36,7 @@ describe("write gate is the only path to eBay writes", () => {
       "src/ebay/trading.ts",
       "src/notify.ts",
       "src/push.ts",
+      "src/solddata.ts",
     ]);
   });
 

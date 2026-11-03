@@ -95,15 +95,29 @@ async function logUsage(env: Env, job: string, model: Model, response: Anthropic
  */
 export async function completeOnce<T = string>(
   env: Env,
-  req: { job: string; model: Model; system: string; prompt: string; schema?: Record<string, unknown>; effort?: "low" | "medium" | "high" },
+  req: {
+    job: string;
+    model: Model;
+    system: string;
+    prompt: string;
+    schema?: Record<string, unknown>;
+    effort?: "low" | "medium" | "high";
+    /** Public image URLs (eBay photos), shown before the prompt. */
+    images?: string[];
+    maxTokens?: number;
+  },
   api?: MessagesApi,
 ): Promise<T | null> {
   const messagesApi = await client(env, api);
+  const images = (req.images ?? []).filter((u) => /^https:\/\//.test(u)).slice(0, 4);
+  const content: string | Anthropic.Beta.BetaContentBlockParam[] = images.length
+    ? [...images.map((url) => ({ type: "image" as const, source: { type: "url" as const, url } })), { type: "text" as const, text: req.prompt }]
+    : req.prompt;
   const response = await messagesApi.create({
     model: req.model,
-    max_tokens: 4000,
+    max_tokens: req.maxTokens ?? 4000,
     system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: req.prompt }],
+    messages: [{ role: "user", content }],
     output_config: { effort: req.effort ?? "low", ...(req.schema ? { format: { type: "json_schema" as const, schema: req.schema } } : {}) },
   });
   await logUsage(env, req.job, req.model, response);

@@ -30,6 +30,9 @@ export interface Env {
   MCP_ENABLED?: string;
   /** Verification token for eBay marketplace account deletion notifications (32 to 80 characters). */
   EBAY_DELETION_TOKEN?: string;
+  /** Third-party sold-price data (optional): Trawl and CompsAPI keys. Search words only are sent. */
+  TRAWL_API_KEY?: string;
+  COMPSAPI_KEY?: string;
   MCP_TOKEN: string;
   SIGNING_KEY: string;
   NTFY_TOPIC: string;

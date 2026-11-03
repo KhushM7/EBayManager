@@ -95,6 +95,7 @@ database_id = "2a62955a-1e02-4e70-a82b-e2b8fc7892ce"
 #   EBAY_DELETION_TOKEN  verification token for marketplace account deletion notifications (production)
 #   DASHBOARD_KEY  K's dashboard sign-in key (never given to Claude's connector)
 #   ANTHROPIC_API_KEY  K's Anthropic key for the listing review and nightly triage
+#   TRAWL_API_KEY, COMPSAPI_KEY  optional sold-price data providers (docs/sold-price-data.md)
 #   VAPID_KEY      Web Push key pair, a P-256 private JWK (`node scripts/make-keys.mjs`)
 #   SIGNING_KEY    HMAC key for approval links
 #   NTFY_TOPIC     private ntfy topic for push notifications

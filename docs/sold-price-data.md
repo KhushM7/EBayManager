@@ -1,6 +1,6 @@
 # Sold-price data without Marketplace Insights
 
-eBay's Marketplace Insights API (the only official API for other sellers' sold prices) isn't available to this app. This doc explains why, what other developers do instead, and the approach EBayManager uses: an **estimated sold price** built only from data eBay sanctions, plus a confidence level, with K asked for a Terapeak check when confidence is low and the item is worth it.
+eBay's Marketplace Insights API (the only official API for other sellers' sold prices) isn't available to this app. This doc explains why, what other developers do instead, and the approach EBayManager uses: an **estimated sold price** with a confidence level, from K's own sales, eBay's official data, and real sold records from two third-party providers (Trawl first or CompsAPI first, whichever wins K's test).
 
 Researched 2026-11-02. Sources are listed at the end; vendor claims are marked as such.
 
@@ -23,9 +23,9 @@ Researched 2026-11-02. Sources are listed at the end; vendor claims are marked a
 | Sold-data databases (Trawl) | A vendor's database of completed sales | Yes: price, postage, condition, date. Covers ebay.co.uk | Unclear: the vendor doesn't say how the data is collected | Free tier ([dev.to, the vendor's own article](https://dev.to/trawl/ebay-sold-listings-api-in-2026-findcompleteditems-is-gone-heres-what-still-works-2407)) |
 | Browse API, active listings | eBay's official search of live listings | No: asking prices only | Yes | What almost everyone falls back to. Asking prices run above sold prices |
 
-## The EBayManager approach: an estimated sold price from sanctioned data
+## The EBayManager approach: an estimated sold price
 
-EBayManager never scrapes eBay and never automates eBay's website. It combines five sources that eBay allows, scores how much they agree, and is honest about confidence.
+EBayManager never scrapes eBay and never automates eBay's website. It combines six sources, scores how much they agree, and is honest about confidence. Decided by K on 2026-11-03: third-party sold records replace the manual Terapeak step.
 
 ### 1. K's own sales (strongest signal)
 
@@ -53,12 +53,34 @@ It saves them in `market_snapshots` and re-checks each one daily. From the histo
 
 **Saturation** is calculated as weeks of supply: comparables listed now, divided by estimated sales per week. Sales per week comes from `estimatedSoldQuantity` changes plus probable sales.
 
-### 4. Terapeak, by K, when it matters
+### 4. Third-party sold records: Trawl and CompsAPI
 
-Terapeak is the only official market-wide sold history, and it has no API. The app makes it a 30-second step for K, not an automation:
-- When confidence is low **and** the item's value is above a threshold (default £40, set in Settings), the price proposal includes a **"Check Terapeak"** button. It opens Seller Hub's Product Research already filled with the item's search, on the UK site and the last 90 days.
-- K types in the two numbers Terapeak shows (average sold price and sell-through), or skips the step. The app then recalculates the proposal on the spot.
-- The numbers are saved with the market picture, so the same product isn't asked about again for 30 days.
+Real sold listings for ebay.co.uk from two providers, used through `src/solddata.ts`:
+
+| | Trawl (`api.trawl.dev/ebay/v1/sold`) | CompsAPI (`api.compsapi.com/v1/sold`) |
+| --- | --- | --- |
+| UK | `site=EBAY_GB`, prices in GBP | `site=UK`; prices in USD, GBP via `native_price=1` |
+| Free tier, hard cap in code | 250 credits a month (1 per page of up to 100 sales; 0 for no results) | 100 requests a month |
+| History | Years (not stated exactly) | 1 year (3 years from the $29 plan) |
+| Best Offer | Sale price is the **listed** price, except in Collectibles, so these sales are left out of the estimate | Real accepted Best Offer price (`best_offer=1`) |
+| Summary stats | Count only (the app calculates them) | Median, quartiles, mean |
+
+**Which comes first is decided by K's test**, built as `src/solddata-eval.ts`:
+1. Take 5 items K has actually sold, spread across the price range, from the real account's order history.
+2. Ask each provider for the same item, using the same search words.
+3. Leave K's own sale out of the results.
+4. Compare each provider's median with what K actually got (the error), and whether K's price falls inside its middle 50% band.
+
+The provider with the smaller average error becomes the primary; the other is the fallback. Coverage counts too: a provider that priced fewer than 3 of the 5 items can't win on accuracy alone. The test costs at most 5 searches per provider, the owner runs it from the app, and the result is kept so it can be re-run later.
+
+**How they're used:**
+- **Only when it matters:** for price changes, offer answers and new listings, never for routine checks.
+- **The primary first.** The fallback is used only when the primary finds fewer than 3 true sales, or when the primary's monthly cap is used up.
+- **Each search cached for 30 days,** so the same product never costs twice.
+- **Junk dropped before the median:** lots, spares or repairs, faulty, box only, and outliers outside 1.5 times the interquartile range.
+- **Only search words leave the app.** Never K's item numbers, account or buyers.
+
+If both caps are used up, prices fall back to the other sources and their confidence drops, and the label says so.
 
 ### 5. Retail reference (only as a ceiling)
 
@@ -69,7 +91,8 @@ Only for an exactly identified product, Claude's web search finds the manufactur
 | Input | Weight when present |
 | --- | --- |
 | K's own sales of the same product (last 12 months) | Highest |
-| Terapeak average sold price (entered by K) | High |
+| Third-party sold records, primary provider (median of true matches, same condition) | High |
+| Third-party sold records, fallback provider | Medium-high |
 | Prices with live sales (`estimatedSoldQuantity` rising) | High |
 | Probable sales from tracking comparables | Medium |
 | Low quartile of active comparables (postage-inclusive, condition-adjusted) | Medium: asking prices run above sold prices, so the low end is used |
@@ -91,27 +114,24 @@ Every price and offer proposal shows its evidence:
 
 ### What it can't do, honestly
 
-- It can't see other sellers' exact sold prices market-wide without Terapeak. "Probable sales" are inferences, labelled as such.
-- For one-of-a-kind or rare items, comparables may be too few. The app then relies on K's own history and Terapeak, or asks K.
-- `estimatedSoldQuantity` only helps where sellers list multiple units. Used one-offs depend more on tracking and Terapeak.
+- Third-party sold records depend on the providers' coverage and their free-tier caps. When both are used up, "probable sales" (inferences, labelled as such) carry more weight and confidence drops.
+- For one-of-a-kind or rare items, true matches may be too few even in the providers' history. The app then relies on K's own history, or asks K.
+- `estimatedSoldQuantity` only helps where sellers list multiple units. Used one-offs depend more on third-party sold records and tracking.
 
-### An optional extra K can choose later (off by default)
+### Rules and trust
 
-A hosted sold-data API (for example SoldComps or Trawl, both covering ebay.co.uk with free tiers) would add exact sold records. It's **off by default**, for two reasons:
-- these services get their data by scraping eBay or don't say how they get it, which conflicts with eBay's rules even though EBayManager wouldn't be the one scraping;
-- adding one means a third party receives the app's search queries. It would never receive K's eBay credentials.
-
-If K wants it, the plan is:
-- an owner-only switch;
-- the vendor's host added to the allowlist and the CSP connect list;
-- its numbers shown separately, labelled "third-party estimate", with the lowest weight in the table above.
+Neither provider is an official eBay API, and neither says how it collects its data (Trawl's terms say "publicly available information"). So:
+- The app itself never touches eBay's website.
+- Each provider works only if its key is set. The owner can remove either key at any time, and the rest of the pricing carries on.
+- Their numbers are labelled by source on every proposal, next to K's own sales and eBay's data.
 
 ## Changes to the plan
 
 - `docs/pricing-and-promotion.md`: Marketplace Insights is no longer expected. The market picture uses the five sources above.
 - The allowlist gains Browse `getItem` for comparables (already allowed under `/buy/browse/v1/item/`). Nothing else is needed for sources 1 to 3.
-- New data: `market_snapshots` (per item per day: comparables with price, postage, condition and `estimatedSoldQuantity`), `comparable_tracking` (first seen, last seen, ended early, relisted) and `terapeak_checks` (K's entries).
-- Settings: the Terapeak threshold (default £40), and later the third-party data switch (off).
+- New data: `market_snapshots` (per item per day: comparables with price, postage, condition and `estimatedSoldQuantity`) and `comparable_tracking` (first seen, last seen, ended early, relisted).
+- New data: `solddata_usage` (monthly usage per provider, the hard caps) and `solddata_cache` (30 days).
+- Secrets: `TRAWL_API_KEY`, `COMPSAPI_KEY`. Hosts: `api.trawl.dev`, `api.compsapi.com`.
 
 ## Sources
 
@@ -121,4 +141,5 @@ If K wants it, the plan is:
 - [dev.to: eBay sold listings API in 2026, findCompletedItems is gone (written by Trawl's founder)](https://dev.to/trawl/ebay-sold-listings-api-in-2026-findcompleteditems-is-gone-heres-what-still-works-2407)
 - [SoldComps: eBay sold data API alternatives compared (vendor)](https://sold-comps.com/alternatives)
 - [SoldComps: eBay sold listings API (vendor)](https://sold-comps.com/)
-- [CompsAPI (vendor)](https://compsapi.com/)
+- [CompsAPI (vendor)](https://compsapi.com/), [CompsAPI docs](https://compsapi.com/docs)
+- [Trawl docs](https://trawl.dev/docs), [Trawl sold endpoint](https://trawl.dev/docs/ebay/sold)

@@ -66,6 +66,8 @@ Everything else is refused in code (`src/ebay/allowlist.ts`), and a test fails i
 | Write, only through the gate after approval | Trading `ReviseFixedPriceItem`, `AddFixedPriceItem`, `EndFixedPriceItem`, `RelistFixedPriceItem`, `AddMemberMessageRTQ`, `RespondToBestOffer`; Marketing `createCampaign`, `bulkCreateAdsByListingId`, `bulkUpdateAdsBidByListingId`; Inventory and Media calls for publishing new listings (Phase 8) |
 | Never | Anything that changes account settings, payments, payouts, addresses, feedback, cancellations, refunds or other users |
 
+**Outside eBay**, the Worker may call only: Anthropic (Claude), the Web Push services, ntfy, and the two sold-data providers `api.trawl.dev` and `api.compsapi.com` (search words only, hard monthly caps, `src/solddata.ts`). A test fails if any other module makes network calls.
+
 ## Threats and answers
 
 | Threat | Answer |

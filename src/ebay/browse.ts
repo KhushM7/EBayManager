@@ -9,6 +9,8 @@ export interface Comp {
   currency: string;
   condition: string;
   url: string;
+  /** Cheapest postage shown, GBP; null when not shown (collection only or calculated). */
+  shipping: number | null;
 }
 
 export interface CompSummary {
@@ -50,8 +52,14 @@ export async function searchActiveComps(
     currency: s.price?.currency ?? "",
     condition: s.condition ?? "",
     url: s.itemWebUrl,
+    shipping: cheapestPostage(s.shippingOptions),
   }));
   return { activeCount: Number(data.total ?? comps.length), ...summarize(comps.map((c) => c.price)), comps };
+}
+
+function cheapestPostage(options: any[] | undefined): number | null {
+  const costs = (options ?? []).map((o) => Number(o?.shippingCost?.value)).filter(Number.isFinite);
+  return costs.length ? Math.min(...costs) : null;
 }
 
 export function percentile(sorted: number[], p: number): number | null {

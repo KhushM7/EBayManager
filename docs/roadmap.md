@@ -73,16 +73,18 @@ Updated 2026-11-02 (plan v3). Design: [security.md](security.md), [pricing-and-p
 - [x] Marketplace account deletion endpoint: answers eBay's challenge, verifies signed notifications, deletes that buyer's stored data.
 - [x] Production Worker deployed with `WRITE_MODE=off`, its own D1 and R2, and production secrets in K's gitignored `.prod.vars`: https://ebay-autopilot-production.ebay-autopilot.workers.dev. `node scripts/check-production.mjs` runs the remote go-live checks (17 passing on 2026-11-02).
 - [x] App redesigned (tasteskill "The page is the object": each change is a parcel label with a tear-off stub; eBay colours as the four states; Rokkitt and Literata self-hosted; phone and desktop layouts).
-- [ ] K: activate the production keyset (endpoint and verification token entered in the portal), create the production RuName. (Marketplace Insights isn't available to this app: see [sold-price-data.md](sold-price-data.md).)
-- [ ] K connects the real account read-only.
+- [x] K: activate the production keyset (endpoint and verification token entered in the portal), create the production RuName. (Marketplace Insights isn't available to this app: see [sold-price-data.md](sold-price-data.md).)
+- [x] K connects the real account read-only (2026-11-03).
 
 ## Phase 7: Read-only on the real account
 
 - [ ] First-day audit and report: listings, sold history, ended listings, messages, settings ([listing-assistant.md](listing-assistant.md)).
 - [ ] Reply style guide from K's past replies, used by every draft.
-- [ ] Market pictures and the pricing engine for prices, offers and counters ([pricing-and-promotion.md](pricing-and-promotion.md)), with sold prices estimated from sanctioned sources and a Terapeak check step ([sold-price-data.md](sold-price-data.md)).
+- [x] The pricing engine for listing prices ([pricing-engine.md](pricing-engine.md)): Claude identification from title, description and photos, graded comparables from both providers, market regimes, learning, bundle advice. Offers, counters, audits and a nightly price review all use it (enforced in code). Originally: market pictures for prices, offers and counters ([pricing-and-promotion.md](pricing-and-promotion.md)), with an estimated sold price from K's sales, eBay data and Trawl or CompsAPI sold records ([sold-price-data.md](sold-price-data.md)).
+- [x] Sold-data providers connected (`src/solddata.ts`): hard monthly caps, 30-day cache, search words only.
+- [x] K's provider test (`src/solddata-eval.ts`), with the engine as a third column backtested to each sale date: engine 12.4% mean error on 4 of 5 sales, CompsAPI 27.1%, Trawl 77% (2026-11-03).
 - [ ] Promotion research: propose only when the market is saturated and the rate pays back, below eBay's suggestion.
-- [ ] The redesigned app (tasteskill; eBay-based colours made K's own, logo, separate phone and desktop layouts, same features).
+- [x] The redesigned app (tasteskill; eBay-based colours made K's own, logo, separate phone and desktop layouts, same features).
 - [ ] One full nightly cycle with all of it, then go-live tests A to H.
 
 ## Phase 8: Go live

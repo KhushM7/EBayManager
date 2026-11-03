@@ -20,6 +20,8 @@ The audit makes **no** changes. Its suggestions become dry-run proposals in Phas
 
 Built 2026-11-03 (`src/firstday.ts`). Price and promotion fixes come from the pricing engine and promotion research; return policies that break K's rule become `policy` proposals; titles, item specifics and descriptions go to the Claude listing review, which K starts per listing (or for all) from the Audit screen. Missing item specifics are checked against eBay's required and recommended aspects for each category (Taxonomy). eBay's sold and unsold lists only go back 60 days; older sales come from the imported Seller Hub report. Buyer IDs are never stored.
 
+Updated 2026-11-03 after K's first run: the audit prices every listing with the engine (a pending listing edit no longer holds it back); postage of 0 counts as free only when eBay marks it free (otherwise eBay sets it per buyer); each listing gets revise-or-relist advice (revise when 3+ people watch it, relist after 90+ quiet days); K can add facts (measurements, faults, contents) and a floor per listing, which Claude uses and cites as "from K"; and dry-run proposals can be approved (recorded, never applied) or rejected. The style guide learns only from replies before a sale and never records typos, refunds or a price stance.
+
 ## Replies in K's voice
 
 Reply drafts follow the style guide from the audit (and anything K edits later). The rules are unchanged: only facts from the listing, no price agreements, everything kept on eBay.

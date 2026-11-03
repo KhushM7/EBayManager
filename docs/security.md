@@ -61,7 +61,7 @@ Everything else is refused in code (`src/ebay/allowlist.ts`), and a test fails i
 
 | Kind | Calls |
 | --- | --- |
-| Read | Trading `GetMyeBaySelling`, `GetItem`, `GetMemberMessages`, `GetMyMessages`, `GetBestOffers`, `GetUser`; Fulfillment `getOrders`; Analytics `getTrafficReport`; Account `get*Policies`; Browse `search`, `getItem`; Taxonomy `getCategorySuggestions`, `getItemAspectsForCategory`; Marketing `getCampaigns`, `getAds`; Recommendation `findListingRecommendations` (a read sent as POST); Notification `getPublicKey` |
+| Read | Trading `GetMyeBaySelling`, `GetItem`, `GetMemberMessages`, `GetMyMessages`, `GetBestOffers`, `GetUser`; Fulfillment `getOrders`; Analytics `getTrafficReport`; Account `get*Policies`; Browse `search`, `getItem`; Taxonomy `getCategorySuggestions`, `getItemAspectsForCategory`; Marketing `getCampaigns`, `getAds`; Recommendation `findListingRecommendations` (a read sent as POST; eBay requires the full `sell.inventory` scope for it, so it works only after go-live); Notification `getPublicKey` |
 | Check without changing | Trading `VerifyAddFixedPriceItem` |
 | Write, only through the gate after approval | Trading `ReviseFixedPriceItem`, `AddFixedPriceItem`, `EndFixedPriceItem`, `RelistFixedPriceItem`, `AddMemberMessageRTQ`, `RespondToBestOffer`; Marketing `createCampaign`, `bulkCreateAdsByListingId`, `bulkUpdateAdsBidByListingId`; Inventory and Media calls for publishing new listings (Phase 8) |
 | Never | Anything that changes account settings, payments, payouts, addresses, feedback, cancellations, refunds or other users |

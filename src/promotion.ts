@@ -159,7 +159,13 @@ export async function researchPromotion(
   try {
     recs = await getAdRecommendations(env, listings.map((l) => l.itemId));
   } catch (e) {
-    errors.push(`eBay ad suggestions: ${e instanceof Error ? e.message : String(e)}`);
+    const msg = e instanceof Error ? e.message : String(e);
+    // The Recommendation API needs the full sell.inventory permission, which K grants only at go-live.
+    errors.push(
+      / 403 /.test(msg)
+        ? "eBay's suggested ad rates need the full eBay permission granted at go-live, so they're unavailable while read-only (eBay gives none for listings already in a campaign anyway)"
+        : `eBay ad suggestions: ${msg}`,
+    );
   }
   try {
     ads = await getPromotedListings(env);

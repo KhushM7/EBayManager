@@ -20,6 +20,19 @@ export interface StyleGuide {
   source: { replies: number; from: string | null; to: string | null; learned: boolean };
   at: number;
   editedBy: string | null;
+  /** STYLE_VERSION when learned; an older unedited guide is relearned on the next audit. */
+  version?: number;
+}
+
+/** 2: learns only from replies before a sale, never copies typos, no refund or price-stance phrasings. */
+export const STYLE_VERSION = 2;
+
+/** After-sale messages (delivery, refunds, damage, feedback) aren't the replies the drafts write. */
+const AFTER_SALE = /refund|return|parcel|posted|dispatch|sent (it|out)|delivery|delivered|tracking|courier|arrived|damaged|broken|faulty|feedback|case opened|collected|paid|payment/i;
+
+/** The replies a style guide learns from: answers to buyers before a sale, not after-sale messages. */
+export function preSaleReplies(replies: PastReply[]): PastReply[] {
+  return replies.filter((r) => !AFTER_SALE.test(r.reply) && !AFTER_SALE.test(r.question));
 }
 
 /** Used until there are past replies to learn from, and as the starting point K can edit. */
@@ -38,6 +51,8 @@ const MAX_TEXT = 2000;
 
 export const STYLE_SYSTEM = `You study a UK eBay seller's (K's) past replies to buyers and write a short style guide, so drafts of future replies sound like K.
 
+The drafts this guide shapes are only answers to buyers' questions before a sale, and the short message sent with K's answer to an offer. Ignore anything about after-sale matters (delivery, delays, refunds, returns, damage).
+
 Describe how K writes, not what K said about particular items:
 - tone: a few words (for example "warm and brief", "formal and precise");
 - length: typical length in sentences;
@@ -46,7 +61,7 @@ Describe how K writes, not what K said about particular items:
 - phrasings: up to 6 examples of how K words common answers (postage, condition, availability, returns, offers), each one short and with any item detail, name, number or address replaced by [brackets];
 - avoid: up to 4 things K never does.
 
-Never copy buyer names, usernames, addresses, phone numbers, emails or order numbers into the guide. If there are few replies, keep the guide short and say only what the replies show.`;
+Never copy buyer names, usernames, addresses, phone numbers, emails or order numbers into the guide. Don't record spelling mistakes, typos or missing apostrophes as habits: drafts are written correctly. Don't record a stance on price or offers (such as refusing lower offers) or offers of refunds: the app decides those, not the guide. If there are few replies, keep the guide short and say only what the replies show.`;
 
 const SCHEMA = {
   type: "object",
@@ -93,13 +108,16 @@ export function cleanGuide(g: Partial<StyleGuide>, source: StyleGuide["source"],
     source,
     at: Date.now(),
     editedBy,
+    version: STYLE_VERSION,
   };
 }
 
 /** Builds the guide from K's past replies with Claude (Sonnet, once), or the default when there are none. */
 export async function learnStyle(env: Env, replies: PastReply[], api?: MessagesApi): Promise<StyleGuide> {
   const seen = new Set<string>();
-  const usable = replies.filter((r) => r.reply.trim().length > 1 && !seen.has(r.reply) && seen.add(r.reply)).slice(0, 60);
+  const usable = preSaleReplies(replies)
+    .filter((r) => r.reply.trim().length > 1 && !seen.has(r.reply) && seen.add(r.reply))
+    .slice(0, 60);
   const dates = usable.map((r) => r.at).filter((x): x is string => Boolean(x)).sort();
   const source = { replies: usable.length, from: dates[0]?.slice(0, 10) ?? null, to: dates.at(-1)?.slice(0, 10) ?? null, learned: false };
   if (!usable.length || (!env.ANTHROPIC_API_KEY && !api)) return cleanGuide(DEFAULT_STYLE, source);

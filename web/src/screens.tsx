@@ -52,6 +52,7 @@ const STATE: Record<string, [string, string]> = {
   rejected: ["state-off", "Rejected"],
   expired: ["state-off", "Expired"],
   failed: ["state-decide", "eBay refused it"],
+  agreed: ["state-applied", "Approved (dry run)"],
 };
 
 // ---------------------------------------------------------------- Inbox
@@ -59,6 +60,7 @@ const STATE: Record<string, [string, string]> = {
 const STATUSES = [
   { id: "pending", label: "To decide" },
   { id: "applied", label: "Applied" },
+  { id: "agreed", label: "Approved (dry run)" },
   { id: "rejected", label: "Rejected" },
   { id: "failed", label: "Refused by eBay" },
   { id: "expired", label: "Expired" },
@@ -207,10 +209,9 @@ export function Inbox({ me, onSignedOut, onChanged }: ScreenProps) {
                 <div class="label-stub">
                   {done ? (
                     <p class="result" role="status">{done}</p>
-                  ) : p.dry_run ? (
-                    <p class="small">Dry run: proposed while changes are off, so it can't be applied.</p>
                   ) : (
                     <>
+                      {Boolean(p.dry_run) && <p class="small">Dry run: your answer is recorded, but nothing can reach eBay while changes are off.</p>}
                       <label class="choice small">
                         <input type="checkbox" class="pick" checked={selected.has(p.id)} onChange={() => toggle(p.id)} />
                         Select

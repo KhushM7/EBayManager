@@ -97,7 +97,9 @@ export function promotionAdvice(i: PromotionInput): PromotionAdvice {
   const promoted = i.currentRate != null;
   const stop = (why: string) => (promoted ? none(`${why} The current ${i.currentRate}% ad isn't paying for itself, so end it.`, "end") : none(why));
 
-  if (!m || m.mNow == null) return stop("No market picture for this item yet, so promotion can't be judged.");
+  // No evidence either way is never a reason to change anything.
+  if (!m || m.mNow == null)
+    return none(`No market picture for this item yet, so promotion can't be judged${promoted ? `; it stays at its current ${i.currentRate}% until there is one` : ""}.`);
   if (m.regime === "thin") return stop("A thin market: few others sell this, so the listing already shows near the top.");
   if (!saturated)
     return stop(

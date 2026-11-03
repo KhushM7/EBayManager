@@ -207,6 +207,30 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
 
   if (path === "/listings/refresh" && method === "POST") return json(await snapshotListings(env));
 
+  // K's floor and facts for one listing. Facts are used by listing edits and reply drafts, cited "from K".
+  const itemSettings = path.match(/^\/items\/(\d{6,20})\/settings$/);
+  if (itemSettings && method === "POST") {
+    if (!owner) return ownerOnly();
+    const b = await body(request);
+    const floor = b.floorPrice === null || b.floorPrice === "" ? null : Number(b.floorPrice);
+    if (floor != null && !(floor > 0 && floor < 100_000)) return json({ error: "Floor must be a price in pounds" }, 400);
+    const notes = typeof b.notes === "string" ? b.notes.trim().slice(0, 2000) || null : null;
+    await env.DB.prepare(
+      `INSERT INTO item_settings (item_id, floor_price, notes) VALUES (?, ?, ?)
+       ON CONFLICT(item_id) DO UPDATE SET floor_price = excluded.floor_price, notes = excluded.notes`,
+    )
+      .bind(itemSettings[1], floor, notes)
+      .run();
+    return json({ ok: true, floorPrice: floor, notes });
+  }
+  if (itemSettings && method === "GET")
+    return json(
+      (await env.DB.prepare("SELECT floor_price AS floorPrice, notes FROM item_settings WHERE item_id = ?").bind(itemSettings[1]).first()) ?? {
+        floorPrice: null,
+        notes: null,
+      },
+    );
+
   if (path === "/activity" && method === "GET") {
     const { results } = await env.DB.prepare(
       `SELECT a.id, a.at, a.env, a.proposal_id, a.call, a.outcome, a.actor, substr(a.response, 1, 300) AS response, p.kind, p.item_id

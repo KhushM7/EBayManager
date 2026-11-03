@@ -89,18 +89,24 @@ describe("price proposals come from the engine", () => {
 describe("nightly price review", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("skips listings with a pending proposal or a recent check, and reports what it did", async () => {
+  it("skips listings with a pending price change or a recent check, and reports what it did", async () => {
     const e = { DB: fakeD1(), EBAY_ENV: "sandbox", WRITE_MODE: "approval" } as Env;
     const now = Date.now();
     await e.DB.batch(
       ["1", "2", "3"].map((id) => e.DB.prepare("INSERT INTO listing_snapshots (item_id, taken_at, title, price) VALUES (?, ?, 'x', 40)").bind(id, now)),
     );
-    await e.DB.prepare("INSERT INTO proposals (id, kind, item_id, payload, status, created_at, expires_at) VALUES ('p', 'revise', '1', '{}', 'pending', ?, ?)").bind(now, now + 1e9).run();
+    await e.DB.prepare("INSERT INTO proposals (id, kind, item_id, payload, status, created_at, expires_at) VALUES ('p', 'price', '1', '{}', 'pending', ?, ?)").bind(now, now + 1e9).run();
+    // A pending listing edit doesn't hold back a price check.
+    await e.DB.prepare("INSERT INTO listing_snapshots (item_id, taken_at, title, price) VALUES ('4', ?, 'x', 40)").bind(now).run();
+    await e.DB.prepare("INSERT INTO proposals (id, kind, item_id, payload, status, created_at, expires_at) VALUES ('q', 'revise', '4', '{}', 'pending', ?, ?)").bind(now, now + 1e9).run();
     await e.DB.prepare("INSERT INTO price_decisions (item_id, at, grp, strategy, result) VALUES ('2', ?, 'g', 'compete', '{}')").bind(now - 86_400_000).run();
     // Item 3 is due; eBay isn't reachable here, so its check fails and is reported.
     vi.stubGlobal("fetch", vi.fn(async () => new Response("down", { status: 500 })));
     const out = await reviewPrices(e, now);
-    expect(out).toMatch(/^1 priced, 0 proposed/);
+    expect(out).toMatch(/^2 priced, 0 proposed/);
     expect(out).toMatch(/failed 3:/);
+    expect(out).toMatch(/4:/);
+    // The audit prices every listing, pending proposals and recent checks included.
+    expect(await reviewPrices(e, now, { all: true })).toMatch(/^4 priced/);
   });
 });

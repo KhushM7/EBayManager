@@ -25,9 +25,14 @@ export const tools: Tool[] = [
   },
   {
     name: "get_listing",
-    description: "Full detail for one listing: description, item specifics, condition, photos, category.",
+    description:
+      "Full detail for one listing: description, item specifics, condition, photos, category, and FactsFromK: facts K has written about the item (measurements, faults, what's included), which are true and may be used, cited as 'from K'.",
     inputSchema: obj({ item_id: { type: "string" } }, ["item_id"]),
-    run: (env, a) => getItem(env, a.item_id),
+    run: async (env, a) => {
+      const item = await getItem(env, a.item_id);
+      const s = await env.DB.prepare("SELECT notes FROM item_settings WHERE item_id = ?").bind(a.item_id).first<{ notes: string | null }>();
+      return { ...item, FactsFromK: s?.notes ?? null };
+    },
   },
   {
     name: "search_active_comps",

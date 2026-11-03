@@ -13,14 +13,14 @@ import {
 import { getBusinessPolicies, type BusinessPolicies } from "./ebay/sell";
 import { getActiveListings, getItem } from "./ebay/trading";
 import { push } from "./notify";
-import { inputFromItem, type PriceResult } from "./pricing/engine";
+import { inputFromItem, postageOf, type PriceResult } from "./pricing/engine";
 import { reviewPrices } from "./pricing/review";
 import { proposePromotions, researchPromotion, type ListingPromotion } from "./promotion";
 import { proposeAndNotify } from "./proposals";
 import { RETURNS } from "./rules";
 import { snapshotListings } from "./snapshot";
 import { providerEnabled } from "./solddata";
-import { getStyle, learnStyle, saveStyle, type StyleGuide } from "./style";
+import { getStyle, learnStyle, saveStyle, STYLE_VERSION, type StyleGuide } from "./style";
 
 // The first-day audit (docs/listing-assistant.md): a read-only review of the whole account once it's
 // connected. It reads every active listing in full, the sold history (K's imported Seller Hub sales and eBay's
@@ -57,6 +57,8 @@ export interface ListingAudit {
   url: string | null;
   price: number | null;
   postage: number | null;
+  /** How the buyer's postage is set: free, a flat charge, worked out by eBay per buyer, or collection only. */
+  postageKind: string;
   collectionOnly: boolean;
   listedDays: number | null;
   watchers: number;
@@ -71,7 +73,11 @@ export interface ListingAudit {
   returns: { accepted: boolean; days: number | null; buyerPays: boolean | null; businessPolicy: boolean };
   handlingDays: number | null;
   pricing: { strategy: string; price: number | null; why: string; confidence: number; question?: string; at: number } | null;
-  promotion: { action: string; rate: number | null; why: string; suggestedRate: number | null } | null;
+  promotion: { action: string; rate: number | null; why: string; suggestedRate: number | null; currentRate: number | null } | null;
+  /** Fix this listing in place, or end it and list it again with the fixes. */
+  advice: { action: "revise" | "relist"; why: string };
+  /** Facts K has written about the item. */
+  factsFromK: string | null;
   findings: Finding[];
 }
 
@@ -133,6 +139,26 @@ export const stripHtml = (html: string) =>
 
 const RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 
+const MEASURE = /width|height|length|depth|weight|dimension|diameter|size|capacity/i;
+const CONDITION_WORDS = /condition|scratch|scuff|mark|wear|worn|dent|chip|crack|stain|tested|fully working|works|excellent|good|immaculate|like new|pristine/i;
+const FAULT_WORDS = /fault|not working|doesn.?t work|broken|issue|problem|untested|won.?t|works but|no power|missing/i;
+
+/**
+ * Revise in place or relist? Watchers are lost when a listing ends, so a watched listing is revised (its
+ * watchers see the new price and details). One that has sat 90+ days with few watchers and few views has
+ * little to lose: ending it and listing it again with the fixes starts it fresh. K decides either way.
+ */
+export function reviseOrRelist(l: { watchers: number; listedDays: number | null; views7d: number | null }): { action: "revise" | "relist"; why: string } {
+  if (l.watchers >= 3)
+    return { action: "revise", why: `Revise it: ${l.watchers} people are watching, and ending the listing would lose them. A better price and details reach them directly.` };
+  if ((l.listedDays ?? 0) >= 90 && (l.views7d == null || l.views7d < 5))
+    return {
+      action: "relist",
+      why: `Relist it with the fixes: ${l.listedDays} days up, ${l.watchers ? `only ${l.watchers} watcher${l.watchers === 1 ? "" : "s"}` : "no watchers"}${l.views7d != null ? ` and ${l.views7d} views last week` : ""}, so there's little to lose by starting again as a new listing.`,
+    };
+  return { action: "revise", why: "Revise it: it isn't old or quiet enough for a fresh start to be worth losing its history." };
+}
+
 export function rankFindings(fs: Finding[]): Finding[] {
   return [...fs].sort((a, b) => RANK[a.severity] - RANK[b.severity] || (a.fix === "you" ? 0 : 1) - (b.fix === "you" ? 0 : 1));
 }
@@ -147,6 +173,7 @@ export function auditListing(
     pricing?: PriceResult | null;
     pricedAt?: number | null;
     promotion?: ListingPromotion | null;
+    factsFromK?: string | null;
     now?: number;
   } = {},
 ): ListingAudit {
@@ -166,6 +193,7 @@ export function auditListing(
     businessPolicy: Boolean(item?.SellerProfiles?.SellerReturnProfile),
   };
   const collectionOnly = item?.ShipToLocations === "None";
+  const post = postageOf(item);
   const handlingDays = num(item?.DispatchTimeMax);
   const bestOffer = String(item?.BestOfferDetails?.BestOfferEnabled) === "true";
   const conditionId = num(item?.ConditionID);
@@ -190,27 +218,42 @@ export function auditListing(
   const req = missing.filter((a) => a.required).map((a) => a.name);
   const rec = missing.filter((a) => !a.required).map((a) => a.name);
   if (req.length) add("high", "Required item specifics missing", req.join(", "), "claude");
-  if (rec.length >= 3) add("medium", `${rec.length} recommended item specifics missing`, rec.slice(0, 8).join(", "), "claude");
+  // Measurements need a tape measure, not Claude; the rest Claude fills only where the listing (or K) states it.
+  const measured = rec.filter((n) => MEASURE.test(n));
+  const other = rec.filter((n) => !MEASURE.test(n));
+  if (measured.length)
+    add(
+      "medium",
+      "Measurements missing",
+      `${measured.join(", ")}. Buyers filter by these. Measure the item and add them as facts, then Claude can fill them in.`,
+      "you",
+    );
+  if (other.length >= 2)
+    add("low", `${other.length} other recommended item specifics missing`, `${other.join(", ")}. Claude fills the ones that apply and that the listing states; some may not apply to this item.`, "claude");
   else if (!ctx.aspects && specificNames.length < 4)
     add("medium", "Few item specifics", `Only ${specificNames.length}. Buyers filter search by them (brand, model, colour, size).`, "claude");
 
   // Description and condition.
   if (!description) add("high", "No description", "Say what it is, its condition in plain words, and what's included.", "claude");
   else if (description.length < 200) add("medium", "Thin description", `${description.length} characters. Add condition, what's included and measurements if known.`, "claude");
-  if (conditionId != null && conditionId >= 2000 && !String(item?.ConditionDescription ?? "").trim())
-    add("low", "No condition note", "A used item without a condition note invites questions and returns. Describe any marks or wear.", "you");
+  const conditionNote = String(item?.ConditionDescription ?? "").trim();
+  if (conditionId === 7000 && !conditionNote && !FAULT_WORDS.test(description))
+    add("high", "Fault not described", "A spares or repair listing needs to say what's wrong and what works. Buyers won't bid blind, and it protects you if it's returned.", "you");
+  else if (conditionId != null && conditionId >= 2000 && conditionId !== 7000 && !conditionNote && !CONDITION_WORDS.test(description))
+    add("low", "No condition note", "Neither the condition note nor the description says what condition it's in. Describe any marks or wear.", "you");
 
   // Photos.
   if (photos < 3) add("high", `${photos} photo${photos === 1 ? "" : "s"}`, "Buyers want every side, labels and any flaws. eBay allows 24.", "you");
   else if (photos < 6) add("medium", `${photos} photos`, "More angles, the label or model number, and close-ups of any wear help it sell.", "you");
 
   // Postage, handling, offers.
-  if (!collectionOnly && input.postage == null) add("medium", "No postage price found", "Check the postage on this listing.", "you");
+  if (post.kind === "unknown") add("medium", "No postage found", "Check the postage on this listing.", "you");
   if (handlingDays != null && handlingDays > 3) add("low", `${handlingDays}-day handling time`, "Buyers rank faster dispatch higher; 1 to 2 days is typical.", "you");
   if (!bestOffer) add("low", "Best Offer off", "Offers let interested buyers make a move; you approve every answer.", "you");
 
   // Price against the market (the engine's latest check).
   const d = ctx.pricing?.decision ?? null;
+  if (!ctx.pricing) add("medium", "Not priced against the market", "The pricing engine hasn't checked this listing yet: see the prices step at the bottom of the report.", "none");
   if (d && d.strategy === "ask") add("medium", "Engine needs your answer", d.question ?? "The engine couldn't identify this item exactly.", "you");
   else if (d && d.price != null && input.current) {
     const gap = (input.current - d.price) / d.price;
@@ -233,7 +276,8 @@ export function auditListing(
     title,
     url: item?.ListingDetails?.ViewItemURL ?? null,
     price: input.current ?? null,
-    postage: input.postage ?? null,
+    postage: post.cost,
+    postageKind: post.kind,
     collectionOnly,
     listedDays: input.listedDays ?? (item?.ListingDetails?.StartTime ? Math.round((now - Date.parse(item.ListingDetails.StartTime)) / DAY) : null),
     watchers: Number(item?.WatchCount ?? 0),
@@ -248,7 +292,9 @@ export function auditListing(
     returns,
     handlingDays,
     pricing: d ? { strategy: d.strategy, price: d.price, why: d.why, confidence: d.confidence, question: d.question, at: ctx.pricedAt ?? now } : null,
-    promotion: p ? { action: p.advice.action, rate: p.advice.rate, why: p.advice.why, suggestedRate: p.suggestedRate } : null,
+    promotion: p ? { action: p.advice.action, rate: p.advice.rate, why: p.advice.why, suggestedRate: p.suggestedRate, currentRate: p.currentRate } : null,
+    advice: reviseOrRelist({ watchers: Number(item?.WatchCount ?? 0), listedDays: input.listedDays ?? null, views7d: ctx.views7d ?? null }),
+    factsFromK: ctx.factsFromK ?? null,
     findings: f,
   };
 }
@@ -306,7 +352,7 @@ export function soldFindings(s: SoldSummary): Finding[] {
     return f;
   }
   add("low", `${s.count} sales, £${s.revenue.toFixed(2)}`, `${s.first} to ${s.last}; median sale £${s.median?.toFixed(2)}.`);
-  if (s.avgDaysToSell != null) add("low", `About ${Math.round(s.avgDaysToSell)} days to sell`, `Average over the ${s.timedSales} sales whose listing date is known.`);
+  if (s.avgDaysToSell != null && s.timedSales >= 5) add("low", `About ${Math.round(s.avgDaysToSell)} days to sell`, `Average over the ${s.timedSales} sales whose listing date is known.`);
   const below = s.askingVsSold.filter((x) => x.sold < x.asked * 0.9);
   if (below.length)
     add("medium", `${below.length} sold 10%+ under the asking price`, below.slice(0, 3).map((x) => `${x.title}: asked £${x.asked.toFixed(2)}, sold £${x.sold.toFixed(2)}`).join("; "));
@@ -400,7 +446,7 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
 
   // 2. Prices: the engine's nightly review (capped searches; it proposes changes the market supports).
   await stepRun(steps, "prices", async () =>
-    providerEnabled(env, "trawl") || providerEnabled(env, "compsapi") ? reviewPrices(env, at) : "skipped: no sold-data provider keys",
+    providerEnabled(env, "trawl") || providerEnabled(env, "compsapi") ? reviewPrices(env, at, { all: true, limit: 20 }) : "skipped: no sold-data provider keys",
   );
 
   // 3. Promotion research, from each listing's market picture.
@@ -424,6 +470,7 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
         .bind(id)
         .first<{ views_7d: number | null; impressions_7d: number | null }>();
       const priced = await env.DB.prepare("SELECT at, result FROM price_decisions WHERE item_id = ? ORDER BY at DESC LIMIT 1").bind(id).first<{ at: number; result: string }>();
+      const facts = await env.DB.prepare("SELECT notes FROM item_settings WHERE item_id = ?").bind(id).first<{ notes: string | null }>();
       listings.push(
         auditListing(item, {
           aspects: aspectsByCategory.get(cat) ?? null,
@@ -432,6 +479,7 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
           pricing: priced ? JSON.parse(priced.result) : null,
           pricedAt: priced?.at ?? null,
           promotion: promos.find((p) => p.itemId === id) ?? null,
+          factsFromK: facts?.notes ?? null,
           now: at,
         }),
       );
@@ -480,7 +528,7 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
   });
   await stepRun(steps, "style", async () => {
     if (style?.editedBy && !opts.relearnStyle) return `kept: edited by ${style.editedBy}`;
-    if (style?.source.learned && !opts.relearnStyle) return "kept: already learned";
+    if (style?.source.learned && (style.version ?? 1) >= STYLE_VERSION && !opts.relearnStyle) return "kept: already learned";
     style = await learnStyle(env, replies);
     await saveStyle(env, style);
     return style.source.learned ? `learned from ${style.source.replies} replies` : "default guide (no replies to learn from, or no Claude key)";

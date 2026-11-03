@@ -194,6 +194,8 @@ export async function applyApproved(env: Env): Promise<{ id: string; result: str
   return out;
 }
 
+export const DRY_RUN_AGREED = "Dry run: recorded as approved. Nothing was sent to eBay, and it can't be.";
+
 export async function decide(env: Env, id: string, decision: "approve" | "reject", actor: string | null = null): Promise<string> {
   const p = await getProposal(env, id);
   if (!p) return "Not found";
@@ -207,7 +209,14 @@ export async function decide(env: Env, id: string, decision: "approve" | "reject
     await env.DB.prepare("UPDATE proposals SET status = 'rejected', decided_at = ?, decided_by = ? WHERE id = ? AND status = 'pending'").bind(now, actor, id).run();
     return "Rejected";
   }
-  if (p.dry_run) return "Dry run: this proposal can't be applied";
+  // A dry run can be judged but never applied: approving records K's agreement as 'agreed', a status the write
+  // gate never claims (it applies only 'approved' rows that aren't dry runs).
+  if (p.dry_run) {
+    await env.DB.prepare("UPDATE proposals SET status = 'agreed', decided_at = ?, decided_by = ?, result = ? WHERE id = ? AND status = 'pending'")
+      .bind(now, actor, DRY_RUN_AGREED, id)
+      .run();
+    return DRY_RUN_AGREED;
+  }
   // A draft that can't become an eBay call yet (an empty reply, a kind not built) stays pending for K to finish.
   try {
     callFor(p);

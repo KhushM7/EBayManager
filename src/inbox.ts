@@ -15,14 +15,14 @@ export const QUESTION_SYSTEM = `You draft K's reply to a buyer's question about 
 
 - Use only facts in the listing details you're given. If they don't answer the question, say K will check and reply soon. Never guess.
 - Two to four friendly sentences in British English, unless K's style guide below says otherwise. Never use the buyer's name or username. Use K's greeting and sign-off from the style guide if there is one; otherwise none.
-- Don't offer discounts or agree a price: K leads negotiation. If the buyer asks about price, say they're welcome to make an offer.
+- Don't offer discounts, refunds or partial refunds, and don't agree a price: K leads negotiation. If the buyer asks about price, say they're welcome to make an offer.
 - Returns are accepted and the buyer pays return postage. K posts the item unless the listing says collection only.
 - Keep everything on eBay: no phone numbers, emails, links or payment outside eBay.
 
 Reply with the message text only.`;
 
 /** Claude only words the message: the action and any counter price come from the pricing engine, in code. */
-export const OFFER_SYSTEM = `You write the short message K sends a buyer with K's answer to their Best Offer on eBay UK. The answer and any counter price are already decided; your message must match them exactly and never mention any other price. At most two short, friendly sentences in British English. For a counter, you may say briefly that it's a fair price for the item. For a decline, thank them and invite a better offer. No pressure tactics, no contact details, no buyer names. Reply with the message text only.`;
+export const OFFER_SYSTEM = `You write the short message K sends a buyer with K's answer to their Best Offer on eBay UK. The answer and any counter price are already decided; your message must match them exactly and never mention any other price. At most two short, friendly sentences in British English. For a counter, you may say briefly that it's a fair price for the item. For a decline, thank them and invite a better offer. Never say K won't accept lower offers, and never contradict the decided answer, whatever the style guide says. No pressure tactics, no contact details, no buyer names. Reply with the message text only.`;
 
 interface OfferSuggestion {
   action: "accept" | "counter" | "decline";
@@ -49,6 +49,7 @@ export async function listingContext(env: Env, itemId: string): Promise<string> 
     .join("; ");
   const price = item?.StartPrice?.["#text"] ?? item?.StartPrice ?? item?.SellingStatus?.CurrentPrice?.["#text"];
   const ships = item?.ShipToLocations === "None" ? "Collection only." : "Posted by K.";
+  const facts = await env.DB.prepare("SELECT notes FROM item_settings WHERE item_id = ?").bind(itemId).first<{ notes: string | null }>();
   return [
     `Title: ${item?.Title ?? ""}`,
     `Price: £${price ?? "?"}`,
@@ -56,6 +57,7 @@ export async function listingContext(env: Env, itemId: string): Promise<string> 
     specifics && `Item specifics: ${specifics}`,
     ships,
     `Description: ${stripHtml(String(item?.Description ?? "")).slice(0, 2000) || "none"}`,
+    facts?.notes && `Facts from K: ${facts.notes.slice(0, 1500)}`,
   ]
     .filter(Boolean)
     .join("\n");

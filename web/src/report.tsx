@@ -22,6 +22,7 @@ interface ListingAudit {
   url: string | null;
   price: number | null;
   postage: number | null;
+  postageKind?: string;
   collectionOnly: boolean;
   listedDays: number | null;
   watchers: number;
@@ -30,7 +31,9 @@ interface ListingAudit {
   specifics: number;
   descriptionChars: number;
   pricing: { strategy: string; price: number | null; why: string; confidence: number; question?: string } | null;
-  promotion: { action: string; rate: number | null; why: string; suggestedRate: number | null } | null;
+  promotion: { action: string; rate: number | null; why: string; suggestedRate: number | null; currentRate?: number | null } | null;
+  advice?: { action: "revise" | "relist"; why: string };
+  factsFromK?: string | null;
   findings: Finding[];
 }
 
@@ -93,6 +96,58 @@ const FIX: Record<Finding["fix"], string> = {
 };
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+function postageText(l: ListingAudit): string | null {
+  if (l.collectionOnly || l.postageKind === "collection") return "collection only";
+  if (l.postageKind === "free") return "free postage";
+  if (l.postageKind === "calculated") return "buyer pays postage (set by eBay per buyer)";
+  return l.postage != null ? `buyer pays ${money(l.postage)} postage` : null;
+}
+
+/** K's facts about one item (measurements, faults, what's included) and the floor price. */
+function Facts({ itemId, initial, onSignedOut }: { itemId: string; initial: string | null; onSignedOut: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [notes, setNotes] = useState(initial ?? "");
+  const [floor, setFloor] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const load = () =>
+    api<{ floorPrice: number | null; notes: string | null }>(`/items/${itemId}/settings`)
+      .then((s) => (setNotes(s.notes ?? ""), setFloor(s.floorPrice != null ? String(s.floorPrice) : ""), setOpen(true)))
+      .catch((e) => (e instanceof SignedOut ? onSignedOut() : setMsg(e.message)));
+  const save = () =>
+    api(`/items/${itemId}/settings`, { body: { notes, floorPrice: floor.trim() === "" ? null : Number(floor) } })
+      .then(() => (setMsg("Saved. Claude uses these facts in listing edits and replies, marked as from you."), setOpen(false)))
+      .catch((e) => (e instanceof SignedOut ? onSignedOut() : setMsg(e.message)));
+  return (
+    <div class="wide" style={{ margin: "6px 0 0" }}>
+      {!open ? (
+        <button class="btn-link" onClick={load}>
+          {initial ? "Edit your facts and floor" : "Add facts and a floor price"}
+        </button>
+      ) : (
+        <div class="form">
+          <label>
+            Facts only you know: measurements, weight, what works and what doesn't, marks, what's included
+            <textarea rows={4} value={notes} onInput={(e) => setNotes((e.target as HTMLTextAreaElement).value)} />
+          </label>
+          <label>
+            Lowest price you'd accept (floor), £
+            <input inputMode="decimal" value={floor} onInput={(e) => setFloor((e.target as HTMLInputElement).value)} />
+          </label>
+          <div class="actions">
+            <button class="btn btn-stamp" onClick={save}>
+              Save
+            </button>
+            <button class="btn btn-text" onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {msg && <p class="small result">{msg}</p>}
+    </div>
+  );
+}
 
 function FindingRow({ f }: { f: Finding }) {
   const [cls, word] = SEVERITY[f.severity];
@@ -242,7 +297,8 @@ export function Report({ me, onSignedOut, onChanged }: ScreenProps) {
                   plural(l.photos, "photo"),
                   plural(l.specifics, "item specific"),
                   `${l.descriptionChars} characters of description`,
-                  l.collectionOnly ? "collection only" : l.postage != null ? `postage ${money(l.postage)}` : null,
+                  postageText(l),
+                  l.promotion?.currentRate != null ? `promoted at ${l.promotion.currentRate}%` : null,
                 ]
                   .filter(Boolean)
                   .join(" · ")}
@@ -258,6 +314,12 @@ export function Report({ me, onSignedOut, onChanged }: ScreenProps) {
                 </p>
               )}
               {l.findings.length > 0 && <p class="wide flag" style={{ margin: 0 }}>{l.findings.map((f) => f.title).join(" · ")}</p>}
+              {l.advice && (
+                <p class="wide" style={{ margin: "6px 0 0" }}>
+                  <strong>{l.advice.action === "relist" ? "Relist" : "Revise"}.</strong> {l.advice.why.replace(/^(Revise|Relist)[^:]*: /, "")}
+                </p>
+              )}
+              {owner && <Facts itemId={l.itemId} initial={l.factsFromK ?? null} onSignedOut={onSignedOut} />}
               {fixes[l.itemId]?.note && <p class="wide result">{fixes[l.itemId].note}</p>}
               {fixes[l.itemId]?.error && <p class="wide error">{fixes[l.itemId].error}</p>}
               {forClaude.includes(l.itemId) && !fixes[l.itemId]?.note && (
@@ -291,12 +353,12 @@ export function Report({ me, onSignedOut, onChanged }: ScreenProps) {
               </div>
               <div>
                 <dt>Days to sell</dt>
-                <dd>{report.sold.avgDaysToSell != null ? `about ${Math.round(report.sold.avgDaysToSell)}` : "not known"}</dd>
+                <dd>{report.sold.avgDaysToSell != null && report.sold.timedSales >= 5 ? `about ${Math.round(report.sold.avgDaysToSell)}` : "too few dated sales"}</dd>
               </div>
             </dl>
             <p class="small muted">
               {report.sold.first} to {report.sold.last}.{" "}
-              {report.sold.avgDaysToSell != null && `Days to sell from the ${plural(report.sold.timedSales, "sale")} whose listing date is known.`}
+              {report.sold.avgDaysToSell != null && report.sold.timedSales >= 5 && `Days to sell from the ${plural(report.sold.timedSales, "sale")} whose listing date is known.`}
             </p>
             <table class="chart-table">
               <caption class="small">Sales by month</caption>

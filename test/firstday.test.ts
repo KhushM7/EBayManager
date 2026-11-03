@@ -29,7 +29,7 @@ const goodItem = {
 describe("checking one listing", () => {
   it("finds nothing wrong with a complete listing", () => {
     const a = auditListing(goodItem, { aspects: [{ name: "Brand", required: true }, { name: "Model", required: false }], now: NOW });
-    expect(a.findings).toEqual([]);
+    expect(a.findings.map((f) => f.title)).toEqual(["Not priced against the market"]);
     expect(a).toMatchObject({ price: 120, postage: 3.5, photos: 6, specifics: 4, bestOffer: true, listedDays: 40 });
   });
 
@@ -50,7 +50,7 @@ describe("checking one listing", () => {
     });
     const titles = a.findings.map((f) => f.title);
     expect(titles).toEqual(
-      expect.arrayContaining(["Returns not accepted", "Short title", "Required item specifics missing", "3 recommended item specifics missing", "Thin description", "1 photo", "No condition note", "Best Offer off"]),
+      expect.arrayContaining(["Returns not accepted", "Short title", "Required item specifics missing", "3 other recommended item specifics missing", "Thin description", "1 photo", "Best Offer off"]),
     );
     expect(a.missingRequired).toEqual(["Brand"]);
     expect(a.findings.find((f) => f.title === "Short title")!.fix).toBe("claude");
@@ -65,7 +65,7 @@ describe("checking one listing", () => {
   it("compares the price with the engine's latest decision", () => {
     const pricing = { decision: { strategy: "compete", price: 100, total: 103.5, options: [], why: "Normal market.", confidence: 0.6 } } as any;
     const a = auditListing(goodItem, { pricing, now: NOW });
-    expect(a.findings).toEqual([expect.objectContaining({ title: "Above the market by 20%", severity: "high", fix: "proposal" })]);
+    expect(a.findings.filter((f) => f.area === "listing")).toEqual([expect.objectContaining({ title: "Above the market by 20%", severity: "high", fix: "proposal" })]);
     const ask = { decision: { strategy: "ask", price: null, total: null, options: [], why: "", confidence: 0, question: "Which model?" } } as any;
     expect(auditListing(goodItem, { pricing: ask, now: NOW }).findings[0]).toMatchObject({ title: "Engine needs your answer", detail: "Which model?", fix: "you" });
   });

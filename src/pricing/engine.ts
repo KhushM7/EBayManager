@@ -309,20 +309,34 @@ const num = (v: any): number | null => {
 };
 const list = <T>(v: T | T[] | undefined): T[] => (v == null ? [] : Array.isArray(v) ? v : [v]);
 
+/**
+ * What the buyer pays for postage on one of K's listings. A cost of 0 counts as free postage only when eBay
+ * marks the service FreeShipping; otherwise a 0 means eBay works the cost out for each buyer (calculated or
+ * eBay-set postage), so it's unknown here and the market's typical postage is used instead.
+ */
+export function postageOf(item: any): { cost: number | null; kind: "free" | "flat" | "calculated" | "collection" | "unknown"; service: string | null } {
+  if (item?.ShipToLocations === "None") return { cost: null, kind: "collection", service: null };
+  const opts = list<any>(item?.ShippingDetails?.ShippingServiceOptions);
+  const service = opts[0]?.ShippingService ? String(opts[0].ShippingService) : null;
+  if (opts.some((o) => String(o.FreeShipping) === "true")) return { cost: 0, kind: "free", service };
+  const costs = opts.map((o) => num(o.ShippingServiceCost)).filter((x): x is number => x != null && x > 0);
+  if (costs.length) return { cost: Math.min(...costs), kind: "flat", service };
+  const type = String(item?.ShippingDetails?.ShippingType ?? "");
+  return { cost: null, kind: /calculated/i.test(type) || opts.length ? "calculated" : "unknown", service };
+}
+
 /** What the engine needs from a Trading API GetItem result. */
 export function inputFromItem(item: any): PriceInput {
   const specifics: Record<string, string> = {};
   for (const nv of list<any>(item?.ItemSpecifics?.NameValueList)) specifics[String(nv.Name)] = list(nv.Value).join(", ");
-  const postages = list<any>(item?.ShippingDetails?.ShippingServiceOptions)
-    .map((o) => num(o.ShippingServiceCost))
-    .filter((x): x is number => x != null);
+  const postage = postageOf(item);
   return {
     itemId: String(item?.ItemID ?? ""),
     title: String(item?.Title ?? ""),
     condition: item?.ConditionDisplayName ?? null,
     specifics,
     description: typeof item?.Description === "string" ? item.Description : null,
-    postage: postages.length ? Math.min(...postages) : null,
+    postage: postage.cost,
     photos: list<any>(item?.PictureDetails?.PictureURL).map(String).filter((u) => u.startsWith("https://")),
     listedDays: item?.ListingDetails?.StartTime ? Math.max(0, Math.round((Date.now() - Date.parse(item.ListingDetails.StartTime)) / DAY)) : undefined,
     current: num(item?.SellingStatus?.CurrentPrice) ?? num(item?.StartPrice),

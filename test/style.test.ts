@@ -85,7 +85,7 @@ describe("the style guide", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].output_config.format.type).toBe("json_schema");
     expect(calls[0].messages[0].content).toContain("K replied: Hi there, yes it is.");
-    expect(g).toMatchObject({ tone: "warm and brief", greeting: "Hi there,", signOff: "Cheers, K", source: { replies: 2, from: "2026-03-01", to: "2026-04-01", learned: true } });
+    expect(g).toMatchObject({ tone: "warm and brief", greeting: "Hi there,", signOff: "Cheers, K", source: { replies: 1, from: "2026-03-01", to: "2026-03-01", learned: true } });
   });
 
   it("falls back to the default guide with no replies", async () => {

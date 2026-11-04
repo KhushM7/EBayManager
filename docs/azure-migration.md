@@ -103,10 +103,11 @@ Production D1:
 | 1 | Does Flex Consumption's free grant apply to a Students subscription? If not, expect under $1/month from the credit | Check the first cost view |
 | 2 | Allowed regions on K's subscription: need one with both Flex and Cosmos | Done: France Central (default in the param files and `azure-infra.mjs`) |
 | 3 | Install the Cosmos DB emulator on K's PC for the full conformance run | Ask K before installing |
-| 4 | Does App Service overwrite a forged `X-Client-IP` on Flex? | Test at M4; stop and discuss if not |
+| 4 | Does App Service overwrite a forged `X-Client-IP` on Flex? | **No (tested 2026-11-04).** A forged value is used as sent, and with no header the address is `unknown`, so the front end doesn't set it at all. Stopped for K's decision |
 
 ## Log
 
+- 2026-11-04: Sandbox import (K) verified: 63 documents, metrics match; no re-enrolment link because the only Sandbox user is the test user. Forged `X-Client-IP` test FAILED: failed sign-ins were recorded under `203.0.113.77` and `198.51.100.9` as sent, and as `unknown` with no header. Work on the per-network limit stopped for K's decision.
 - 2026-11-04: Sandbox deployed to Azure from the cloud session. First deploy failed: Cosmos rejects `/id/?` as an index path (id is a system property, always indexed) and `auth` listed `/user_id/?` twice; both removed, with a test. `/health` 200 (sandbox, approval); HSTS, X-Frame-Options DENY, nosniff and CSP present; `/admin/host/status` 401; HTTPS only, TLS 1.2, FTP off, no CORS.
 - 2026-11-04: Production dry run (K): 246 documents, every table and the sampled documents matched; the one failure was a false alarm (proposal counts in a different key order). The metrics check now sorts object keys before comparing.
 - 2026-11-04: K merged the Phase 7 pull request and chose France Central (the UK and West/North Europe regions aren't allowed by the Students policy). Defaults switched from `uksouth` to `francecentral`.

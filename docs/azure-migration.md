@@ -60,7 +60,7 @@ Who does each step: **C** = Claude, **K** = K.
 - [x] (C) Deploy sandbox infrastructure (France Central) and code; (K) secrets uploaded from `.dev.vars` (9 of 15: the Claude, sold-data, comps keyset and deletion-token keys aren't in `.dev.vars`). App: https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net; `/health` shows sandbox, approval
 - [ ] (C) Import Sandbox D1 into Cosmos and verify
 - [x] (K) eBay portal: Sandbox RuName accept URL → new address `/oauth/callback` (round trip verified: tokens refreshed 02:32 UTC)
-- [ ] (C) Verify: key sign-in, an approved price change applied to a test listing, the offer round trip, nightly and audit as background jobs, push, headers and HTTPS settings, forged `X-Client-IP` ignored, RU peaks
+- [x] (C/K) Verify (2026-11-04): passkey sign-in (key sign-in is API-only), two approved price changes applied, nightly and audit, push, headers and HTTPS settings, forged client address ignored (after the `Client-IP` fix), RU peaks. The offer round trip was **not re-run**: eBay's Sandbox site was down; it passed on Cloudflare on 2026-11-02 and the offer code is unchanged apart from the store, which has its own conformance tests (K's decision)
 
 ### M5. Production infrastructure
 - [ ] (K) Deploy production infrastructure, secrets and code (`WRITE_MODE=off`); `/health` shows production and off
@@ -107,6 +107,7 @@ Production D1:
 
 ## Log
 
+- 2026-11-04: **M4 complete.** The cloud session signed out of Azure (`az logout`). Next: M5, K deploys production (read-only).
 - 2026-11-04: More M4 checks passed: push to the installed app (K); first-day audit as a background job (report saved, no failed steps); nightly run (snapshots refreshed); a second approved price change applied (item 110591497965, £12 → £10.80, Ack Success). Claude spend for all Sandbox checks: $0.14. Cosmos peaked at 100% normalised RU only during the import (02:09), 32–41% otherwise, no throttling (429). Its 400s are the gateway's documented first-chance reply to sorted cross-partition queries, which the SDK retries with a query plan. Application Insights: no app exceptions, only the Functions host's own storage-probe 404/409s and one restart.
 - 2026-11-04: M4 checks on Sandbox. Passed: passkey registration via `/api/setup`, eBay sign-in with the new RuName, the 15-minute timer, a price check as a background job, and an **approved price change applied** (`ReviseFixedPriceItem` The Hobbit £4.50 → £4.05, Ack Success, audit_log `applied`, actor K). Found and fixed: the ntfy fallback sent the title as a header, and Node refuses '→' and '£' in headers, so every price proposal threw after being saved (Claude retried, each retry superseding the last); ntfy is now published as JSON and can't fail the caller. To fix later: a price check with no matches reads "about ? today".
 - 2026-11-04: Client address fixed: `clientIp()` reads `Client-IP` (port stripped), tests updated, temporary diagnostic removed. The sign-in page has no key form: on Sandbox, key sign-in is API-only, so K registers a Sandbox passkey via `/api/setup` (a rehearsal of M6's re-enrolment).

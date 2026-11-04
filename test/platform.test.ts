@@ -78,11 +78,14 @@ describe("static files", () => {
 
 describe("client address for rate limits", () => {
   const req = (h: Record<string, string>) => new Request(ORIGIN, { headers: h });
-  it("uses Azure's X-Client-IP only, and treats anything odd as unknown", () => {
-    expect(clientIp(req({ "X-Client-IP": "203.0.113.7" }))).toBe("203.0.113.7");
-    expect(clientIp(req({ "X-Client-IP": "2001:db8::1" }))).toBe("2001:db8::1");
-    expect(clientIp(req({ "X-Client-IP": "1.2.3.4, 5.6.7.8" }))).toBe("unknown");
-    expect(clientIp(req({ "CF-Connecting-IP": "1.2.3.4", "X-Forwarded-For": "1.2.3.4" }))).toBe("unknown");
+  it("uses Azure's Client-IP only (the one header the front end overwrites), without the port", () => {
+    expect(clientIp(req({ "Client-IP": "203.0.113.7:49152" }))).toBe("203.0.113.7");
+    expect(clientIp(req({ "Client-IP": "203.0.113.7" }))).toBe("203.0.113.7");
+    expect(clientIp(req({ "Client-IP": "[2001:db8::1]:443" }))).toBe("2001:db8::1");
+    expect(clientIp(req({ "Client-IP": "2001:db8::1" }))).toBe("2001:db8::1");
+    expect(clientIp(req({ "Client-IP": "1.2.3.4, 5.6.7.8" }))).toBe("unknown");
+    // Headers a visitor can set and Azure passes through unchanged are ignored.
+    expect(clientIp(req({ "X-Client-IP": "1.2.3.4", "X-Forwarded-For": "1.2.3.4", "X-Real-IP": "1.2.3.4", "X-Azure-ClientIP": "1.2.3.4", "CF-Connecting-IP": "1.2.3.4" }))).toBe("unknown");
     expect(clientIp(req({}))).toBe("unknown");
   });
 });

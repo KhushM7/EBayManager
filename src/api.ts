@@ -53,11 +53,16 @@ async function body(request: Request): Promise<any> {
 }
 
 /**
- * The caller's address, for rate limits. On Azure App Service the front end sets X-Client-IP and overwrites
- * any value a client sends (checked on Sandbox: docs/azure-migration.md). Anything else counts as "unknown".
+ * The caller's address, for rate limits. On Azure Functions (Flex Consumption) the front end overwrites
+ * Client-IP with the connecting address as "ip:port"; X-Client-IP, X-Real-IP, X-Azure-ClientIP and the rest
+ * pass through whatever a visitor sends (tested on Sandbox, 2026-11-04: docs/azure-migration.md, question 4).
+ * So only Client-IP is read, its port removed; anything else counts as "unknown".
  */
 export function clientIp(request: Request): string {
-  const ip = (request.headers.get("X-Client-IP") ?? "").trim();
+  let ip = (request.headers.get("Client-IP") ?? "").trim();
+  const bracketed = /^\[([0-9a-fA-F:.]+)\](?::\d+)?$/.exec(ip); // [IPv6]:port
+  if (bracketed) ip = bracketed[1];
+  else if (/^[0-9.]+:\d+$/.test(ip)) ip = ip.slice(0, ip.lastIndexOf(":")); // IPv4:port
   return /^[0-9a-fA-F:.]{3,45}$/.test(ip) ? ip : "unknown";
 }
 

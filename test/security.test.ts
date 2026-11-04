@@ -85,7 +85,7 @@ const api = async (path: string, body?: unknown, cookie = "", headers: Record<st
   const url = new URL(`${ORIGIN}/api${path}`);
   const init: RequestInit = {
     method: body === undefined ? "GET" : "POST",
-    headers: { "X-EbayManager": "1", "X-Client-IP": "1.2.3.4", Cookie: cookie, ...headers },
+    headers: { "X-EbayManager": "1", "Client-IP": "1.2.3.4:5000", Cookie: cookie, ...headers },
     body: body === undefined ? undefined : JSON.stringify(body),
   };
   const res = await handleApi(env, new Request(url, init), url);
@@ -227,8 +227,8 @@ describe("request protection", () => {
     const setup = await api("/setup", { key: "boot-key-123", name: "K" });
     const owner = await join(setup.json.inviteUrl);
     for (let i = 0; i < 5; i++) {
-      const o = await api("/auth/login/options", {}, "", { "X-Client-IP": `10.0.0.${i}` });
-      const r = await api("/auth/login/verify", { challengeId: o.json.challengeId, credential: await owner.pk.get(o.json.options, { tamper: true }) }, "", { "X-Client-IP": `10.0.0.${i}` });
+      const o = await api("/auth/login/options", {}, "", { "Client-IP": `10.0.0.${i}:443` });
+      const r = await api("/auth/login/verify", { challengeId: o.json.challengeId, credential: await owner.pk.get(o.json.options, { tamper: true }) }, "", { "Client-IP": `10.0.0.${i}:443` });
       expect(r.status).toBe(400);
     }
     const blocked = await signIn(owner.pk);

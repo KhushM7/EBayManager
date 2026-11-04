@@ -135,16 +135,6 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
 <form method="post"><button>${d === "approve" ? "Approve" : "Reject"}</button></form>`);
     }
 
-    // TEMPORARY (docs/azure-migration.md, open question 4): Sandbox only, shows which forwarding headers the
-    // platform delivers, to find a client address a visitor can't forge. Removed once that is settled.
-    if (url.pathname === "/__diag/forwarding" && env.EBAY_ENV === "sandbox")
-    {
-      const seen: Record<string, string> = {};
-      request.headers.forEach((v, k) => {
-        if (/forward|client-ip|^client|azure|real-ip|^x-arr|^x-original|^disguised|^was-default|^x-site|^x-appservice/i.test(k)) seen[k] = v;
-      });
-      return Response.json(seen);
-    }
     if (url.pathname === "/health") return Response.json({ ok: true, ebayEnv: env.EBAY_ENV, writeMode: env.WRITE_MODE });
     // Everything else is the dashboard and PWA (single-page app); its data comes from /api with K's session.
     if (env.ASSETS) return env.ASSETS.serve(request);

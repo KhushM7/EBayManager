@@ -42,7 +42,7 @@ Who does each step: **C** = Claude, **K** = K.
 ### M2. Azure platform layer
 - [x] (C) `handle(request, env)` and `runScheduled()` in `src/index.ts`, platform-neutral
 - [x] (C) HTTP adapter (`src/platform/azure/functions.ts`: catch-all, `routePrefix: ""` in `host.json`), static `web/dist` from memory with SPA fallback (`static.ts`), security headers on **every** response with HSTS and X-Frame-Options; server pages and data get stricter CSPs than the app
-- [x] (C) Client IP from `X-Client-IP` only (anything else is "unknown"); per-person limit of 5 failed passkey sign-ins per 15 minutes (`completeLogin`), on top of the 20 per hour per network
+- [x] (C) Client IP from `Client-IP` only, port removed (anything else is "unknown"; was `X-Client-IP` until the Sandbox test below showed it can be forged); per-person limit of 5 failed passkey sign-ins per 15 minutes (`completeLogin`), on top of the 20 per hour per network
 - [x] (C) Timer triggers `0 0 2 * * *` and `0 */15 * * * *`
 - [x] (C) Background jobs (`src/background.ts`): Storage Queue `jobs`, queue-triggered `background` function, run-once claim, push when done or failed, `GET /api/jobs/:id`; the web app waits on them (`apiJob`). Without a queue (tests, local) they run inline, so behaviour there is unchanged
 - [x] (C) Env from app settings (`src/platform/azure/env.ts`); Cosmos through `DefaultAzureCredential` (managed identity); refuses to start in production with key sign-in or /mcp switched on. Blob (photos) is created by Bicep and wired in Phase 10, where it's first used, as R2 was
@@ -103,10 +103,11 @@ Production D1:
 | 1 | Does Flex Consumption's free grant apply to a Students subscription? If not, expect under $1/month from the credit | Check the first cost view |
 | 2 | Allowed regions on K's subscription: need one with both Flex and Cosmos | Done: France Central (default in the param files and `azure-infra.mjs`) |
 | 3 | Install the Cosmos DB emulator on K's PC for the full conformance run | Ask K before installing |
-| 4 | Does App Service overwrite a forged `X-Client-IP` on Flex? | **No (tested 2026-11-04).** A forged value is used as sent, and with no header the address is `unknown`, so the front end doesn't set it at all. Stopped for K's decision |
+| 4 | Does App Service overwrite a forged `X-Client-IP` on Flex? | **No.** Resolved 2026-11-04 (K chose to find a trustworthy header): a Sandbox-only diagnostic showed the front end overwrites `Client-IP` (as `ip:port`) and appends the real address to `X-Forwarded-For`; `X-Client-IP`, `X-Real-IP`, `X-Azure-ClientIP`, `X-Azure-SocketIP` and `X-Original-For` pass forged values through. The app now reads `Client-IP` only; diagnostic removed |
 
 ## Log
 
+- 2026-11-04: Client address fixed: `clientIp()` reads `Client-IP` (port stripped), tests updated, temporary diagnostic removed. The sign-in page has no key form: on Sandbox, key sign-in is API-only, so K registers a Sandbox passkey via `/api/setup` (a rehearsal of M6's re-enrolment).
 - 2026-11-04: Sandbox import (K) verified: 63 documents, metrics match; no re-enrolment link because the only Sandbox user is the test user. Forged `X-Client-IP` test FAILED: failed sign-ins were recorded under `203.0.113.77` and `198.51.100.9` as sent, and as `unknown` with no header. Work on the per-network limit stopped for K's decision.
 - 2026-11-04: Sandbox deployed to Azure from the cloud session. First deploy failed: Cosmos rejects `/id/?` as an index path (id is a system property, always indexed) and `auth` listed `/user_id/?` twice; both removed, with a test. `/health` 200 (sandbox, approval); HSTS, X-Frame-Options DENY, nosniff and CSP present; `/admin/host/status` 401; HTTPS only, TLS 1.2, FTP off, no CORS.
 - 2026-11-04: Production dry run (K): 246 documents, every table and the sampled documents matched; the one failure was a false alarm (proposal counts in a different key order). The metrics check now sorts object keys before comparing.

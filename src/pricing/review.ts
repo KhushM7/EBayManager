@@ -14,19 +14,24 @@ export const MIN_CHANGE = 0.05;
 /** Below this confidence the engine's price is shown on a check, but not proposed. */
 export const MIN_CONFIDENCE = 0.3;
 
-export async function reviewPrices(env: Env, now = Date.now()): Promise<string> {
+/**
+ * Prices listings with the engine and proposes changes the market supports. Nightly: a few a night, oldest
+ * check first. With `all` (the first-day audit): every listing, however recently checked, up to `limit`.
+ * Only a pending price change holds a listing back; a pending listing edit doesn't.
+ */
+export async function reviewPrices(env: Env, now = Date.now(), opts: { all?: boolean; limit?: number } = {}): Promise<string> {
   const { results } = await env.DB.prepare(
     `SELECT s.item_id, s.price,
             (SELECT MAX(at) FROM price_decisions d WHERE d.item_id = s.item_id) AS last_check
      FROM listing_snapshots s
      WHERE s.taken_at = (SELECT MAX(taken_at) FROM listing_snapshots)
-       AND NOT EXISTS (SELECT 1 FROM proposals p WHERE p.item_id = s.item_id AND p.status IN ('pending', 'approved'))
+       AND (? = 1 OR NOT EXISTS (SELECT 1 FROM proposals p WHERE p.item_id = s.item_id AND p.kind = 'price' AND p.status IN ('pending', 'approved')))
        AND NOT EXISTS (SELECT 1 FROM proposals p WHERE p.item_id = s.item_id AND p.kind = 'price' AND p.status = 'applied' AND p.decided_at > ?)
      ORDER BY COALESCE(last_check, 0) ASC`,
   )
-    .bind(now - 7 * DAY)
+    .bind(opts.all ? 1 : 0, now - 7 * DAY)
     .all<{ item_id: string; price: number; last_check: number | null }>();
-  const due = results.filter((r) => !r.last_check || now - r.last_check > 6 * DAY).slice(0, PRICED_PER_NIGHT);
+  const due = results.filter((r) => opts.all || !r.last_check || now - r.last_check > 6 * DAY).slice(0, opts.limit ?? PRICED_PER_NIGHT);
   const propose = tools.find((t) => t.name === "propose_price_change")!;
   let proposed = 0;
   let asked = 0;

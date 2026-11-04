@@ -40,7 +40,7 @@ Design docs: [roadmap](docs/roadmap.md), [pricing engine](docs/pricing-engine.md
 These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the approval rules on 2026-11-02.
 
 - **Every eBay write needs approval.** Anything that changes the eBay account goes through a proposal (`src/proposals.ts`). It changes eBay only after K approves it from a push notification or the dashboard Inbox. Signed links work by POST only. Never add a tool or code path that writes to eBay directly.
-- **Locked kinds.** `price`, `message`, `best_offer_response`, `offer_to_watchers`, `create_listing`, `end_listing` and `policy` can never be auto-applied, whatever the dashboard settings say.
+- **Locked kinds.** `price`, `message`, `best_offer_response`, `offer_to_watchers`, `create_listing`, `end_listing`, `policy` and `promote` can never be auto-applied, whatever the dashboard settings say.
 - **One write gate.** Only `ebayWrite()` in `src/ebay/write.ts` may call eBay write endpoints. It refuses unless `WRITE_MODE=approval`, the kill switch is off and the proposal is approved. Every write is recorded in `audit_log`.
 - **Read-only until Phase 8.** K's real account is connected read-only (Phase 6). Never set `WRITE_MODE=approval` in production, or request write scopes, before Phase 8 and the go-live tests.
 - **Pricing target.** The pricing engine (`src/pricing/`, [pricing-engine.md](docs/pricing-engine.md)) prices toward the cheaper end of current sales of the same item without going below its long-run value, holds at a higher price when a dip is temporary, and asks K when it can't identify the item. K's floor is enforced in code; the engine moves at most 10% a step, and a bigger jump or a second change within 7 days is flagged on the label. Updated by K on 2026-11-03.
@@ -69,6 +69,8 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/nightly.ts`, `src/health.ts`, `src/ebay/sell.ts` | The 02:00 run: snapshot, orders and traffic sync, rule-based health flags, Haiku triage of flagged listings |
 | `src/pricing/` | The pricing engine: `model.ts` (maths, pure), `identify.ts` (Claude identify and match), `engine.ts`, `learn.ts`, `bundles.ts` |
 | `src/solddata.ts`, `src/solddata-eval.ts`, `src/salesreport.ts` | Trawl and CompsAPI sold data (capped, cached), K's comparison test, the Seller Hub orders report import |
+| `src/specs.ts` | Published specifications for an exactly identified product (Sonnet + web search), each with a verified source |
+| `src/firstday.ts`, `src/style.ts`, `src/promotion.ts`, `src/ebay/history.ts` | First-day audit report, K's reply style guide, Promoted Listings research, and the account-history reads they use |
 | `src/inbox.ts`, `src/ebay/inbox.ts` | The 15-minute poll: buyer questions and Best Offers, Haiku drafts, floor enforced in code |
 
 ## Commands
@@ -88,7 +90,7 @@ Production is read-only (`WRITE_MODE=off`). Claude can read production D1 for di
 - Phases 0–6 are done. K's real eBay account is connected **read-only** to production: https://ebay-autopilot-production.ebay-autopilot.workers.dev (Sandbox: https://ebay-autopilot-sandbox.ebay-autopilot.workers.dev).
 - The pricing engine is built (`src/pricing/`, [pricing-engine.md](docs/pricing-engine.md)). It prices listings, Best Offers and counters, audits and a nightly price review, and the code enforces that prices come from it. In K's backtest against 5 real sales it was 12.4% off on average (4 priced), against CompsAPI 27.1% and Trawl 77%.
 - K's past sales (23, from 2025-03 to 2026-09) are imported from the Seller Hub orders report. eBay's APIs return only 90 days.
-- **Current phase: 7, read-only on the real account.** Next, in order: the first-day audit and report (listings, sold history, ended listings, messages, settings), the reply style guide from K's past replies, and promotion research. Then one full nightly cycle and go-live tests A to H ([go-live-tests.md](docs/go-live-tests.md)). See [roadmap.md](docs/roadmap.md).
+- **Current phase: 7, read-only on the real account.** Built: the first-day audit and report (`src/firstday.ts`, Audit screen), the reply style guide (`src/style.ts`, used by every draft) and promotion research (`src/promotion.ts`). Next: K runs the audit on production, then one full nightly cycle and go-live tests A to H ([go-live-tests.md](docs/go-live-tests.md)). See [roadmap.md](docs/roadmap.md).
 
 ## Open items
 

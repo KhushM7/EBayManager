@@ -4,7 +4,7 @@ Everything up to Phase 5 runs on eBay Sandbox. K's real account is connected **r
 
 Updated 2026-11-02 (plan v3). Design: [security.md](security.md), [pricing-and-promotion.md](pricing-and-promotion.md), [listing-assistant.md](listing-assistant.md), [go-live-tests.md](go-live-tests.md), [safety-and-environments.md](safety-and-environments.md), [approvals.md](approvals.md), [app-and-dashboard.md](app-and-dashboard.md).
 
-**Current phase: 6. Production preparation.**
+**Current phase: 7. Read-only on the real account.**
 
 | # | Phase | Environment | Exit gate |
 | --- | --- | --- | --- |
@@ -78,12 +78,12 @@ Updated 2026-11-02 (plan v3). Design: [security.md](security.md), [pricing-and-p
 
 ## Phase 7: Read-only on the real account
 
-- [ ] First-day audit and report: listings, sold history, ended listings, messages, settings ([listing-assistant.md](listing-assistant.md)).
-- [ ] Reply style guide from K's past replies, used by every draft.
+- [x] First-day audit and report (`src/firstday.ts`, the Audit screen): every listing in full with eBay's required and recommended item specifics, sold history (imported sales and eBay's orders), ended-unsold listings from the last 60 days, past replies, business policies and the seller record. Ranked findings; fixes as proposals (price, promotion, return policy) or the Claude listing review (title, specifics, description). Runs once in the first nightly, or K runs it from the app ([listing-assistant.md](listing-assistant.md)).
+- [x] Reply style guide (`src/style.ts`) learned once by Sonnet from K's answered questions and sent messages, editable by K on the Audit screen, added after the rules to every reply and offer draft.
 - [x] The pricing engine for listing prices ([pricing-engine.md](pricing-engine.md)): Claude identification from title, description and photos, graded comparables from both providers, market regimes, learning, bundle advice. Offers, counters, audits and a nightly price review all use it (enforced in code). Originally: market pictures for prices, offers and counters ([pricing-and-promotion.md](pricing-and-promotion.md)), with an estimated sold price from K's sales, eBay data and Trawl or CompsAPI sold records ([sold-price-data.md](sold-price-data.md)).
 - [x] Sold-data providers connected (`src/solddata.ts`): hard monthly caps, 30-day cache, search words only.
 - [x] K's provider test (`src/solddata-eval.ts`), with the engine as a third column backtested to each sale date: engine 12.4% mean error on 4 of 5 sales, CompsAPI 27.1%, Trawl 77% (2026-11-03).
-- [ ] Promotion research: propose only when the market is saturated and the rate pays back, below eBay's suggestion.
+- [x] Promotion research (`src/promotion.ts`): a `promote` proposal only when the market is saturated, the listing needs to be seen, and a 2–4% general rate (at most half eBay's suggestion from the Recommendation API) pays back under the engine's sale model. Nightly and in the audit. `promote` is a locked kind. Applying it (Marketing API writes) is built with Phase 8.
 - [x] The redesigned app (tasteskill; eBay-based colours made K's own, logo, separate phone and desktop layouts, same features).
 - [ ] One full nightly cycle with all of it, then go-live tests A to H.
 

@@ -41,6 +41,7 @@ const KIND: Record<string, string> = {
   end_listing: "End listing",
   relist: "Relist",
   promote: "Promotion",
+  policy: "Return policy",
 };
 
 const STATE: Record<string, [string, string]> = {
@@ -51,6 +52,7 @@ const STATE: Record<string, [string, string]> = {
   rejected: ["state-off", "Rejected"],
   expired: ["state-off", "Expired"],
   failed: ["state-decide", "eBay refused it"],
+  agreed: ["state-applied", "Approved (dry run)"],
 };
 
 // ---------------------------------------------------------------- Inbox
@@ -58,12 +60,13 @@ const STATE: Record<string, [string, string]> = {
 const STATUSES = [
   { id: "pending", label: "To decide" },
   { id: "applied", label: "Applied" },
+  { id: "agreed", label: "Approved (dry run)" },
   { id: "rejected", label: "Rejected" },
   { id: "failed", label: "Refused by eBay" },
   { id: "expired", label: "Expired" },
 ];
 
-const hasFigure = (p: Proposal) => ["price", "best_offer_response", "create_listing"].includes(p.kind) || (p.kind === "revise" && Boolean(p.payload?.title));
+const hasFigure = (p: Proposal) => ["price", "best_offer_response", "create_listing", "promote"].includes(p.kind) || (p.kind === "revise" && Boolean(p.payload?.title));
 
 /** The big line on a label: what changes, old struck through, new in full. */
 function Change({ p }: { p: Proposal }) {
@@ -83,6 +86,13 @@ function Change({ p }: { p: Proposal }) {
       </p>
     );
   if (p.kind === "create_listing") return <p class="change">{money(a.price)}</p>;
+  if (p.kind === "promote")
+    return (
+      <p class="change">
+        {a.currentRate != null && <span class="was">{a.currentRate}%</span>}
+        {a.action === "end" ? "End ad" : `${a.rate}% ad rate`}
+      </p>
+    );
   if (p.kind === "revise" && a.title) return <p class="change" style={{ fontSize: "var(--step-lead)" }}>{a.title}</p>;
   return null;
 }
@@ -172,6 +182,19 @@ export function Inbox({ me, onSignedOut, onChanged }: ScreenProps) {
                   </p>
                 )}
                 {p.reason && p.kind !== "message" && <p>{p.reason}</p>}
+                {p.kind === "promote" && (
+                  <p class="evidence small">
+                    {p.payload?.campaign}. eBay suggests {p.payload?.suggestedRate != null ? `${p.payload.suggestedRate}%` : "no rate"}
+                    {p.payload?.payback
+                      ? `; expected sale in about ${p.payload.payback.daysPromoted} days instead of ${p.payload.payback.daysNow}, ad fee ${money(p.payload.payback.adFee)} if it sells through the ad.`
+                      : "."}
+                  </p>
+                )}
+                {p.kind === "policy" && p.payload?.proposed && (
+                  <p class="evidence small">
+                    {p.payload.name}: returns accepted within {p.payload.proposed.periodDays} days, buyer pays return postage.
+                  </p>
+                )}
                 {(p.payload?.flags ?? []).map((f: string) => (
                   <p class="flag">Check: {f}</p>
                 ))}
@@ -186,10 +209,9 @@ export function Inbox({ me, onSignedOut, onChanged }: ScreenProps) {
                 <div class="label-stub">
                   {done ? (
                     <p class="result" role="status">{done}</p>
-                  ) : p.dry_run ? (
-                    <p class="small">Dry run: proposed while changes are off, so it can't be applied.</p>
                   ) : (
                     <>
+                      {Boolean(p.dry_run) && <p class="small">Dry run: your answer is recorded, but nothing can reach eBay while changes are off.</p>}
                       <label class="choice small">
                         <input type="checkbox" class="pick" checked={selected.has(p.id)} onChange={() => toggle(p.id)} />
                         Select

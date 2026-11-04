@@ -35,6 +35,10 @@ export function describe(p: Proposal): { what: string; figure: string } {
       const verb = a.action === "accept" ? "Accept" : a.action === "decline" ? "Decline" : "Counter";
       return { what: `${verb} an offer of ${money(a.offerPrice)}`, figure: a.action === "counter" ? money(a.counterPrice) : money(a.offerPrice) };
     }
+    case "promote":
+      return { what: a.action === "end" ? "End the promotion" : `Promote at ${a.rate}%`, figure: a.rate != null ? `${a.rate}%` : "" };
+    case "policy":
+      return { what: `Return policy: ${a.name ?? ""}`, figure: "" };
     default:
       return { what: p.kind.replace(/_/g, " "), figure: "" };
   }

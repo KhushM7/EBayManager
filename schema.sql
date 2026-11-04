@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS item_settings (
 
 -- Every change to eBay is a proposal first, applied only through the write gate (src/ebay/write.ts).
 -- kind: price | revise | create_listing | end_listing | relist | promote | offer_to_watchers | message | best_offer_response | policy
--- status: pending | approved | applying | applied | rejected | expired | failed
+-- status: pending | approved | applying | applied | rejected | expired | failed | agreed (a dry run K approved; never applied)
 -- dry_run = 1: created while WRITE_MODE=off; it can never be applied.
 CREATE TABLE IF NOT EXISTS proposals (
   id TEXT PRIMARY KEY,
@@ -274,4 +274,20 @@ CREATE TABLE IF NOT EXISTS bundle_advice (
   item_ids TEXT NOT NULL,
   detail TEXT NOT NULL,
   status TEXT NOT NULL           -- open | dismissed | replaced | done
+);
+
+-- The first-day audit's reports (src/firstday.ts), newest shown in the app.
+CREATE TABLE IF NOT EXISTS audit_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,
+  env TEXT NOT NULL,
+  report TEXT NOT NULL
+);
+
+-- Published specifications for an exactly identified product (src/specs.ts), each with its source page.
+CREATE TABLE IF NOT EXISTS product_specs (
+  item_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  lookup TEXT NOT NULL
 );

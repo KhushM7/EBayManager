@@ -42,7 +42,7 @@ The real account runs read-only for **one nightly cycle at most** (connect durin
 
 ## D. Nothing can change on the real account (R)
 
-- [ ] D1. Every proposal created in production is marked dry run, and approving one returns "Dry run".
+- [ ] D1. Every proposal created in production is marked dry run. Approving one records it as "Approved (dry run)" and sends nothing; rejecting one works as usual.
 - [ ] D2. A forced attempt to apply a production proposal through the gate is refused ("Writes are off") and logged as refused.
 - [ ] D3. The Trading client refuses a write verb in production.
 - [ ] D4. The Activity log shows **no** applied entries for production.

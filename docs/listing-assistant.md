@@ -18,9 +18,17 @@ A one-off, read-only review of the whole account, shown as a report in the app w
 
 The audit makes **no** changes. Its suggestions become dry-run proposals in Phase 6, and real proposals once changes are on.
 
+Built 2026-11-03 (`src/firstday.ts`). Price and promotion fixes come from the pricing engine and promotion research; return policies that break K's rule become `policy` proposals; titles, item specifics and descriptions go to the Claude listing review, which K starts per listing (or for all) from the Audit screen. Missing item specifics are checked against eBay's required and recommended aspects for each category (Taxonomy). eBay's sold and unsold lists only go back 60 days; older sales come from the imported Seller Hub report. Buyer IDs are never stored.
+
+Updated 2026-11-03 after K's first run: the audit prices every listing with the engine (a pending listing edit no longer holds it back); postage of 0 counts as free only when eBay marks it free (otherwise eBay sets it per buyer); each listing gets revise-or-relist advice (revise when 3+ people watch it, relist after 90+ quiet days); K can add facts (measurements, faults, contents) and a floor per listing, which Claude uses and cites as "from K"; and dry-run proposals can be approved (recorded, never applied) or rejected. The style guide learns only from replies before a sale and never records typos, refunds or a price stance.
+
+Published specifications (`src/specs.ts`, 2026-11-03, K's request): for an exactly identified product, Sonnet with web search finds the manufacturer's dimensions, weight, model number and other specs, so K isn't asked to measure what's published. Each spec keeps its source page, and the code drops any spec whose source isn't a page that search returned, and all of them if the product isn't exactly identified. Stored per listing title in `product_specs`. The audit looks them up for each listing (once; about 3 to 6 cents each), the Claude listing review sees them as `PublishedSpecs`, and only what isn't published is left for K. A description that only repeats the title now counts as no description.
+
 ## Replies in K's voice
 
 Reply drafts follow the style guide from the audit (and anything K edits later). The rules are unchanged: only facts from the listing, no price agreements, everything kept on eBay.
+
+Built 2026-11-03 (`src/style.ts`): tone, length, greeting, sign-off, habits, example phrasings (item details replaced by placeholders) and things K avoids, stored in `settings.reply_style`. Contact details are scrubbed in code. It's added to the drafting prompts after the rules, which win where they conflict. Relearning never overwrites K's edits unless K asks.
 
 ## New listings from photos
 

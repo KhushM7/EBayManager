@@ -12,6 +12,7 @@ export const LOCKED_KINDS = [
   "create_listing",
   "end_listing",
   "policy",
+  "promote",
 ] as const;
 
 /** A pending proposal expires after this many days, and so do its signed approval links. */

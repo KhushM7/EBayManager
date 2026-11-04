@@ -4,6 +4,7 @@ import { api, SignedOut, type Me } from "./api";
 import { AddPasskeyFirst, Join, SignIn } from "./doors";
 import { Logo } from "./logo";
 import { Metrics } from "./metrics";
+import { Report } from "./report";
 import { Activity, Aside, Inbox, Listings, Settings } from "./screens";
 import "./style.css";
 
@@ -11,6 +12,7 @@ const ROUTES = [
   { path: "/", label: "Inbox", View: Inbox },
   { path: "/listings", label: "Listings", View: Listings },
   { path: "/metrics", label: "Metrics", View: Metrics },
+  { path: "/audit", label: "Audit", View: Report },
   { path: "/activity", label: "Activity", View: Activity },
   { path: "/settings", label: "Settings", View: Settings },
 ] as const;

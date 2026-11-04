@@ -62,8 +62,24 @@ describe("write gate is the only path to eBay writes", () => {
     for (const v of named) expect(allowed.has(v), v).toBe(true);
   });
 
-  it("prices, messages and offers are locked to approval", () => {
-    for (const k of ["price", "message", "best_offer_response", "offer_to_watchers", "create_listing", "end_listing", "policy"])
+  it("prices, messages, offers and promotion are locked to approval", () => {
+    for (const k of ["price", "message", "best_offer_response", "offer_to_watchers", "create_listing", "end_listing", "policy", "promote"])
       expect(LOCKED_KINDS).toContain(k);
+  });
+});
+
+describe("data access stays behind the store (docs/azure-migration.md)", () => {
+  it("nothing uses the old D1 database", () => {
+    expect(filesMatching(/\benv\.DB\b|D1Database|\.prepare\(/)).toEqual([]);
+  });
+
+  it("only the Cosmos store and the Azure platform layer import Azure SDKs", () => {
+    const azure = filesMatching(/from "@azure\//).sort();
+    for (const f of azure) expect(f.startsWith("src/store/cosmos") || f.startsWith("src/platform/azure/"), f).toBe(true);
+  });
+
+  it("only src/store/ touches documents directly", () => {
+    const direct = filesMatching(/\.docs\.(get|create|upsert|replace|patch|delete|query|batch)\(/).filter((f) => !f.startsWith("src/store/"));
+    expect(direct).toEqual([]);
   });
 });

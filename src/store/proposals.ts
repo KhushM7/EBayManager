@@ -75,7 +75,9 @@ export function proposalsRepo(docs: DocStore) {
         if (!(await docs.create(C, doc))) throw new Error("Proposal id clash");
         return;
       }
-      for (let attempt = 0; attempt < 5; attempt++) {
+      for (let attempt = 0; attempt < 25; attempt++) {
+        // Someone else changed this item's proposals between our read and our batch: wait a moment, retry.
+        if (attempt) await new Promise((r) => setTimeout(r, Math.random() * 25 * Math.min(attempt, 8)));
         const headId = `head:${r.kind}`;
         const head = await docs.get(C, headId, pk);
         const pending = await docs.query<any>(C, {

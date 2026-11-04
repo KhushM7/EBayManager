@@ -27,16 +27,16 @@ Who does each step: **C** = Claude, **K** = K.
 - [ ] (K) Open the Phase 7 pull request and merge it (link above)
 
 ### M1. Store layer (replaces D1)
-- [ ] (C) `src/store/types.ts`: the Store interface
-- [ ] (C) `src/store/memory/`: in-memory store for tests
-- [ ] (C) `src/store/cosmos/`: Cosmos DB store
-- [ ] (C) `infra/cosmos-containers.json`: the 14 containers, partition keys, TTL, indexing
-- [ ] (C) Conformance tests (`test/store/conformance.ts`): memory always; emulator via `npm run test:cosmos`
-- [ ] (C) Convert every call site (25 files) from `env.DB` to `env.store`
-- [ ] (C) Convert the tests that use SQL directly to the store and shared fixtures
-- [ ] (C) Differential test: old SQL against the new store for `metrics()`, `listingFacts()` and review candidates (temporary)
-- [ ] (C) Concurrency tests for every atomic claim; golden test for `metrics()`
-- [ ] (C) Safety scans: no `env.DB` or `prepare(` left; `@azure/*` only in `src/store/cosmos/` and `src/platform/azure/`; `promote` is locked
+- [x] (C) Store interface (`src/store/index.ts`), built on a small document layer (`src/store/doc.ts`), so only that layer has two implementations and the repositories (`src/store/{proposals,auth,data}.ts`) are written and tested once
+- [x] (C) `src/store/memory.ts`: in-memory store for tests, with Cosmos DB semantics
+- [x] (C) `src/store/cosmos.ts`: Cosmos DB store (`@azure/cosmos`; conditional patch, etag replace, transactional batch)
+- [x] (C) `infra/cosmos-containers.json`: the 14 containers, partition keys, TTL, indexing (a test checks it matches the code)
+- [x] (C) Conformance tests (`test/store/conformance.ts`): memory always (14 tests); emulator via `npm run test:cosmos` (needs the emulator: open question 3)
+- [x] (C) Convert every call site (25 files) from `env.DB` to `env.store`
+- [x] (C) Convert the tests that use SQL directly to the store and shared fixtures (`test/fixtures.ts`)
+- [x] (C) ~~Differential test (old SQL against the new store)~~: replaced by a golden test of `metrics()` with hand-worked figures (`test/metrics.test.ts`). The old SQL was converted file by file in the same commit, so there was no point at which both could run side by side; the golden test pins the same behaviour, including SQLite's SUM-of-nulls and the per-order-item revenue
+- [x] (C) Concurrency tests: the write-gate claim (1 of 10), approve-once, never a dry run, never after expiry, one pending proposal per superseding kind under 6 simultaneous creates, invite / recovery code / challenge used once, parallel usage increments, removing a person
+- [x] (C) Safety scans: no `env.DB`, `D1Database` or `prepare(`; `@azure/*` only in `src/store/cosmos*` and `src/platform/azure/`; only `src/store/` touches documents; `promote` is locked
 
 ### M2. Azure platform layer
 - [ ] (C) `handle(request, env)`: platform-neutral routing taken out of `src/index.ts`
@@ -105,3 +105,4 @@ Production D1:
 ## Log
 
 - 2026-11-03: plan approved; branch and this doc created.
+- 2026-11-04: M1 done. All 25 modules moved to the store; 201 tests pass (1 skipped: the emulator suite). Found and fixed on the way: a date bug in the audit's "days listed" (it used the wall clock), and supersede retries too short under 6 simultaneous creates (now 25 with back-off). Two claims made atomic that weren't before: recovery codes and sign-in challenges.

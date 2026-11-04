@@ -63,7 +63,8 @@ Who does each step: **C** = Claude, **K** = K.
 - [x] (C/K) Verify (2026-11-04): passkey sign-in (key sign-in is API-only), two approved price changes applied, nightly and audit, push, headers and HTTPS settings, forged client address ignored (after the `Client-IP` fix), RU peaks. The offer round trip was **not re-run**: eBay's Sandbox site was down; it passed on Cloudflare on 2026-11-02 and the offer code is unchanged apart from the store, which has its own conformance tests (K's decision)
 
 ### M5. Production infrastructure
-- [ ] (K) Deploy production infrastructure, secrets and code (`WRITE_MODE=off`); `/health` shows production and off
+- [x] (K) Deploy production infrastructure, secrets and code (`WRITE_MODE=off`); `/health` shows production and off (2026-11-04: https://ebay-autopilot-production-wrpoyt.azurewebsites.net). Secrets: 11 uploaded; the comps keyset, `MCP_TOKEN` and `NTFY_TOPIC` are intentionally unset on production
+- [ ] (K) Redeploy the code with the fixed zip step; the dashboard page loads (not 500)
 
 ### M6. Switch-over
 - [ ] (K) Pause writes on Cloudflare and remove its scheduled jobs
@@ -107,6 +108,7 @@ Production D1:
 
 ## Log
 
+- 2026-11-04: M5 deployed by K. Public checks from the cloud session: HSTS, CSP, nosniff, X-Frame-Options DENY; `/admin` 401; `/mcp` 404; `/api/me` 401 when signed out. The dashboard page answered 500: the deploy zip was made with PowerShell's Compress-Archive, which writes `web\index.html` (backslashes), a file name rather than a folder on the Linux host. `azure-deploy.mjs` now zips with `tar.exe` on Windows and refuses a zip with backslash paths or without `index.js` and `web/index.html`.
 - 2026-11-04: **M4 complete.** The cloud session signed out of Azure (`az logout`). Next: M5, K deploys production (read-only).
 - 2026-11-04: More M4 checks passed: push to the installed app (K); first-day audit as a background job (report saved, no failed steps); nightly run (snapshots refreshed); a second approved price change applied (item 110591497965, £12 → £10.80, Ack Success). Claude spend for all Sandbox checks: $0.14. Cosmos peaked at 100% normalised RU only during the import (02:09), 32–41% otherwise, no throttling (429). Its 400s are the gateway's documented first-chance reply to sorted cross-partition queries, which the SDK retries with a query plan. Application Insights: no app exceptions, only the Functions host's own storage-probe 404/409s and one restart.
 - 2026-11-04: M4 checks on Sandbox. Passed: passkey registration via `/api/setup`, eBay sign-in with the new RuName, the 15-minute timer, a price check as a background job, and an **approved price change applied** (`ReviseFixedPriceItem` The Hobbit £4.50 → £4.05, Ack Success, audit_log `applied`, actor K). Found and fixed: the ntfy fallback sent the title as a header, and Node refuses '→' and '£' in headers, so every price proposal threw after being saved (Claude retried, each retry superseding the last); ntfy is now published as JSON and can't fail the caller. To fix later: a price check with no matches reads "about ? today".

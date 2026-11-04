@@ -1,5 +1,8 @@
+import type { Store } from "./store";
+
 export interface Env {
-  DB: D1Database;
+  /** The data store: Cosmos DB on Azure, in memory in tests (src/store). */
+  store: Store;
   /** R2 photo storage, bound from Phase 8. */
   PHOTOS?: R2Bucket;
   /** sandbox | production. Selects eBay hosts and keyset; anything else fails closed. */

@@ -20,17 +20,16 @@ export const MIN_CONFIDENCE = 0.3;
  * Only a pending price change holds a listing back; a pending listing edit doesn't.
  */
 export async function reviewPrices(env: Env, now = Date.now(), opts: { all?: boolean; limit?: number } = {}): Promise<string> {
-  const { results } = await env.DB.prepare(
-    `SELECT s.item_id, s.price,
-            (SELECT MAX(at) FROM price_decisions d WHERE d.item_id = s.item_id) AS last_check
-     FROM listing_snapshots s
-     WHERE s.taken_at = (SELECT MAX(taken_at) FROM listing_snapshots)
-       AND (? = 1 OR NOT EXISTS (SELECT 1 FROM proposals p WHERE p.item_id = s.item_id AND p.kind = 'price' AND p.status IN ('pending', 'approved')))
-       AND NOT EXISTS (SELECT 1 FROM proposals p WHERE p.item_id = s.item_id AND p.kind = 'price' AND p.status = 'applied' AND p.decided_at > ?)
-     ORDER BY COALESCE(last_check, 0) ASC`,
-  )
-    .bind(opts.all ? 1 : 0, now - 7 * DAY)
-    .all<{ item_id: string; price: number; last_check: number | null }>();
+  // The latest snapshot set, minus listings with a pending price change (unless all) or one applied in the
+  // last 7 days, oldest engine check first.
+  const priceProposals = await env.store.proposals.listWhere([{ f: "kind", op: "=", v: "price" }]);
+  const held = new Set(priceProposals.filter((p) => !opts.all && (p.status === "pending" || p.status === "approved")).map((p) => p.item_id));
+  const recentlyChanged = new Set(priceProposals.filter((p) => p.status === "applied" && (p.decided_at ?? 0) > now - 7 * DAY).map((p) => p.item_id));
+  const lastCheck = new Map((await env.store.pricing.latestDecisions()).map((d) => [d.item_id, d.at]));
+  const results = (await env.store.listings.latestSet())
+    .filter((s) => !held.has(s.item_id) && !recentlyChanged.has(s.item_id))
+    .map((s) => ({ item_id: s.item_id, price: s.price, last_check: lastCheck.get(s.item_id) ?? null }))
+    .sort((a, b) => (a.last_check ?? 0) - (b.last_check ?? 0));
   const due = results.filter((r) => opts.all || !r.last_check || now - r.last_check > 6 * DAY).slice(0, opts.limit ?? PRICED_PER_NIGHT);
   const propose = tools.find((t) => t.name === "propose_price_change")!;
   let proposed = 0;

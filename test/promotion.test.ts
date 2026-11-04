@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
 import type { Env } from "../src/env";
 import type { MarketState } from "../src/pricing/model";
 import { isSaturated, PROMO, promotionAdvice, proposedRate, proposePromotions, type PromotionInput } from "../src/promotion";
@@ -129,14 +129,14 @@ describe("eBay's ad suggestions", () => {
 describe("promotion proposals", () => {
   let env: Env;
   beforeEach(() => {
-    env = { DB: fakeD1(), EBAY_ENV: "production", WRITE_MODE: "off", NTFY_TOPIC: "" } as Env;
+    env = { store: memoryStore(), EBAY_ENV: "production", WRITE_MODE: "off", NTFY_TOPIC: "" } as Env;
   });
 
   it("files a locked promote proposal, once, as a dry run while writes are off", async () => {
     const found = [{ itemId: "111", title: "Thing", advice: promotionAdvice(input()), suggestedRate: 8, ebayRecommends: true, currentRate: null }];
     expect(await proposePromotions(env, found)).toBe(1);
     expect(await proposePromotions(env, found)).toBe(0);
-    const p = await env.DB.prepare("SELECT * FROM proposals").first<any>();
+    const [p] = await env.store.proposals.listByStatus("pending", "asc");
     expect(p).toMatchObject({ kind: "promote", item_id: "111", dry_run: 1 });
     expect(JSON.parse(p.payload)).toMatchObject({ action: "promote", rate: 3, suggestedRate: 8, campaign: "General (cost per sale)" });
     expect(LOCKED_KINDS).toContain("promote");

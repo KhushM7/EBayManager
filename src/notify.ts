@@ -21,11 +21,7 @@ export async function push(
   const fullTitle = envPrefix(env) + title;
   const delivered = await sendToAll(env, { title: fullTitle, body, tag, approveUrl: links?.approve, rejectUrl: links?.reject });
   if (delivered) {
-    await env.DB.prepare(
-      "INSERT INTO settings (key, value) VALUES ('last_push_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-      .bind(String(Date.now()))
-      .run();
+    await env.store.kv.set("last_push_at", String(Date.now()));
   }
   if (!env.NTFY_TOPIC) return;
   const headers: Record<string, string> = { Title: fullTitle };

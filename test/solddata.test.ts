@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
+import { withEbayTokens } from "./fixtures";
 import type { Env } from "../src/env";
 import { estimate, parseCompsApi, parseTrawl, QuotaReached, searchSold, wordsFromTitle, type SoldSale } from "../src/solddata";
 import { evaluateProviders, pickSales, score } from "../src/solddata-eval";
@@ -90,7 +91,7 @@ describe("calling providers", () => {
         : Response.json({ items: [{ title: "Sony", price: 125, native_price: 100, native_currency: "GBP" }] }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    env = { DB: fakeD1(), TRAWL_API_KEY: "tk", COMPSAPI_KEY: "ck" } as Env;
+    env = { store: memoryStore(), TRAWL_API_KEY: "tk", COMPSAPI_KEY: "ck" } as Env;
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -117,7 +118,7 @@ describe("calling providers", () => {
 
   it("stops at the monthly cap before calling, and treats the provider's quota error the same", async () => {
     const month = new Date().toISOString().slice(0, 7);
-    await env.DB.prepare("INSERT INTO solddata_usage (provider, month, used) VALUES ('compsapi', ?, 100)").bind(month).run();
+    await env.store.solddata.addUsage("compsapi", month, 100);
     await expect(searchSold(env, "compsapi", { words: "Sony" })).rejects.toThrow(QuotaReached);
     expect(fetchMock).not.toHaveBeenCalled();
 
@@ -144,12 +145,8 @@ describe("K's test: price items K has sold, compare with what K got", () => {
   });
 
   it("runs end to end, leaving K's own sale out of the estimate", async () => {
-    const env = { DB: fakeD1(), EBAY_ENV: "sandbox", EBAY_MARKETPLACE: "EBAY_GB", TRAWL_API_KEY: "tk", COMPSAPI_KEY: "ck" } as Env;
-    await env.DB.prepare(
-      "INSERT INTO ebay_tokens (id, access_token, access_expires_at, refresh_token, refresh_expires_at, scopes) VALUES (1, 't', ?, 'r', ?, 's')",
-    )
-      .bind(Date.now() + 3_600_000, Date.now() + 3_600_000)
-      .run();
+    const env = { store: memoryStore(), EBAY_ENV: "sandbox", EBAY_MARKETPLACE: "EBAY_GB", TRAWL_API_KEY: "tk", COMPSAPI_KEY: "ck" } as Env;
+    await withEbayTokens(env.store);
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string) => {

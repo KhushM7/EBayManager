@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
 import type { Env } from "../src/env";
 import { b64u, encryptPayload, vapidPublicKey } from "../src/push";
 import { handleApi } from "../src/api";
@@ -60,7 +60,7 @@ describe("dashboard API", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("<x/>")));
     env = {
-      DB: fakeD1(),
+      store: memoryStore(),
       EBAY_ENV: "sandbox",
       WRITE_MODE: "approval",
       SIGNING_KEY: "k",

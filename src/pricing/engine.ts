@@ -78,10 +78,7 @@ const median = (xs: number[]) => {
 };
 
 export async function paramsFor(env: Env, group: string): Promise<SaleParams> {
-  const row = await env.DB.prepare("SELECT tau, alpha FROM pricing_params WHERE grp IN (?, 'all') ORDER BY grp = 'all' LIMIT 1")
-    .bind(group)
-    .first<{ tau: number; alpha: number }>()
-    .catch(() => null);
+  const row = await env.store.pricing.paramsFor(group).catch(() => null);
   return row ? { tau: row.tau, alpha: row.alpha } : DEFAULT_PARAMS;
 }
 
@@ -91,13 +88,11 @@ export const CLOSE_WEIGHT = 0.35;
 async function cachedIdentity(env: Env, input: PriceInput, api?: MessagesApi): Promise<Identity> {
   // Redone when the listing's title, condition, description or first photo changes.
   const key = `v${IDENTITY_VERSION}|${input.title}|${input.condition ?? ""}|${(input.description ?? "").length}|${input.photos?.[0] ?? ""}`;
-  const hit = await env.DB.prepare("SELECT identity FROM item_identity WHERE key = ?").bind(key).first<{ identity: string }>();
-  if (hit) return JSON.parse(hit.identity);
+  const hit = await env.store.pricing.getIdentity(key);
+  if (hit) return JSON.parse(hit);
   const id = await identify(env, input, api);
   if (id.by === "claude")
-    await env.DB.prepare("INSERT OR REPLACE INTO item_identity (key, item_id, identity, at) VALUES (?, ?, ?, ?)")
-      .bind(key, input.itemId ?? null, JSON.stringify(id), Date.now())
-      .run();
+    await env.store.pricing.putIdentity(key, input.itemId ?? null, JSON.stringify(id), Date.now());
   return id;
 }
 
@@ -211,16 +206,16 @@ async function recordSnapshot(env: Env, query: string, group: string, active: Co
   if (!active.length || market.mNow == null) return;
   const key = query.toLowerCase().trim();
   const at = Date.now();
-  const last = await env.DB.prepare("SELECT MAX(taken_at) AS t FROM market_snapshots WHERE key = ?").bind(key).first<{ t: number | null }>();
-  if (last?.t && at - last.t < DAY) return; // at most one a day per search
+  const last = await env.store.pricing.lastMarketAt(key);
+  if (last && at - last < DAY) return; // at most one a day per search
   const share = Math.max(market.demand28, market.demand91) / (market.supply + 1);
-  await env.DB.batch(
-    active.slice(0, 100).map((a) =>
-      env.DB.prepare(
-        "INSERT OR IGNORE INTO market_snapshots (key, taken_at, item_id, total, grp, market, share) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ).bind(key, at, a.itemId, r2(a.price + (a.shipping ?? postage)), group, market.mNow, share),
-    ),
-  );
+  // One document per search per day; each listing once (the first, as INSERT OR IGNORE kept).
+  const seen = new Set<string>();
+  const items = active
+    .slice(0, 100)
+    .filter((a) => !seen.has(a.itemId) && seen.add(a.itemId))
+    .map((a) => ({ item_id: a.itemId, total: r2(a.price + (a.shipping ?? postage)) }));
+  await env.store.pricing.writeMarket(key, at, { grp: group, market: market.mNow, share, items });
 }
 
 /** Adds up a bundle's parts: each part priced on its own market, postage charged once. */
@@ -285,22 +280,17 @@ export async function priceItem(env: Env, input: PriceInput, api?: MessagesApi):
 /** Keeps the decision for learning and for the price label's track record. */
 export async function recordDecision(env: Env, itemId: string | null, r: PriceResult) {
   const m = r.components[0]?.market;
-  await env.DB.prepare(
-    `INSERT INTO price_decisions (item_id, at, grp, strategy, price, total, market_price, predicted_days, result)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      itemId,
-      r.at,
-      r.identity.group,
-      r.decision.strategy,
-      r.decision.price,
-      r.decision.total,
-      m?.mNow ?? null,
-      r.decision.options[1]?.daysToSell ?? null,
-      JSON.stringify(r).slice(0, 60_000),
-    )
-    .run();
+  await env.store.pricing.recordDecision({
+    item_id: itemId,
+    at: r.at,
+    grp: r.identity.group,
+    strategy: r.decision.strategy,
+    price: r.decision.price,
+    total: r.decision.total,
+    market_price: m?.mNow ?? null,
+    predicted_days: r.decision.options[1]?.daysToSell ?? null,
+    result: JSON.stringify(r).slice(0, 60_000),
+  });
 }
 
 const num = (v: any): number | null => {
@@ -346,7 +336,7 @@ export function inputFromItem(item: any): PriceInput {
 /** Prices one of K's live listings (read-only eBay calls) and records the decision. */
 export async function priceListing(env: Env, itemId: string, api?: MessagesApi): Promise<PriceResult> {
   const input = inputFromItem(await getItem(env, itemId));
-  const s = await env.DB.prepare("SELECT floor_price FROM item_settings WHERE item_id = ?").bind(itemId).first<{ floor_price: number | null }>();
+  const s = await env.store.listings.getSettings(itemId);
   const r = await priceItem(env, { ...input, itemId, floor: s?.floor_price ?? null, excludeItemIds: [itemId] }, api);
   await recordDecision(env, itemId, r);
   return r;
@@ -354,9 +344,7 @@ export async function priceListing(env: Env, itemId: string, api?: MessagesApi):
 
 /** The engine's latest result for one of K's listings if recent enough, else a fresh check (or null). */
 export async function currentPricing(env: Env, itemId: string, maxAgeDays = 3, api?: MessagesApi): Promise<PriceResult | null> {
-  const row = await env.DB.prepare("SELECT result FROM price_decisions WHERE item_id = ? AND at > ? ORDER BY at DESC LIMIT 1")
-    .bind(itemId, Date.now() - maxAgeDays * DAY)
-    .first<{ result: string }>();
+  const row = await env.store.pricing.latestDecision(itemId, Date.now() - maxAgeDays * DAY);
   if (row) return JSON.parse(row.result);
   if (!providerEnabled(env, "trawl") && !providerEnabled(env, "compsapi")) return null;
   return priceListing(env, itemId, api).catch(() => null);

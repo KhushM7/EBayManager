@@ -33,6 +33,7 @@ import { MONTHLY_CAP, providerEnabled, usedThisMonth, type Provider } from "./so
 import { evaluateProviders } from "./solddata-eval";
 import { priceListing } from "./pricing/engine";
 import { cleanSale } from "./salesreport";
+import { orderLines } from "./store";
 import { latestReport, runFirstDayAudit } from "./firstday";
 import { getAnsweredQuestions, getSentMessages } from "./ebay/history";
 import { editStyle, getStyle, learnStyle, saveStyle } from "./style";
@@ -53,7 +54,7 @@ async function body(request: Request): Promise<any> {
 }
 
 const setting = async (env: Env, key: string) =>
-  (await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first<{ value: string }>())?.value ?? null;
+  env.store.kv.get(key);
 
 export async function handleApi(env: Env, request: Request, url: URL): Promise<Response> {
   const path = url.pathname.replace(/^\/api/, "");
@@ -157,7 +158,7 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
 
   if (path === "/me" && method === "GET") {
     const lastPush = await setting(env, "last_push_at");
-    const connected = await env.DB.prepare("SELECT scopes FROM ebay_tokens WHERE id = 1").first<{ scopes: string }>();
+    const connected = await env.store.kv.getEbayTokens();
     return json({
       user,
       mustAddPasskey: session.mustAddPasskey,
@@ -174,14 +175,15 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
 
   if (path === "/proposals" && method === "GET") {
     const status = url.searchParams.get("status") ?? "pending";
-    const { results } = await env.DB.prepare(
-      `SELECT p.*, (SELECT title FROM listing_snapshots s WHERE s.item_id = p.item_id ORDER BY taken_at DESC LIMIT 1) AS item_title,
-              (SELECT price FROM listing_snapshots s WHERE s.item_id = p.item_id ORDER BY taken_at DESC LIMIT 1) AS item_price
-       FROM proposals p WHERE p.status = ? ORDER BY p.created_at DESC LIMIT 200`,
-    )
-      .bind(status)
-      .all<any>();
-    return json(results.map((p) => ({ ...p, payload: JSON.parse(p.payload) })));
+    const rows = await env.store.proposals.listByStatus(status, "desc", 200);
+    const latest = await env.store.listings.latestAll();
+    return json(
+      rows.map((p) => {
+        const l = p.item_id ? latest.get(p.item_id) : undefined;
+        const seen = l && l.taken_at ? l : undefined;
+        return { ...p, item_title: seen?.title ?? null, item_price: seen?.price ?? null, payload: JSON.parse(p.payload) };
+      }),
+    );
   }
 
   if (path === "/proposals/decide" && method === "POST") {
@@ -194,15 +196,28 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
   }
 
   if (path === "/listings" && method === "GET") {
-    const { results } = await env.DB.prepare(
-      `SELECT s.item_id, s.title, s.price, s.currency, s.watch_count, s.view_count, s.quantity_available, s.start_time, s.taken_at,
-              i.floor_price, i.collection_only, i.notes,
-              (SELECT COUNT(*) FROM proposals p WHERE p.item_id = s.item_id AND p.status = 'pending') AS pending
-       FROM listing_snapshots s LEFT JOIN item_settings i ON i.item_id = s.item_id
-       WHERE s.taken_at = (SELECT MAX(taken_at) FROM listing_snapshots)
-       ORDER BY s.start_time`,
-    ).all();
-    return json(results);
+    const settings = await env.store.listings.settingsAll();
+    const pending = await env.store.proposals.listByStatus("pending", "asc");
+    return json(
+      (await env.store.listings.latestSet()).map((s) => {
+        const i = settings.get(s.item_id);
+        return {
+          item_id: s.item_id,
+          title: s.title,
+          price: s.price,
+          currency: s.currency,
+          watch_count: s.watch_count,
+          view_count: s.view_count ?? null,
+          quantity_available: s.quantity_available,
+          start_time: s.start_time,
+          taken_at: s.taken_at,
+          floor_price: i?.floor_price ?? null,
+          collection_only: i ? i.collection_only : null,
+          notes: i?.notes ?? null,
+          pending: pending.filter((p) => p.item_id === s.item_id).length,
+        };
+      }),
+    );
   }
 
   if (path === "/listings/refresh" && method === "POST") return json(await snapshotListings(env));
@@ -215,28 +230,31 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
     const floor = b.floorPrice === null || b.floorPrice === "" ? null : Number(b.floorPrice);
     if (floor != null && !(floor > 0 && floor < 100_000)) return json({ error: "Floor must be a price in pounds" }, 400);
     const notes = typeof b.notes === "string" ? b.notes.trim().slice(0, 2000) || null : null;
-    await env.DB.prepare(
-      `INSERT INTO item_settings (item_id, floor_price, notes) VALUES (?, ?, ?)
-       ON CONFLICT(item_id) DO UPDATE SET floor_price = excluded.floor_price, notes = excluded.notes`,
-    )
-      .bind(itemSettings[1], floor, notes)
-      .run();
+    await env.store.listings.setFloorAndNotes(itemSettings[1], floor, notes);
     return json({ ok: true, floorPrice: floor, notes });
   }
   if (itemSettings && method === "GET")
-    return json(
-      (await env.DB.prepare("SELECT floor_price AS floorPrice, notes FROM item_settings WHERE item_id = ?").bind(itemSettings[1]).first()) ?? {
-        floorPrice: null,
-        notes: null,
-      },
-    );
+  {
+    const s = await env.store.listings.getSettings(itemSettings[1]);
+    return json(s ? { floorPrice: s.floor_price, notes: s.notes } : { floorPrice: null, notes: null });
+  }
 
   if (path === "/activity" && method === "GET") {
-    const { results } = await env.DB.prepare(
-      `SELECT a.id, a.at, a.env, a.proposal_id, a.call, a.outcome, a.actor, substr(a.response, 1, 300) AS response, p.kind, p.item_id
-       FROM audit_log a LEFT JOIN proposals p ON p.id = a.proposal_id ORDER BY a.id DESC LIMIT 200`,
-    ).all();
-    return json(results);
+    const rows = await env.store.audit.recent(200);
+    return json(
+      rows.map((a) => ({
+        id: a.id,
+        at: a.at,
+        env: a.env,
+        proposal_id: a.proposal_id,
+        call: a.call,
+        outcome: a.outcome,
+        actor: a.actor,
+        response: a.response == null ? null : String(a.response).slice(0, 300),
+        kind: a.kind,
+        item_id: a.item_id,
+      })),
+    );
   }
 
   if (path === "/settings/writes" && method === "POST") {
@@ -268,15 +286,14 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
 
   if (path === "/push/unsubscribe" && method === "POST") {
     const { endpoint } = await body(request);
-    await env.DB.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").bind(String(endpoint)).run();
+    await env.store.push.delete(String(endpoint));
     return json({ ok: true });
   }
 
   if (path === "/push/devices" && method === "GET") {
-    const { results } = await env.DB.prepare(
-      "SELECT endpoint, user_agent, created_at, last_ok_at, last_error FROM push_subscriptions ORDER BY created_at DESC",
-    ).all();
-    return json(results);
+    return json(
+      (await env.store.push.list()).map((d) => ({ endpoint: d.endpoint, user_agent: d.user_agent, created_at: d.created_at, last_ok_at: d.last_ok_at, last_error: d.last_error })),
+    );
   }
 
   if (path === "/push/test" && method === "POST") {
@@ -305,22 +322,19 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
   }
 
   if (path === "/pricing/latest" && method === "GET") {
-    const { results } = await env.DB.prepare(
-      `SELECT item_id, at, strategy, price, total, predicted_days, result FROM price_decisions d
-       WHERE at = (SELECT MAX(at) FROM price_decisions x WHERE x.item_id = d.item_id) AND item_id IS NOT NULL`,
-    ).all<any>();
-    return json(results.map((r) => ({ ...r, result: JSON.parse(r.result) })));
+    const rows = await env.store.pricing.latestDecisions();
+    return json(rows.map((r) => ({ item_id: r.item_id, at: r.at, strategy: r.strategy, price: r.price, total: r.total, predicted_days: r.predicted_days, result: JSON.parse(r.result) })));
   }
 
   if (path === "/pricing/advice" && method === "GET") {
-    const { results } = await env.DB.prepare("SELECT id, at, detail FROM bundle_advice WHERE status = 'open' ORDER BY id").all<any>();
-    return json(results.map((r) => ({ id: r.id, at: r.at, ...JSON.parse(r.detail) })));
+    const rows = await env.store.pricing.openAdvice();
+    return json(rows.map((r) => ({ id: r.id, at: r.at, ...JSON.parse(r.detail) })));
   }
 
   if (path === "/pricing/advice/dismiss" && method === "POST") {
     const { id } = await body(request);
-    if (!Number.isInteger(id)) return json({ error: "Bad id" }, 400);
-    await env.DB.prepare("UPDATE bundle_advice SET status = 'dismissed' WHERE id = ? AND status = 'open'").bind(id).run();
+    if (typeof id !== "string" || !/^[\w-]{1,40}$/.test(id)) return json({ error: "Bad id" }, 400);
+    await env.store.pricing.dismissAdvice(id);
     return json({ ok: true });
   }
 
@@ -361,17 +375,18 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
     const day = new Date();
     day.setUTCHours(0, 0, 0, 0);
     const month = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), 1));
-    const sum = (since: number) =>
-      env.DB.prepare("SELECT COALESCE(SUM(cost_usd), 0) AS usd, COUNT(*) AS calls FROM claude_usage WHERE at >= ?")
-        .bind(since)
-        .first<{ usd: number; calls: number }>();
-    const { results: byJob } = await env.DB.prepare(
-      `SELECT CASE WHEN instr(job, ':') > 0 THEN substr(job, 1, instr(job, ':') - 1) ELSE job END AS job,
-              COUNT(*) AS calls, SUM(cost_usd) AS usd
-       FROM claude_usage WHERE at >= ? GROUP BY 1 ORDER BY usd DESC`,
-    )
-      .bind(month.getTime())
-      .all();
+    const monthRows = await env.store.usage.since(month.getTime());
+    const sum = async (since: number) => {
+      const rows = monthRows.filter((r) => r.at >= since);
+      return { usd: rows.reduce((s, r) => s + r.cost_usd, 0), calls: rows.length };
+    };
+    const jobs = new Map<string, { job: string; calls: number; usd: number }>();
+    for (const r of monthRows) {
+      const job = r.job.includes(":") ? r.job.slice(0, r.job.indexOf(":")) : r.job;
+      const cur = jobs.get(job) ?? { job, calls: 0, usd: 0 };
+      jobs.set(job, { job, calls: cur.calls + 1, usd: cur.usd + r.cost_usd });
+    }
+    const byJob = [...jobs.values()].sort((a, b) => b.usd - a.usd);
     return json({
       today: await sum(day.getTime()),
       month: await sum(month.getTime()),
@@ -400,23 +415,20 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
     const { sales } = await body(request);
     if (!Array.isArray(sales) || sales.length > 5000) return json({ error: "Send at most 5,000 sales" }, 400);
     const clean = sales.map(cleanSale).filter((s): s is NonNullable<ReturnType<typeof cleanSale>> => s !== null);
+    // Orders and their items are added only if absent (a re-import changes nothing); counts items added.
     let imported = 0;
-    for (let i = 0; i < clean.length; i += 50) {
-      const batch = clean.slice(i, i + 50).flatMap((s) => [
-        env.DB.prepare(
-          "INSERT OR IGNORE INTO orders (order_id, created_at, total, fees, currency, status) VALUES (?, ?, ?, NULL, 'GBP', 'IMPORTED')",
-        ).bind(s.orderId, Date.parse(`${s.date}T12:00:00Z`), Math.round((s.price * s.quantity + (s.shipping ?? 0)) * 100) / 100),
-        env.DB.prepare("INSERT OR IGNORE INTO order_items (order_id, item_id, title, quantity, price) VALUES (?, ?, ?, ?, ?)").bind(
-          s.orderId,
-          s.itemId,
-          s.title,
-          s.quantity,
-          Math.round(s.price * s.quantity * 100) / 100,
-        ),
+    for (const s of clean)
+      imported += await env.store.orders.insertIfAbsent([
+        {
+          orderId: s.orderId,
+          createdAt: Date.parse(`${s.date}T12:00:00Z`),
+          total: Math.round((s.price * s.quantity + (s.shipping ?? 0)) * 100) / 100,
+          fees: null,
+          currency: "GBP",
+          status: "IMPORTED",
+          items: [{ itemId: s.itemId, title: s.title, quantity: s.quantity, price: Math.round(s.price * s.quantity * 100) / 100 }],
+        },
       ]);
-      const res = await env.DB.batch(batch);
-      imported += res.filter((_, j) => j % 2 === 1).reduce((n, r: any) => n + (r.meta?.changes ?? 0), 0);
-    }
     return json({ received: sales.length, valid: clean.length, imported, alreadyThere: clean.length - imported });
   }
 
@@ -431,69 +443,89 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
 
 const DAY = 86_400_000;
 
-/** Everything the Metrics screen draws, from D1 only (no eBay or Claude calls). */
+/** SQLite's SUM: null for no rows or only nulls. */
+export function sqlSum(xs: (number | null | undefined)[]): number | null {
+  const v = xs.filter((x): x is number => x != null);
+  return v.length ? v.reduce((t, x) => t + x, 0) : null;
+}
+const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+/** Everything the Metrics screen draws, from the store only (no eBay or Claude calls). */
 export async function metrics(env: Env) {
-  const since = Date.now() - 90 * DAY;
-  const since30 = Date.now() - 30 * DAY;
-  const all = async <T>(sql: string, ...args: unknown[]) => (await env.DB.prepare(sql).bind(...args).all<T>()).results;
+  const now = Date.now();
+  const since = now - 90 * DAY;
+  const since30 = now - 30 * DAY;
 
   // The last snapshot of each day.
-  const listings = await all<{ day: string; active: number; asking: number; watchers: number }>(
-    `SELECT date(s.taken_at / 1000, 'unixepoch') AS day, COUNT(*) AS active, SUM(s.price * MAX(s.quantity_available, 1)) AS asking,
-            SUM(s.watch_count) AS watchers
-     FROM listing_snapshots s
-     WHERE s.taken_at >= ? AND s.taken_at = (SELECT MAX(taken_at) FROM listing_snapshots x WHERE date(x.taken_at / 1000, 'unixepoch') = date(s.taken_at / 1000, 'unixepoch'))
-     GROUP BY day ORDER BY day`,
-    since,
-  );
-  const sales = await all<{ day: string; orders: number; revenue: number; fees: number }>(
-    `SELECT date(created_at / 1000, 'unixepoch') AS day, COUNT(*) AS orders, SUM(total) AS revenue, SUM(fees) AS fees
-     FROM orders WHERE created_at >= ? GROUP BY day ORDER BY day`,
-    since,
-  );
-  const spend = await all<{ day: string; usd: number; calls: number }>(
-    `SELECT date(at / 1000, 'unixepoch') AS day, SUM(cost_usd) AS usd, COUNT(*) AS calls FROM claude_usage WHERE at >= ? GROUP BY day ORDER BY day`,
-    since,
-  );
-  const sold30 = await env.DB.prepare(
-    `SELECT COUNT(DISTINCT i.item_id) AS items, COALESCE(SUM(o.total), 0) AS revenue, COALESCE(SUM(o.fees), 0) AS fees
-     FROM orders o JOIN order_items i ON i.order_id = o.order_id WHERE o.created_at >= ?`,
-  )
-    .bind(since30)
-    .first<{ items: number; revenue: number; fees: number }>();
-  // Days from a listing's start to its sale, for items sold in the last 30 days that were snapshotted.
-  const daysToSell = await env.DB.prepare(
-    `SELECT AVG((o.created_at - st.ms) / 86400000.0) AS days
-     FROM orders o JOIN order_items i ON i.order_id = o.order_id
-     JOIN (SELECT item_id, (julianday(MIN(start_time)) - 2440587.5) * 86400000 AS ms FROM listing_snapshots GROUP BY item_id) st
-       ON st.item_id = i.item_id
-     WHERE o.created_at >= ?`,
-  )
-    .bind(since30)
-    .first<{ days: number | null }>();
-  const proposals = await all<{ status: string; n: number }>(
-    "SELECT status, COUNT(*) AS n FROM proposals WHERE created_at >= ? GROUP BY status",
-    since30,
-  );
-  const decideTimes = await all<{ mins: number }>(
-    "SELECT (decided_at - created_at) / 60000.0 AS mins FROM proposals WHERE decided_at IS NOT NULL AND status IN ('applied', 'approved', 'rejected', 'failed') AND created_at >= ? ORDER BY mins",
-    since30,
-  );
-  const flags = await all<{ item_id: string; flag: string; detail: string; title: string | null }>(
-    `SELECT f.item_id, f.flag, f.detail, (SELECT title FROM listing_snapshots s WHERE s.item_id = f.item_id ORDER BY taken_at DESC LIMIT 1) AS title
-     FROM health_flags f WHERE f.checked_at = (SELECT MAX(checked_at) FROM health_flags)`,
-  );
-  const last = await env.DB.prepare("SELECT value FROM settings WHERE key = 'last_nightly'").first<{ value: string }>();
+  const snaps = await env.store.listings.snapshotsSince(since);
+  const lastOfDay = new Map<string, number>();
+  for (const r of snaps) lastOfDay.set(utcDay(r.taken_at), Math.max(lastOfDay.get(utcDay(r.taken_at)) ?? 0, r.taken_at));
+  const byDay = new Map<string, typeof snaps>();
+  for (const r of snaps) if (r.taken_at === lastOfDay.get(utcDay(r.taken_at))) byDay.set(utcDay(r.taken_at), [...(byDay.get(utcDay(r.taken_at)) ?? []), r]);
+  const listings = [...byDay.entries()]
+    .sort(([x], [y]) => x.localeCompare(y))
+    .map(([day, rows]) => ({
+      day,
+      active: rows.length,
+      asking: sqlSum(rows.map((r) => (r.price == null || r.quantity_available == null ? null : r.price * Math.max(r.quantity_available, 1)))),
+      watchers: sqlSum(rows.map((r) => r.watch_count)),
+    }));
+
+  const orders = await env.store.orders.since(since);
+  const salesDays = new Map<string, typeof orders>();
+  for (const o of orders) salesDays.set(utcDay(o.created_at), [...(salesDays.get(utcDay(o.created_at)) ?? []), o]);
+  const sales = [...salesDays.entries()]
+    .sort(([x], [y]) => x.localeCompare(y))
+    .map(([day, rows]) => ({ day, orders: rows.length, revenue: sqlSum(rows.map((o) => o.total)), fees: sqlSum(rows.map((o) => o.fees)) }));
+
+  const usage = await env.store.usage.since(since);
+  const spendDays = new Map<string, typeof usage>();
+  for (const u of usage) spendDays.set(utcDay(u.at), [...(spendDays.get(utcDay(u.at)) ?? []), u]);
+  const spend = [...spendDays.entries()]
+    .sort(([x], [y]) => x.localeCompare(y))
+    .map(([day, rows]) => ({ day, usd: sqlSum(rows.map((r) => r.cost_usd)), calls: rows.length }));
+
+  // Sales in the last 30 days, one row per (order, item) as the old JOIN gave.
+  const lines = orderLines(orders.filter((o) => o.created_at >= since30));
+  const sold30 = {
+    items: new Set(lines.map((l) => l.item_id)).size,
+    revenue: sqlSum(lines.map((l) => l.total)) ?? 0,
+    fees: sqlSum(lines.map((l) => l.fees)) ?? 0,
+  };
+  // Days from a listing's first start to its sale, for items sold in the last 30 days that were snapshotted.
+  const latest = await env.store.listings.latestAll();
+  const spans = lines
+    .map((l) => {
+      const start = latest.get(l.item_id)?.first_start_time;
+      const ms = start ? Date.parse(start) : NaN;
+      return Number.isFinite(ms) ? (l.created_at - ms) / DAY : null;
+    })
+    .filter((x): x is number => x != null);
+  const avgDaysToSell = spans.length ? spans.reduce((t, x) => t + x, 0) / spans.length : null;
+
+  const recent = await env.store.proposals.listWhere([{ f: "created_at", op: ">=", v: since30 }]);
+  const proposals: Record<string, number> = {};
+  for (const p of recent) proposals[p.status] = (proposals[p.status] ?? 0) + 1;
+  const decideTimes = recent
+    .filter((p) => p.decided_at != null && ["applied", "approved", "rejected", "failed"].includes(p.status))
+    .map((p) => (p.decided_at! - p.created_at) / 60000)
+    .sort((x, y) => x - y);
+
+  const flags = (await env.store.jobs.latestHealthFlags()).map((f) => {
+    const l = latest.get(f.item_id);
+    return { item_id: f.item_id, flag: f.flag, detail: f.detail, title: l && l.taken_at ? l.title : null };
+  });
+  const lastNightly = await env.store.kv.getJson<any>("last_nightly");
   const active = listings.at(-1)?.active ?? 0;
   return {
     listings,
     sales,
     spend,
-    sold30: { ...sold30, sellThrough: sold30 && sold30.items + active > 0 ? sold30.items / (sold30.items + active) : null },
-    avgDaysToSell: daysToSell?.days ?? null,
-    proposals: Object.fromEntries(proposals.map((p) => [p.status, p.n])),
-    medianMinutesToDecide: decideTimes.length ? decideTimes[Math.floor(decideTimes.length / 2)].mins : null,
+    sold30: { ...sold30, sellThrough: sold30.items + active > 0 ? sold30.items / (sold30.items + active) : null },
+    avgDaysToSell,
+    proposals,
+    medianMinutesToDecide: decideTimes.length ? decideTimes[Math.floor(decideTimes.length / 2)] : null,
     flags,
-    lastNightly: last ? JSON.parse(last.value) : null,
+    lastNightly,
   };
 }

@@ -5,14 +5,17 @@ import { getActiveListings } from "./ebay/trading";
 export async function snapshotListings(env: Env) {
   const listings = await getActiveListings(env);
   const now = Date.now();
-  if (listings.length)
-    await env.DB.batch(
-      listings.map((l) =>
-        env.DB.prepare(
-          `INSERT INTO listing_snapshots (item_id, taken_at, title, price, currency, quantity_available, watch_count, start_time)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).bind(l.itemId, now, l.title, l.price, l.currency, l.quantityAvailable, l.watchCount, l.startTime),
-      ),
-    );
+  await env.store.listings.writeSnapshot(
+    now,
+    listings.map((l) => ({
+      item_id: l.itemId,
+      title: l.title,
+      price: l.price,
+      currency: l.currency,
+      quantity_available: l.quantityAvailable,
+      watch_count: l.watchCount,
+      start_time: l.startTime,
+    })),
+  );
   return { count: listings.length, takenAt: new Date(now).toISOString() };
 }

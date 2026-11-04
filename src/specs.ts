@@ -177,8 +177,8 @@ export async function lookupSpecs(env: Env, item: any, wanted: string[], api?: M
 
 /** The stored lookup for a listing, if it was made for its current title. */
 export async function storedSpecs(env: Env, itemId: string, title: string): Promise<SpecLookup | null> {
-  const row = await env.DB.prepare("SELECT lookup FROM product_specs WHERE item_id = ? AND title = ?").bind(itemId, title).first<{ lookup: string }>();
-  return row ? JSON.parse(row.lookup) : null;
+  const lookup = await env.store.listings.getSpecs(itemId, title);
+  return lookup ? JSON.parse(lookup) : null;
 }
 
 /** The stored lookup, or a new one (when a Claude key is set). Never throws: no specs is a valid answer. */
@@ -190,12 +190,7 @@ export async function specsFor(env: Env, item: any, api?: MessagesApi): Promise<
   if (!env.ANTHROPIC_API_KEY && !api) return null;
   try {
     const found = await lookupSpecs(env, item, await wantedSpecs(env, item), api);
-    await env.DB.prepare(
-      `INSERT INTO product_specs (item_id, title, at, lookup) VALUES (?, ?, ?, ?)
-       ON CONFLICT(item_id) DO UPDATE SET title = excluded.title, at = excluded.at, lookup = excluded.lookup`,
-    )
-      .bind(itemId, title, found.at, JSON.stringify(found))
-      .run();
+    await env.store.listings.putSpecs(itemId, title, found.at, JSON.stringify(found));
     return found;
   } catch {
     return null;

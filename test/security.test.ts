@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
 import type { Env } from "../src/env";
 import { handleApi } from "../src/api";
 import worker from "../src/index";
@@ -108,7 +108,7 @@ async function signIn(pk: SoftPasskey, opts: Parameters<SoftPasskey["get"]>[1] =
 }
 
 beforeEach(() => {
-  env = { DB: fakeD1(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", PUBLIC_URL: ORIGIN, SIGNING_KEY: "sign", DASHBOARD_KEY: "boot-key-123" } as Env;
+  env = { store: memoryStore(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", PUBLIC_URL: ORIGIN, SIGNING_KEY: "sign", DASHBOARD_KEY: "boot-key-123" } as Env;
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -190,8 +190,8 @@ describe("people and roles", () => {
     const { manager } = await team();
     const p = await createProposal(env, { kind: "price", itemId: "1", payload: { newPrice: 5 } });
     await api("/proposals/decide", { ids: [p.id], decision: "reject" }, manager.cookie);
-    const row = await env.DB.prepare("SELECT decided_by FROM proposals WHERE id = ?").bind(p.id).first<any>();
-    expect(row.decided_by).toBe("Sam");
+    const row = await env.store.proposals.get(p.id);
+    expect(row!.decided_by).toBe("Sam");
   });
 
   it("removing a person ends their sessions at once", async () => {
@@ -289,7 +289,7 @@ describe("marketplace account deletion", () => {
         String(url).includes("/identity/") ? Response.json({ access_token: "t", expires_in: 7200 }) : Response.json({ key: pem, algorithm: "ECDSA", digest: "SHA1" }),
       ),
     );
-    await env.DB.prepare("INSERT INTO buyer_messages (message_id, item_id, sender, body, received_at) VALUES ('m1', '1', 'gone_buyer', 'hi', 0)").run();
+    await env.store.messages.recordQuestion({ message_id: "m1", item_id: "1", sender: "gone_buyer", body: "hi", received_at: 0, proposal_id: "" });
     const p = await createProposal(env, { kind: "message", itemId: "1", payload: { recipientId: "gone_buyer", question: "hi", body: "hello" } });
 
     const body = JSON.stringify({ metadata: { topic: "MARKETPLACE_ACCOUNT_DELETION" }, notification: { data: { username: "gone_buyer", userId: "x" } } });
@@ -302,8 +302,8 @@ describe("marketplace account deletion", () => {
     expect((await post({ "X-EBAY-SIGNATURE": btoa(JSON.stringify({ kid: "k1", signature: "AAAA" })) })).status).toBe(412);
     expect((await post({ "X-EBAY-SIGNATURE": header })).status).toBe(204);
 
-    expect(await env.DB.prepare("SELECT * FROM buyer_messages WHERE sender = 'gone_buyer'").first()).toBeNull();
-    const row = await env.DB.prepare("SELECT status, payload FROM proposals WHERE id = ?").bind(p.id).first<any>();
+    expect(await env.store.messages.seenQuestion("m1")).toBe(false);
+    const row = (await env.store.proposals.get(p.id))!;
     expect(row.status).toBe("expired");
     expect(row.payload).not.toContain("gone_buyer");
     expect(await forgetUser(env, "")).toBe(0);
@@ -325,7 +325,7 @@ describe("connecting eBay", () => {
     // eBay's redirect back: no session cookie (SameSite=Strict), only the state cookie.
     const callback = (s: string) => worker.fetch(new Request(`${ORIGIN}/oauth/callback?code=c&state=${s}`, { headers: { Cookie: stateCookie } }), env);
     expect((await callback(state)).status).toBe(200);
-    expect(await env.DB.prepare("SELECT scopes FROM ebay_tokens").first()).not.toBeNull();
+    expect(await env.store.kv.getEbayTokens()).not.toBeNull();
     expect((await callback(state)).status).toBe(400);
     expect((await callback("made-up")).status).toBe(400);
   });

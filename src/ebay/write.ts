@@ -2,6 +2,7 @@ import type { Env } from "../env";
 import type { Proposal } from "../proposals";
 import { RETURNS } from "../rules";
 import { esc, tradingRequest } from "./trading";
+import { seqId } from "../store/doc";
 
 // The write gate. This is the only module that may send an eBay write (enforced by test/safety.test.ts).
 // It reads the proposal's state from D1 itself, so a caller can't talk it into applying something.
@@ -9,16 +10,11 @@ import { esc, tradingRequest } from "./trading";
 export class WriteRefused extends Error {}
 
 export async function writesPaused(env: Env): Promise<boolean> {
-  const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'writes_paused'").first<{ value: string }>();
-  return row?.value === "1";
+  return (await env.store.kv.get("writes_paused")) === "1";
 }
 
 export async function setWritesPaused(env: Env, paused: boolean): Promise<void> {
-  await env.DB.prepare(
-    "INSERT INTO settings (key, value) VALUES ('writes_paused', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-  )
-    .bind(paused ? "1" : "0")
-    .run();
+  await env.store.kv.set("writes_paused", paused ? "1" : "0");
 }
 
 interface WriteCall {
@@ -127,13 +123,24 @@ export async function verifyNewListing(env: Env, payload: unknown): Promise<{ fe
 }
 
 async function audit(env: Env, proposalId: string, call: string, request: string, outcome: string, response: string) {
-  // Who approved it, for the Activity screen.
-  await env.DB.prepare(
-    `INSERT INTO audit_log (at, env, proposal_id, call, request, response, outcome, actor)
-     VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT decided_by FROM proposals WHERE id = ?))`,
-  )
-    .bind(Date.now(), env.EBAY_ENV, proposalId, call, request.slice(0, 8000), response.slice(0, 8000), outcome, proposalId)
-    .run();
+  // Who approved it (read now, after the decision), what kind of change and for which item, for Activity.
+  const p = await env.store.proposals.get(proposalId);
+  const at = Date.now();
+  await env.store.audit.record(
+    {
+      at,
+      env: env.EBAY_ENV,
+      proposal_id: proposalId,
+      call,
+      request: request.slice(0, 8000),
+      response: response.slice(0, 8000),
+      outcome,
+      actor: p?.decided_by ?? null,
+      kind: p?.kind ?? null,
+      item_id: p?.item_id ?? null,
+    },
+    seqId(at),
+  );
 }
 
 /** Why the gate would refuse right now, before looking at the proposal; null if writes are open. */
@@ -149,7 +156,7 @@ export async function gateClosedReason(env: Env): Promise<string | null> {
  * so a double tap can't apply it twice.
  */
 export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
-  const p = await env.DB.prepare("SELECT * FROM proposals WHERE id = ?").bind(proposalId).first<Proposal>();
+  const p = (await env.store.proposals.get(proposalId)) as Proposal | null;
   if (!p) throw new WriteRefused("Proposal not found");
 
   let built: WriteCall;
@@ -162,12 +169,9 @@ export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
   }
 
   const closed = await gateClosedReason(env);
-  const claimed = closed
-    ? null
-    : await env.DB.prepare("UPDATE proposals SET status = 'applying' WHERE id = ? AND status = 'approved' AND dry_run = 0")
-        .bind(p.id)
-        .run();
-  if (closed || !claimed?.meta.changes) {
+  // The claim is one conditional write: approved and not a dry run -> applying, at most once.
+  const claimed = closed ? false : await env.store.proposals.claimForApply(p.id);
+  if (closed || !claimed) {
     const reason = closed ?? (p.dry_run ? "Dry-run proposal" : `Proposal is ${p.status}, not approved`);
     await audit(env, p.id, built.call, built.xml, "refused", reason);
     throw new WriteRefused(reason);

@@ -167,7 +167,7 @@ export function PriceCheck({ itemId, onSignedOut }: { itemId: string; onSignedOu
 }
 
 interface Advice {
-  id: number;
+  id: string;
   at: number;
   kind: "combine" | "split";
   itemIds: string[];
@@ -186,7 +186,7 @@ export function BundleAdvice({ onSignedOut }: { onSignedOut: () => void }) {
       .then(setRows)
       .catch((e) => e instanceof SignedOut && onSignedOut());
   }, []);
-  const dismiss = async (id: number) => {
+  const dismiss = async (id: string) => {
     setRows((r) => r.filter((a) => a.id !== id));
     await api("/pricing/advice/dismiss", { body: { id } }).catch(() => {});
   };

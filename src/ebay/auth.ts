@@ -69,25 +69,18 @@ export async function exchangeCode(env: Env, code: string, scopes: string[]): Pr
     redirect_uri: env.EBAY_RUNAME,
   });
   const now = Date.now();
-  await env.DB.prepare(
-    `INSERT INTO ebay_tokens (id, access_token, access_expires_at, refresh_token, refresh_expires_at, scopes)
-     VALUES (1, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET access_token = excluded.access_token,
-       access_expires_at = excluded.access_expires_at, refresh_token = excluded.refresh_token,
-       refresh_expires_at = excluded.refresh_expires_at, scopes = excluded.scopes`,
-  )
-    .bind(t.access_token, now + t.expires_in * 1000, t.refresh_token, now + (t.refresh_token_expires_in ?? 0) * 1000, scopes.join(" "))
-    .run();
+  await env.store.kv.saveEbayTokens({
+    access_token: t.access_token,
+    access_expires_at: now + t.expires_in * 1000,
+    refresh_token: String(t.refresh_token ?? ""),
+    refresh_expires_at: now + (t.refresh_token_expires_in ?? 0) * 1000,
+    scopes: scopes.join(" "),
+  });
 }
 
 /** The seller's access token, refreshed when it is within 5 minutes of expiry. */
 export async function userToken(env: Env): Promise<string> {
-  const row = await env.DB.prepare("SELECT * FROM ebay_tokens WHERE id = 1").first<{
-    access_token: string;
-    access_expires_at: number;
-    refresh_token: string;
-    scopes: string;
-  }>();
+  const row = await env.store.kv.getEbayTokens();
   if (!row) throw new Error("eBay is not connected yet. Open /oauth/start to sign in.");
   if (row.access_expires_at - Date.now() > 5 * 60_000) return row.access_token;
 
@@ -97,9 +90,7 @@ export async function userToken(env: Env): Promise<string> {
     refresh_token: row.refresh_token,
     scope: row.scopes,
   });
-  await env.DB.prepare("UPDATE ebay_tokens SET access_token = ?, access_expires_at = ? WHERE id = 1")
-    .bind(t.access_token, Date.now() + t.expires_in * 1000)
-    .run();
+  await env.store.kv.updateEbayAccess(t.access_token, Date.now() + t.expires_in * 1000);
   return t.access_token;
 }
 

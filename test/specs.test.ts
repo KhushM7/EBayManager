@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
 import type { Env } from "../src/env";
 import type { MessagesApi } from "../src/claude";
 import { costUsd } from "../src/claude";
@@ -21,7 +21,7 @@ const DYSON = { ItemID: "178245985136", Title: "Dyson Cinetic Big Ball Animal Va
 
 let env: Env;
 beforeEach(() => {
-  env = { DB: fakeD1(), EBAY_ENV: "production", WRITE_MODE: "off" } as Env;
+  env = { store: memoryStore(), EBAY_ENV: "production", WRITE_MODE: "off" } as Env;
 });
 
 describe("verifying published specs", () => {
@@ -88,9 +88,9 @@ describe("looking up specs", () => {
     expect(calls[1].messages.at(-1).role).toBe("assistant"); // the paused turn sent back
     expect(r).toMatchObject({ exact: true, product: "Dyson Cinetic Big Ball Animal", dropped: 1 });
     expect(r.specs.map((s) => s.name)).toEqual(["Item Weight"]);
-    const logged = await env.DB.prepare("SELECT job, cost_usd FROM claude_usage").all<any>();
-    expect(logged.results).toHaveLength(2);
-    expect(logged.results[0].job).toBe("specs:178245985136");
+    const logged = await env.store.usage.since(0);
+    expect(logged).toHaveLength(2);
+    expect(logged[0].job).toBe("specs:178245985136");
     expect(costUsd("claude-sonnet-5-5", usage as any)).toBeCloseTo(0.002 + 0.002 + 0.02, 5);
   });
 

@@ -41,17 +41,12 @@ export const providerEnabled = (env: Env, p: Provider) => Boolean(p === "trawl" 
 const month = (now = Date.now()) => new Date(now).toISOString().slice(0, 7);
 
 export async function usedThisMonth(env: Env, p: Provider): Promise<number> {
-  const row = await env.DB.prepare("SELECT used FROM solddata_usage WHERE provider = ? AND month = ?").bind(p, month()).first<{ used: number }>();
-  return row?.used ?? 0;
+  return env.store.solddata.used(p, month());
 }
 
 async function addUsage(env: Env, p: Provider, n: number) {
   if (n <= 0) return;
-  await env.DB.prepare(
-    "INSERT INTO solddata_usage (provider, month, used) VALUES (?, ?, ?) ON CONFLICT(provider, month) DO UPDATE SET used = used + excluded.used",
-  )
-    .bind(p, month(), n)
-    .run();
+  await env.store.solddata.addUsage(p, month(), n);
 }
 
 export class QuotaReached extends Error {}
@@ -152,17 +147,13 @@ export function parseCompsApi(data: any): SoldSale[] {
 export async function searchSold(env: Env, p: Provider, q: SoldQuery): Promise<{ sales: SoldSale[]; cached: boolean }> {
   if (!providerEnabled(env, p)) throw new Error(`${p} isn't set up (no API key)`);
   const key = cacheKey(p, q);
-  const hit = await env.DB.prepare("SELECT sales FROM solddata_cache WHERE key = ? AND fetched_at > ?")
-    .bind(key, Date.now() - CACHE_DAYS * DAY)
-    .first<{ sales: string }>();
-  if (hit) return { sales: JSON.parse(hit.sales), cached: true };
+  const hit = await env.store.solddata.cacheGet(key, Date.now() - CACHE_DAYS * DAY);
+  if (hit) return { sales: JSON.parse(hit), cached: true };
 
   if ((await usedThisMonth(env, p)) >= MONTHLY_CAP[p]) throw new QuotaReached(`${p} has used this month's ${MONTHLY_CAP[p]} searches`);
   const { sales, cost } = p === "trawl" ? await callTrawl(env, q) : await callCompsApi(env, q);
   await addUsage(env, p, cost);
-  await env.DB.prepare("INSERT OR REPLACE INTO solddata_cache (key, provider, fetched_at, sales) VALUES (?, ?, ?, ?)")
-    .bind(key, p, Date.now(), JSON.stringify(sales))
-    .run();
+  await env.store.solddata.cachePut(key, p, Date.now(), JSON.stringify(sales), CACHE_DAYS);
   return { sales, cached: false };
 }
 

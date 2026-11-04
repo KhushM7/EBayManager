@@ -79,18 +79,13 @@ interface Subscription {
 }
 
 export async function saveSubscription(env: Env, s: Subscription, userAgent: string) {
-  await env.DB.prepare(
-    `INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent, created_at) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth, user_agent = excluded.user_agent`,
-  )
-    .bind(s.endpoint, s.p256dh, s.auth, userAgent.slice(0, 200), Date.now())
-    .run();
+  await env.store.push.save(s, userAgent.slice(0, 200), Date.now());
 }
 
 /** Sends to every subscribed device. Returns how many accepted it; gone subscriptions are removed. */
 export async function sendToAll(env: Env, msg: PushMessage): Promise<number> {
   if (!env.VAPID_KEY) return 0;
-  const { results } = await env.DB.prepare("SELECT endpoint, p256dh, auth FROM push_subscriptions").all<Subscription>();
+  const results: Subscription[] = await env.store.push.list();
   let delivered = 0;
   for (const s of results) {
     try {
@@ -107,18 +102,15 @@ export async function sendToAll(env: Env, msg: PushMessage): Promise<number> {
         body,
       });
       if (res.status === 404 || res.status === 410) {
-        await env.DB.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").bind(s.endpoint).run();
+        await env.store.push.delete(s.endpoint);
         continue;
       }
       const ok = res.ok;
       if (ok) delivered++;
-      await env.DB.prepare("UPDATE push_subscriptions SET last_ok_at = COALESCE(?, last_ok_at), last_error = ? WHERE endpoint = ?")
-        .bind(ok ? Date.now() : null, ok ? null : `${res.status} ${(await res.text()).slice(0, 200)}`, s.endpoint)
-        .run();
+      if (ok) await env.store.push.markOk(s.endpoint, Date.now());
+      else await env.store.push.markError(s.endpoint, `${res.status} ${(await res.text()).slice(0, 200)}`);
     } catch (e) {
-      await env.DB.prepare("UPDATE push_subscriptions SET last_error = ? WHERE endpoint = ?")
-        .bind(e instanceof Error ? e.message : String(e), s.endpoint)
-        .run();
+      await env.store.push.markError(s.endpoint, e instanceof Error ? e.message : String(e));
     }
   }
   return delivered;

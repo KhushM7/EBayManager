@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
 import type { Env } from "../src/env";
 import type { MessagesApi } from "../src/claude";
 import { isJunk, itemNumber, poolSales, wordsFromTitle, type SoldSale } from "../src/solddata";
@@ -75,7 +75,7 @@ describe("search fixes", () => {
 });
 
 describe("identify and match", () => {
-  const env = { DB: fakeD1(), ANTHROPIC_API_KEY: "k" } as Env;
+  const env = { store: memoryStore(), ANTHROPIC_API_KEY: "k" } as Env;
 
   it("uses Claude's identification, including a bundle's parts", async () => {
     const { api, calls } = fakeClaude(() => ({
@@ -97,7 +97,7 @@ describe("identify and match", () => {
   });
 
   it("falls back to word rules without a key, and asks when the title is too vague", async () => {
-    const id = await identify({ DB: fakeD1() } as Env, { title: "Lights" });
+    const id = await identify({ store: memoryStore() } as Env, { title: "Lights" });
     expect(id.by).toBe("rules");
     expect(id.priceable).toBe(false);
     expect(identifyByRules("Samsung Galaxy Buds 2 Pro").components[0].query).toBe("Samsung Galaxy Buds 2 Pro");
@@ -176,7 +176,7 @@ describe("thin markets", () => {
               .map((l) => ({ n: Number(l.split(".")[0]), factor: 0.8 })),
           },
     );
-    const r = await priceItem({ DB: fakeD1(), EBAY_ENV: "sandbox", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" } as Env, { title: "Sensor bin 45L", postage: 0 }, api);
+    const r = await priceItem({ store: memoryStore(), EBAY_ENV: "sandbox", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" } as Env, { title: "Sensor bin 45L", postage: 0 }, api);
     const c = r.components[0];
     expect(c.matched).toMatchObject({ sold: 2, closeSold: 4 });
     expect(c.market.effective).toBeCloseTo(3.4, 1);
@@ -219,7 +219,7 @@ describe("pricing an item end to end", () => {
   }
 
   const env = () =>
-    ({ DB: fakeD1(), EBAY_ENV: "sandbox", EBAY_MARKETPLACE: "EBAY_GB", EBAY_APP_ID: "a", EBAY_CERT_ID: "c", TRAWL_API_KEY: "tk", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" }) as Env;
+    ({ store: memoryStore(), EBAY_ENV: "sandbox", EBAY_MARKETPLACE: "EBAY_GB", EBAY_APP_ID: "a", EBAY_CERT_ID: "c", TRAWL_API_KEY: "tk", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" }) as Env;
 
   it("pools, matches with Claude, prices on totals, leaves K's own sale out, and records a snapshot", async () => {
     const now = Date.now();
@@ -240,10 +240,11 @@ describe("pricing an item end to end", () => {
     expect(r.decision.strategy).toBe("compete");
     expect(r.decision.price).toBeGreaterThan(36);
     expect(r.decision.price).toBeLessThanOrEqual(40);
-    expect((await e.DB.prepare("SELECT COUNT(*) AS n FROM market_snapshots").first<any>()).n).toBe(6);
+    expect((await e.store.pricing.marketSince(0)).length).toBe(6);
 
     await recordDecision(e, "555555555555", r);
-    expect((await e.DB.prepare("SELECT strategy, grp FROM price_decisions").first<any>())).toEqual({ strategy: "compete", grp: "headphones" });
+    const d = await e.store.pricing.latestDecision("555555555555");
+    expect({ strategy: d!.strategy, grp: d!.grp }).toEqual({ strategy: "compete", grp: "headphones" });
   });
 
   it("asks rather than guessing when Claude can't identify the item", async () => {
@@ -294,7 +295,7 @@ describe("bundles", () => {
       ],
     }));
     const slowCharger = { itemId: "3", title: "Samsung charger", price: 8, listedDays: 200, watchers: 0, daysToSell: 400 };
-    const advice = await suggestBundles({ DB: fakeD1(), ANTHROPIC_API_KEY: "k" } as Env, [slow, popular, slowCharger], api);
+    const advice = await suggestBundles({ store: memoryStore(), ANTHROPIC_API_KEY: "k" } as Env, [slow, popular, slowCharger], api);
     expect(advice).toHaveLength(1);
     expect(advice[0].together).toBeGreaterThan(advice[0].separately);
   });
@@ -307,7 +308,7 @@ describe("bundles", () => {
 
 describe("learning from snapshots", () => {
   it("fits parameters from gone and remaining listings", async () => {
-    const env = { DB: fakeD1() } as Env;
+    const env = { store: memoryStore() } as Env;
     const now = Date.now();
     const rows: unknown[][] = [];
     // Cheap listings vanish within a week; dear ones stay. Across 10 searches.
@@ -317,10 +318,17 @@ describe("learning from snapshots", () => {
         rows.push([`q${k}`, now - 10 * DAY, `i${k}-${i}`, total, "headphones", 40, 0.05]);
         if (total > 40) rows.push([`q${k}`, now - 3 * DAY, `i${k}-${i}`, total, "headphones", 40, 0.05]);
       }
-    await env.DB.batch(rows.map((r) => env.DB.prepare("INSERT INTO market_snapshots (key, taken_at, item_id, total, grp, market, share) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(...r)));
+    // One market document per search per day, as the engine writes them.
+    const buckets = new Map<string, { key: string; at: number; items: { item_id: string; total: number }[] }>();
+    for (const [key, at, item_id, total] of rows as [string, number, string, number][]) {
+      const b = buckets.get(`${key}|${at}`) ?? { key, at, items: [] };
+      b.items.push({ item_id, total });
+      buckets.set(`${key}|${at}`, b);
+    }
+    for (const b of buckets.values()) await env.store.pricing.writeMarket(b.key, b.at, { grp: "headphones", market: 40, share: 0.05, items: b.items });
     const out = await learnParams(env, now);
     expect(out.outcomes).toBe(100);
-    const p = await env.DB.prepare("SELECT * FROM pricing_params WHERE grp = 'headphones'").first<any>();
+    const p = (await env.store.docs.query<any>("pricing", { pk: "_params" })).find((d) => d.grp === "headphones");
     expect(p.n).toBe(100);
     // Strongly price-driven: sharper than the default 0.08.
     expect(p.tau).toBeLessThan(0.08);
@@ -348,7 +356,7 @@ describe("backtests", () => {
         ? { product: "Galaxy Buds+", group: "headphones", condition: "used", keyFacts: [], components: [{ name: "Galaxy Buds+", query: "Galaxy Buds+", valued: true }], priceable: true, question: null }
         : { exact: prompt.split("\n").filter((l) => /^\d+\. Galaxy/.test(l)).map((l) => Number(l.split(".")[0])), close: [] },
     );
-    const r = await priceItem({ DB: fakeD1(), EBAY_ENV: "sandbox", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" } as Env, { title: "Galaxy Buds+", postage: 0, asOf: soldAt }, api);
+    const r = await priceItem({ store: memoryStore(), EBAY_ENV: "sandbox", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" } as Env, { title: "Galaxy Buds+", postage: 0, asOf: soldAt }, api);
     const c = r.components[0];
     expect(c.matched.sold).toBe(5); // the sale 90 days later is too far
     expect(c.market.mNow).toBe(25);

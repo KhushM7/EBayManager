@@ -22,10 +22,6 @@ export { getSession, type Session };
 export async function keyLogin(env: Env, request: Request, key: unknown): Promise<string | null> {
   if (env.ALLOW_KEY_LOGIN !== "true" || env.EBAY_ENV === "production" || !checkKey(env, key)) return null;
   const id = `test-${(await hash(env.DASHBOARD_KEY)).slice(0, 8)}`;
-  await env.DB.prepare(
-    "INSERT INTO users (id, name, role, created_at, disabled, is_test) VALUES (?, 'Sandbox test key', 'owner', ?, 0, 1) ON CONFLICT(id) DO NOTHING",
-  )
-    .bind(id, Date.now())
-    .run();
+  await env.store.auth.ensureTestUser(id, Date.now());
   return createSession(env, id, request);
 }

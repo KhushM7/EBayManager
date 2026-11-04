@@ -21,6 +21,7 @@ import { RETURNS } from "./rules";
 import { snapshotListings } from "./snapshot";
 import { providerEnabled } from "./solddata";
 import { getStyle, learnStyle, saveStyle, STYLE_VERSION, type StyleGuide } from "./style";
+import { orderLines } from "./store";
 import { specsFor, type SpecLookup } from "./specs";
 
 // The first-day audit (docs/listing-assistant.md): a read-only review of the whole account once it's
@@ -209,6 +210,8 @@ export function auditListing(
   };
   const collectionOnly = item?.ShipToLocations === "None";
   const post = postageOf(item);
+  // Days listed as of the audit time (not the wall clock), so a report and its tests are reproducible.
+  const listedDays = item?.ListingDetails?.StartTime ? Math.max(0, Math.round((now - Date.parse(item.ListingDetails.StartTime)) / DAY)) : (input.listedDays ?? null);
   const handlingDays = num(item?.DispatchTimeMax);
   const bestOffer = String(item?.BestOfferDetails?.BestOfferEnabled) === "true";
   const conditionId = num(item?.ConditionID);
@@ -316,7 +319,7 @@ export function auditListing(
     postage: post.cost,
     postageKind: post.kind,
     collectionOnly,
-    listedDays: input.listedDays ?? (item?.ListingDetails?.StartTime ? Math.round((now - Date.parse(item.ListingDetails.StartTime)) / DAY) : null),
+    listedDays,
     watchers: Number(item?.WatchCount ?? 0),
     views7d: ctx.views7d ?? null,
     impressions7d: ctx.impressions7d ?? null,
@@ -330,7 +333,7 @@ export function auditListing(
     handlingDays,
     pricing: d ? { strategy: d.strategy, price: d.price, why: d.why, confidence: d.confidence, question: d.question, at: ctx.pricedAt ?? now } : null,
     promotion: p ? { action: p.advice.action, rate: p.advice.rate, why: p.advice.why, suggestedRate: p.suggestedRate, currentRate: p.currentRate } : null,
-    advice: reviseOrRelist({ watchers: Number(item?.WatchCount ?? 0), listedDays: input.listedDays ?? null, views7d: ctx.views7d ?? null }),
+    advice: reviseOrRelist({ watchers: Number(item?.WatchCount ?? 0), listedDays, views7d: ctx.views7d ?? null }),
     factsFromK: ctx.factsFromK ?? null,
     published: pub ? { product: pub.product, exact: pub.exact, note: pub.note, specs: pub.specs } : null,
     findings: f,
@@ -430,9 +433,12 @@ export function settingsFindings(policies: BusinessPolicies | null, seller: Sell
 
 /** A `policy` proposal: the return policy that meets K's rule. Applying it is built with Phase 8. */
 async function proposeReturnFix(env: Env, target: { policyId?: string; name: string; itemId?: string }, current: object) {
-  const pending = await env.DB.prepare("SELECT payload FROM proposals WHERE kind = 'policy' AND status IN ('pending', 'approved')").all<{ payload: string }>();
+  const pending = await env.store.proposals.listWhere([
+    { f: "kind", op: "=", v: "policy" },
+    { f: "status", op: "in", v: ["pending", "approved"] },
+  ]);
   const key = target.policyId ?? target.itemId;
-  if (pending.results.some((p) => [JSON.parse(p.payload).policyId, JSON.parse(p.payload).itemId].includes(key))) return null;
+  if (pending.some((p) => [JSON.parse(p.payload).policyId, JSON.parse(p.payload).itemId].includes(key))) return null;
   const out = await proposeAndNotify(
     env,
     {
@@ -505,11 +511,9 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
       const cat = String(item?.PrimaryCategory?.CategoryID ?? "");
       if (cat && !aspectsByCategory.has(cat)) aspectsByCategory.set(cat, await categoryAspects(env, cat).catch(() => null));
       const id = String(item.ItemID);
-      const traffic = await env.DB.prepare("SELECT views_7d, impressions_7d FROM listing_traffic WHERE item_id = ? ORDER BY taken_at DESC LIMIT 1")
-        .bind(id)
-        .first<{ views_7d: number | null; impressions_7d: number | null }>();
-      const priced = await env.DB.prepare("SELECT at, result FROM price_decisions WHERE item_id = ? ORDER BY at DESC LIMIT 1").bind(id).first<{ at: number; result: string }>();
-      const facts = await env.DB.prepare("SELECT notes FROM item_settings WHERE item_id = ?").bind(id).first<{ notes: string | null }>();
+      const traffic = await env.store.listings.latest(id);
+      const priced = await env.store.pricing.latestDecision(id);
+      const facts = await env.store.listings.getSettings(id);
       listings.push(
         auditListing(item, {
           aspects: aspectsByCategory.get(cat) ?? null,
@@ -538,12 +542,11 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
     return `${r.sold.length} sold and ${r.unsold.length} unsold in the last 60 days`;
   });
   await stepRun(steps, "sold", async () => {
-    const { results } = await env.DB.prepare(
-      `SELECT i.item_id, i.title, i.price, o.created_at, o.fees,
-              (SELECT MIN(start_time) FROM listing_snapshots s WHERE s.item_id = i.item_id) AS start_time,
-              (SELECT price FROM listing_snapshots s WHERE s.item_id = i.item_id ORDER BY taken_at DESC LIMIT 1) AS asked
-       FROM order_items i JOIN orders o ON o.order_id = i.order_id`,
-    ).all<{ item_id: string; title: string; price: number | null; created_at: number; fees: number | null; start_time: string | null; asked: number | null }>();
+    const latest = await env.store.listings.latestAll();
+    const results = orderLines(await env.store.orders.all()).map((l) => {
+      const seen = latest.get(l.item_id);
+      return { ...l, start_time: seen?.first_start_time ?? null, asked: seen && seen.taken_at ? seen.price : null };
+    });
     const rows: SaleRow[] = results
       .filter((r) => r.price != null)
       .map((r) => {
@@ -629,9 +632,9 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
       : [{ area: "messages", severity: "low", title: "No past replies found", detail: "The style guide starts from a plain default. Edit it to sound like you.", fix: "you" } as Finding]),
   ]);
 
-  const { results: made } = await env.DB.prepare("SELECT id, kind, item_id FROM proposals WHERE created_at >= ? ORDER BY created_at")
-    .bind(startProposals)
-    .all<{ id: string; kind: string; item_id: string | null }>();
+  const made = (await env.store.proposals.listWhere([{ f: "created_at", op: ">=", v: startProposals }]))
+    .sort((a, b) => a.created_at - b.created_at)
+    .map((p) => ({ id: p.id, kind: p.kind, item_id: p.item_id }));
 
   const report: AuditReport = {
     at,
@@ -652,7 +655,7 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
     forClaude: listings.filter((l) => l.findings.some((f) => f.fix === "claude")).map((l) => l.itemId),
     steps,
   };
-  await env.DB.prepare("INSERT INTO audit_reports (at, env, report) VALUES (?, ?, ?)").bind(at, env.EBAY_ENV, JSON.stringify(report)).run();
+  await env.store.reports.add(at, env.EBAY_ENV, JSON.stringify(report));
 
   const high = findings.filter((f) => f.severity === "high").length;
   await push(
@@ -666,12 +669,12 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
 }
 
 export async function latestReport(env: Env): Promise<AuditReport | null> {
-  const row = await env.DB.prepare("SELECT report FROM audit_reports ORDER BY at DESC LIMIT 1").first<{ report: string }>();
-  return row ? JSON.parse(row.report) : null;
+  const report = await env.store.reports.latest(env.EBAY_ENV);
+  return report ? JSON.parse(report) : null;
 }
 
 /** For the nightly run: the audit runs once, the first night after the account connects. */
 export async function auditDone(env: Env): Promise<boolean> {
-  return Boolean(await env.DB.prepare("SELECT 1 FROM audit_reports LIMIT 1").first());
+  return env.store.reports.any(env.EBAY_ENV);
 }
 

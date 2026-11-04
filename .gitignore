@@ -7,3 +7,4 @@ web/dist/
 .prod.vars
 .owner-invite-*.txt
 dist/
+.d1-*.sql

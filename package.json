@@ -17,7 +17,8 @@
     "build:web": "vite build web",
     "dev:web": "vite web",
     "test:cosmos": "node scripts/test-cosmos.mjs",
-    "build:azure": "node scripts/build-azure.mjs"
+    "build:azure": "node scripts/build-azure.mjs",
+    "migrate:d1": "node scripts/run-ts.mjs scripts/migrate-d1-to-cosmos.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",

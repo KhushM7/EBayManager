@@ -30,6 +30,9 @@ export function azureEnv(): Omit<Env, "enqueue"> {
     connectionPolicy: { retryOptions: { maxRetryAttemptCount: 9, fixedRetryIntervalInMilliseconds: 0, maxWaitTimeInSeconds: 30 } },
   });
   const store = makeStore(new CosmosDocStore(client, v.COSMOS_DATABASE!));
+  // A Key Vault reference the platform couldn't resolve (the secret isn't uploaded yet) arrives as its literal
+  // text; it must count as unset, never as a value.
+  for (const k of Object.keys(v)) if (String(v[k] ?? "").startsWith("@Microsoft.KeyVault(")) delete v[k];
   const opt = (k: string) => (v[k] ? String(v[k]) : undefined);
   const env: Omit<Env, "enqueue"> = {
     store,

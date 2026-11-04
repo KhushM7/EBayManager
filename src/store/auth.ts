@@ -97,8 +97,9 @@ export function authRepo(docs: DocStore) {
     async countActiveUsers() {
       return (await users()).filter((u) => !u.disabled && !u.is_test).length;
     },
+    /** Open invites for new people (a re-enrolment invite adds a passkey for someone already counted). */
     async countOpenInvites(now: number) {
-      return (await docs.query<any>(A, { pk: PK, where: [{ f: "type", op: "=", v: "invite" }, unused, { f: "expires_at", op: ">", v: now }] })).length;
+      return (await docs.query<any>(A, { pk: PK, where: [{ f: "type", op: "=", v: "invite" }, unused, { f: "expires_at", op: ">", v: now }] })).filter((i) => !i.reenrol_user_id).length;
     },
     async createInvite(inv: InviteRow) {
       await docs.create(A, { id: `inv:${inv.token_hash}`, pk: PK, type: "invite", ...inv });

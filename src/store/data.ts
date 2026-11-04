@@ -6,6 +6,19 @@ import { hashId, pad13, seqId, type Doc, type DocStore, type PatchOp } from "./d
 
 const strip = ({ id, pk, type, _etag, ttl, ...r }: any) => r;
 const safeKey = (k: string) => /^[\w:.-]{1,200}$/.test(k);
+
+/** Document ids, shared with the D1 importer (src/store/migrate.ts) so both write the same shapes. */
+export const docIds = {
+  setting: async (key: string) => `setting:${safeKey(key) ? key : await hashId(key)}`,
+  question: async (id: string) => `q:${safeKey(id) ? id : await hashId(id)}`,
+  offer: async (id: string) => `o:${safeKey(id) ? id : await hashId(id)}`,
+  params: async (grp: string) => `params:${await hashId(grp)}`,
+  push: async (endpoint: string) => `push:${await hashId(endpoint)}`,
+  solddata: async (key: string) => `sd:${await hashId(key)}`,
+  identity: async (key: string) => `idn:${await hashId(key)}`,
+  marketPk: (key: string) => hashId(key),
+  usage: (provider: string, month: string) => `solddata_usage:${provider}:${month}`,
+};
 const day = (at: number) => new Date(at).toISOString().slice(0, 10);
 
 /** Read-modify-write with an etag, retried: for documents several writers update (latest, orders). */
@@ -23,7 +36,7 @@ async function mutate(docs: DocStore, c: Parameters<DocStore["get"]>[0], id: str
 // --- Settings and the eBay token (container kv) ---
 
 export function kvRepo(docs: DocStore) {
-  const settingId = async (key: string) => `setting:${safeKey(key) ? key : await hashId(key)}`;
+  const settingId = docIds.setting;
   return {
     async get(key: string): Promise<string | null> {
       const id = await settingId(key);
@@ -69,7 +82,7 @@ export interface PushRow {
 }
 
 export function pushRepo(docs: DocStore) {
-  const id = async (endpoint: string) => `push:${await hashId(endpoint)}`;
+  const id = docIds.push;
   return {
     async save(s: { endpoint: string; p256dh: string; auth: string }, userAgent: string, now: number) {
       const key = await id(s.endpoint);
@@ -299,8 +312,8 @@ export const orderLines = (orders: OrderDoc[]) =>
 
 export function messagesRepo(docs: DocStore) {
   const M = "messages" as const;
-  const qid = async (id: string) => `q:${safeKey(id) ? id : await hashId(id)}`;
-  const oid = async (id: string) => `o:${safeKey(id) ? id : await hashId(id)}`;
+  const qid = docIds.question;
+  const oid = docIds.offer;
   return {
     seenQuestion: async (messageId: string) => Boolean(await docs.get(M, await qid(messageId), await qid(messageId))),
     seenOffer: async (offerId: string) => Boolean(await docs.get(M, await oid(offerId), await oid(offerId))),
@@ -338,7 +351,7 @@ export interface DecisionRow {
 
 export function pricingRepo(docs: DocStore) {
   const P = "pricing" as const;
-  const paramsId = async (grp: string) => `params:${await hashId(grp)}`;
+  const paramsId = docIds.params;
   return {
     /** Records a decision; for one of K's items, also updates that item's latest decision, in one batch. */
     async recordDecision(r: DecisionRow) {
@@ -418,21 +431,21 @@ export function pricingRepo(docs: DocStore) {
 
     // Claude's identification of a listing, cached (container cache).
     async getIdentity(key: string): Promise<string | null> {
-      const id = `idn:${await hashId(key)}`;
+      const id = await docIds.identity(key);
       return (await docs.get<any>("cache", id, id))?.identity ?? null;
     },
     async putIdentity(key: string, itemId: string | null, identity: string, at: number) {
-      const id = `idn:${await hashId(key)}`;
+      const id = await docIds.identity(key);
       await docs.upsert("cache", { id, pk: id, type: "identity", key, item_id: itemId, identity, at });
     },
 
     // Daily matched active listings per search (container market, kept 180 days).
     async lastMarketAt(key: string): Promise<number | null> {
-      const [d] = await docs.query<any>("market", { pk: await hashId(key), orderBy: ["taken_at", "desc"], limit: 1, fields: ["taken_at"] });
+      const [d] = await docs.query<any>("market", { pk: await docIds.marketPk(key), orderBy: ["taken_at", "desc"], limit: 1, fields: ["taken_at"] });
       return d?.taken_at ?? null;
     },
     async writeMarket(key: string, takenAt: number, b: { grp: string; market: number; share: number; items: { item_id: string; total: number }[] }) {
-      return docs.create("market", { id: pad13(takenAt), pk: await hashId(key), type: "market_bucket", key, taken_at: takenAt, ...b });
+      return docs.create("market", { id: pad13(takenAt), pk: await docIds.marketPk(key), type: "market_bucket", key, taken_at: takenAt, ...b });
     },
     /** Rows as the old market_snapshots table held them, ordered by key then time. */
     async marketSince(since: number) {
@@ -447,7 +460,7 @@ export function pricingRepo(docs: DocStore) {
 // --- Sold-data monthly usage (kv) and cache (container cache, 30 days) ---
 
 export function soldDataRepo(docs: DocStore) {
-  const usageId = (p: string, month: string) => `solddata_usage:${p}:${month}`;
+  const usageId = docIds.usage;
   return {
     used: async (p: string, month: string) => (await docs.get<any>("kv", usageId(p, month), usageId(p, month)))?.used ?? 0,
     /** Adds to the month's count atomically. */
@@ -461,12 +474,12 @@ export function soldDataRepo(docs: DocStore) {
       throw new Error("Couldn't record sold-data usage");
     },
     async cacheGet(key: string, minFetchedAt: number): Promise<string | null> {
-      const id = `sd:${await hashId(key)}`;
+      const id = await docIds.solddata(key);
       const d = await docs.get<any>("cache", id, id);
       return d && d.fetched_at > minFetchedAt ? d.sales : null;
     },
     async cachePut(key: string, provider: string, fetchedAt: number, sales: string, ttlDays: number) {
-      const id = `sd:${await hashId(key)}`;
+      const id = await docIds.solddata(key);
       await docs.upsert("cache", { id, pk: id, type: "solddata", key, provider, fetched_at: fetchedAt, sales, ttl: ttlDays * 86_400 });
     },
   };
@@ -509,12 +522,17 @@ async function gunzip(b64: string): Promise<string> {
   return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
 }
 
+/** A report as stored: compressed above 512 KB, refused above 1.8 MB (Cosmos DB holds 2 MB per document). */
+export async function reportBody(report: string): Promise<{ report: string } | { report_gz: string }> {
+  const body = report.length > 512_000 ? { report_gz: await gzip(report) } : { report };
+  if (JSON.stringify(body).length > 1_800_000) throw new Error("The audit report is too large to store");
+  return body;
+}
+
 export function reportsRepo(docs: DocStore) {
   return {
     async add(at: number, env: string, report: string) {
-      const big = report.length > 512_000;
-      const body = big ? { report_gz: await gzip(report) } : { report };
-      if (JSON.stringify(body).length > 1_800_000) throw new Error("The audit report is too large to store");
+      const body = await reportBody(report);
       await docs.create("reports", { id: seqId(at), pk: env, type: "firstday", at, env, ...body });
     },
     async latest(env: string): Promise<string | null> {

@@ -48,9 +48,11 @@ Who does each step: **C** = Claude, **K** = K.
 - [x] (C) `@cloudflare/workers-types` removed (Node types; byte buffers cast for the DOM types); `npm run build:azure` bundles to `dist/azure`. wrangler stays as a dev tool until M6 (it exports the D1 data and stops Cloudflare's scheduled jobs), then goes in M8
 
 ### M3. Infrastructure as code and scripts
-- [ ] (C) `infra/main.bicep` and `sandbox.bicepparam` / `production.bicepparam`
-- [ ] (C) Scripts: `azure-deploy.mjs`, `azure-secrets.mjs`, `prod-query.mjs` (read-only), `cosmos-setting.mjs`, `migrate-d1-to-cosmos.mjs`
-- [ ] (C) `check-production.mjs` pointed at the new address, with Azure checks added
+- [x] (C) `infra/main.bicep` (subscription scope) with `modules/cosmos.bicep`, `cosmos-access.bicep`, `app.bicep`, and `sandbox.bicepparam` / `production.bicepparam`. Production is forced to `WRITE_MODE=off` and no test sign-in or /mcp in the template itself, whatever the parameters say
+- [ ] (C) Validate the templates (`az bicep build`): needs the Azure CLI (K installs it at M4)
+- [x] (C) Scripts: `azure-infra.mjs`, `azure-secrets.mjs` (values never printed; temp file deleted at once), `azure-deploy.mjs` (runs typecheck and tests first), `prod-query.mjs` (read-only, SELECT only, Data Reader role), `migrate-d1-to-cosmos.ts` (`npm run migrate:d1`). Every production command refuses to run without `EBAY_CONFIRM_PRODUCTION=yes`. ~~`cosmos-setting.mjs`~~: not needed. Resuming writes is owner-only in the app's Settings, and on production K deliberately has read-only data access
+- [x] (C) Import mapping (`src/store/migrate.ts`, tested in `test/migrate.test.ts`); **dry run on the real Sandbox D1 export passed**: 59 documents, every table, sampled documents and old-vs-new metrics match
+- [x] (C) `check-production.mjs` takes its address from the deployment, and adds: HSTS and no framing, headers on API responses, plain HTTP redirects to HTTPS, /admin closed, HTTPS-only/TLS/FTP/CORS settings, basic-auth publishing off, Cosmos keys disabled and free tier
 
 ### M4. Sandbox on Azure
 - [ ] (K) `az login`; find the allowed regions (Azure Policy → Assignments → "Allowed resource deployment regions")
@@ -105,5 +107,6 @@ Production D1:
 ## Log
 
 - 2026-11-03: plan approved; branch and this doc created.
+- 2026-11-04: M3 written. The importer dry run on the Sandbox export matched (a float rounding difference in summed costs was a false alarm; the check now compares to 1e-9). Template validation waits for the Azure CLI.
 - 2026-11-04: M2 done: 209 tests pass (1 skipped). The function package builds (`npm run build:azure`); it is first run for real on Sandbox at M4.
 - 2026-11-04: M1 done. All 25 modules moved to the store; 201 tests pass (1 skipped: the emulator suite). Found and fixed on the way: a date bug in the audit's "days listed" (it used the wall clock), and supersede retries too short under 6 simultaneous creates (now 25 with back-off). Two claims made atomic that weren't before: recovery codes and sign-in challenges.

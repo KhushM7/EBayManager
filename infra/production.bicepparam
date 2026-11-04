@@ -3,7 +3,7 @@
 using 'main.bicep'
 
 param env = 'production'
-param location = readEnvironmentVariable('AZURE_LOCATION', 'uksouth')
+param location = readEnvironmentVariable('AZURE_LOCATION', 'francecentral')
 param writeMode = 'off'
 param ownerObjectId = readEnvironmentVariable('AZURE_OWNER_OBJECT_ID', '')
 param sandboxConveniences = false

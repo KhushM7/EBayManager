@@ -1,11 +1,11 @@
 // Creates or updates an environment's Azure resources from infra/main.bicep (docs/azure-migration.md).
 //   node scripts/azure-infra.mjs sandbox                                   (Claude may run this)
 //   $env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-infra.mjs production   (K only)
-// AZURE_LOCATION picks the region (default uksouth); it must be one the subscription allows.
+// AZURE_LOCATION picks the region (default francecentral); it must be one the subscription allows.
 import { az, envArg, outputs } from "./azure-common.mjs";
 
 const env = envArg();
-const location = process.env.AZURE_LOCATION || "uksouth";
+const location = process.env.AZURE_LOCATION || "francecentral";
 process.env.AZURE_LOCATION = location;
 process.env.AZURE_OWNER_OBJECT_ID ||= az(["ad", "signed-in-user", "show", "--query", "id", "-o", "tsv"]);
 

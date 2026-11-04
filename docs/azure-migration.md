@@ -13,6 +13,7 @@ Moving EBayManager from Cloudflare (Workers, D1, R2, static assets, cron) to Azu
 | Topic | Decision |
 | --- | --- |
 | Database | Azure Cosmos DB for NoSQL, free tier: one account, two databases (`ebay-sandbox`, `ebay-production`) at 400 RU/s each |
+| Region | France Central (`francecentral`). UK South, West Europe and North Europe aren't allowed by the Students policy; France Central, Belgium Central, Austria East and Norway East are allowed and support Flex Consumption. France Central was picked over Belgium Central as the longer-established region for Cosmos DB |
 | Web address | The free `*.azurewebsites.net` address |
 | Cloudflare after the move | Scheduled jobs stop at switch-over; the Worker and its data are kept read-only for 2 weeks, then deleted |
 | Pull request for Phase 7 | The GitHub CLI isn't installed here. K opens it: https://github.com/KhushM7/EBayManager/compare/main...phase-7-first-day-audit (then a second one for `azure-migration`) |
@@ -24,7 +25,7 @@ Who does each step: **C** = Claude, **K** = K.
 ### M0. Branch and this doc
 - [x] (C) Branch `azure-migration` from `phase-7-first-day-audit` (2026-11-03)
 - [x] (C) Create this progress doc
-- [ ] (K) Open the Phase 7 pull request and merge it (link above)
+- [x] (K) Open the Phase 7 pull request and merge it (2026-11-04)
 
 ### M1. Store layer (replaces D1)
 - [x] (C) Store interface (`src/store/index.ts`), built on a small document layer (`src/store/doc.ts`), so only that layer has two implementations and the repositories (`src/store/{proposals,auth,data}.ts`) are written and tested once
@@ -55,7 +56,7 @@ Who does each step: **C** = Claude, **K** = K.
 - [x] (C) `check-production.mjs` takes its address from the deployment, and adds: HSTS and no framing, headers on API responses, plain HTTP redirects to HTTPS, /admin closed, HTTPS-only/TLS/FTP/CORS settings, basic-auth publishing off, Cosmos keys disabled and free tier
 
 ### M4. Sandbox on Azure
-- [ ] (K) `az login`; find the allowed regions (Azure Policy → Assignments → "Allowed resource deployment regions")
+- [x] (K) `az login`; find the allowed regions: France Central chosen (2026-11-04)
 - [ ] (C) Deploy sandbox infrastructure, secrets and code
 - [ ] (C) Import Sandbox D1 into Cosmos and verify
 - [ ] (K) eBay portal: Sandbox RuName accept URL → new address `/oauth/callback`
@@ -100,12 +101,13 @@ Production D1:
 | # | Question | Status |
 | --- | --- | --- |
 | 1 | Does Flex Consumption's free grant apply to a Students subscription? If not, expect under $1/month from the credit | Check the first cost view |
-| 2 | Allowed regions on K's subscription: need one with both Flex and Cosmos (prefer UK South, West Europe, North Europe) | K, at M4 |
+| 2 | Allowed regions on K's subscription: need one with both Flex and Cosmos | Done: France Central (default in the param files and `azure-infra.mjs`) |
 | 3 | Install the Cosmos DB emulator on K's PC for the full conformance run | Ask K before installing |
 | 4 | Does App Service overwrite a forged `X-Client-IP` on Flex? | Test at M4; stop and discuss if not |
 
 ## Log
 
+- 2026-11-04: K merged the Phase 7 pull request and chose France Central (the UK and West/North Europe regions aren't allowed by the Students policy). Defaults switched from `uksouth` to `francecentral`.
 - 2026-11-03: plan approved; branch and this doc created.
 - 2026-11-04: M3 written. The importer dry run on the Sandbox export matched (a float rounding difference in summed costs was a false alarm; the check now compares to 1e-9). Template validation waits for the Azure CLI.
 - 2026-11-04: M2 done: 209 tests pass (1 skipped). The function package builds (`npm run build:azure`); it is first run for real on Sandbox at M4.

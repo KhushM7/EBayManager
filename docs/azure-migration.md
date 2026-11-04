@@ -57,7 +57,7 @@ Who does each step: **C** = Claude, **K** = K.
 
 ### M4. Sandbox on Azure
 - [x] (K) `az login`; find the allowed regions: France Central chosen (2026-11-04)
-- [ ] (C) Deploy sandbox infrastructure, secrets and code
+- [x] (C) Deploy sandbox infrastructure (France Central) and code; (K) secrets uploaded from `.dev.vars` (9 of 15: the Claude, sold-data, comps keyset and deletion-token keys aren't in `.dev.vars`). App: https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net; `/health` shows sandbox, approval
 - [ ] (C) Import Sandbox D1 into Cosmos and verify
 - [ ] (K) eBay portal: Sandbox RuName accept URL → new address `/oauth/callback`
 - [ ] (C) Verify: key sign-in, an approved price change applied to a test listing, the offer round trip, nightly and audit as background jobs, push, headers and HTTPS settings, forged `X-Client-IP` ignored, RU peaks
@@ -107,6 +107,7 @@ Production D1:
 
 ## Log
 
+- 2026-11-04: Sandbox deployed to Azure from the cloud session. First deploy failed: Cosmos rejects `/id/?` as an index path (id is a system property, always indexed) and `auth` listed `/user_id/?` twice; both removed, with a test. `/health` 200 (sandbox, approval); HSTS, X-Frame-Options DENY, nosniff and CSP present; `/admin/host/status` 401; HTTPS only, TLS 1.2, FTP off, no CORS.
 - 2026-11-04: Production dry run (K): 246 documents, every table and the sampled documents matched; the one failure was a false alarm (proposal counts in a different key order). The metrics check now sorts object keys before comparing.
 - 2026-11-04: K merged the Phase 7 pull request and chose France Central (the UK and West/North Europe regions aren't allowed by the Students policy). Defaults switched from `uksouth` to `francecentral`.
 - 2026-11-03: plan approved; branch and this doc created.

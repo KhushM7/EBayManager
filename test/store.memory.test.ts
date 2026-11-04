@@ -15,6 +15,13 @@ describe("the store's definitions agree", () => {
     for (const c of def.containers) expect(c.defaultTtl ?? undefined, c.id).toBe(DEFAULT_TTL[c.id as keyof typeof DEFAULT_TTL]);
   });
 
+  it("index paths are ones Cosmos DB accepts: no system properties, no duplicates", () => {
+    for (const c of def.containers) {
+      for (const p of c.indexed) expect(p, `${c.id}: ${p}`).not.toMatch(/^\/(id|_ts|_etag|_rid|_self)\//);
+      expect(new Set(c.indexed).size, `${c.id} lists a path twice`).toBe(c.indexed.length);
+    }
+  });
+
   it("builds Cosmos SQL from conditions without string injection", () => {
     const params: any[] = [];
     expect(whereSql([{ f: "status", op: "=", v: "x' OR 1=1" }, { f: "used_at", op: "null" }], params)).toBe('c["status"] = @p0 AND (NOT IS_DEFINED(c["used_at"]) OR IS_NULL(c["used_at"]))');

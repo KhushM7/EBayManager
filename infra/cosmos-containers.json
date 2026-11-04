@@ -1,5 +1,5 @@
 {
-  "$comment": "The data store's containers (docs/azure-migration.md). Read by infra/main.bicep and by the Cosmos emulator tests. Partition key path is /pk everywhere. defaultTtl: omitted = TTL off, -1 = per-document ttl only, n = seconds. Changing a partition key or deleting a container loses data: treat edits here like a database migration. Fields used in ORDER BY must be indexed (id included where results are sorted by id); filters on other fields still work but scan.",
+  "$comment": "The data store's containers (docs/azure-migration.md). Read by infra/main.bicep and by the Cosmos emulator tests. Partition key path is /pk everywhere. defaultTtl: omitted = TTL off, -1 = per-document ttl only, n = seconds. Changing a partition key or deleting a container loses data: treat edits here like a database migration. Fields used in ORDER BY must be indexed. Never list /id/? (or other system properties): Cosmos indexes id itself in consistent mode and rejects the path; filters on other fields still work but scan.",
   "containers": [
     {
       "id": "kv",
@@ -36,7 +36,6 @@
       "id": "proposals",
       "defaultTtl": null,
       "indexed": [
-        "/id/?",
         "/type/?",
         "/status/?",
         "/kind/?",
@@ -63,7 +62,6 @@
       "id": "audit",
       "defaultTtl": null,
       "indexed": [
-        "/id/?",
         "/at/?"
       ]
     },
@@ -97,7 +95,6 @@
       "id": "pricing",
       "defaultTtl": null,
       "indexed": [
-        "/id/?",
         "/type/?",
         "/at/?",
         "/item_id/?",
@@ -130,9 +127,7 @@
     {
       "id": "reports",
       "defaultTtl": null,
-      "indexed": [
-        "/id/?"
-      ]
+      "indexed": []
     },
     {
       "id": "jobs",

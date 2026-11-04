@@ -154,7 +154,10 @@ resource site 'Microsoft.Web/sites@2024-04-01' = {
       runtime: { name: 'node', version: '22' }
     }
     siteConfig: {
-      // The Functions host's /admin endpoints are switched off.
+      // The Functions host's /admin endpoints are switched off. Bicep's type library doesn't list this
+      // property yet (BCP089), but ARM passes it through to the site's web config; check-production.mjs
+      // and the M4 checks confirm /admin/host/status is closed on the deployed app.
+      #disable-next-line BCP089
       functionsRuntimeAdminIsolationEnabled: true
       minTlsVersion: '1.2'
       scmMinTlsVersion: '1.2'

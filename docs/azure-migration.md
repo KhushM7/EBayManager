@@ -50,7 +50,7 @@ Who does each step: **C** = Claude, **K** = K.
 
 ### M3. Infrastructure as code and scripts
 - [x] (C) `infra/main.bicep` (subscription scope) with `modules/cosmos.bicep`, `cosmos-access.bicep`, `app.bicep`, and `sandbox.bicepparam` / `production.bicepparam`. Production is forced to `WRITE_MODE=off` and no test sign-in or /mcp in the template itself, whatever the parameters say
-- [ ] (C) Validate the templates (`az bicep build`): needs the Azure CLI (K installs it at M4)
+- [x] (C) Validate the templates (Bicep 0.37.4, 2026-11-04): fixed a loop inside a function call in `cosmos.bicep` (now `map()`), removed a redundant `dependsOn`; `functionsRuntimeAdminIsolationEnabled` isn't in Bicep's type library yet, so its warning is suppressed and the /admin check verifies it
 - [x] (C) Scripts: `azure-infra.mjs`, `azure-secrets.mjs` (values never printed; temp file deleted at once), `azure-deploy.mjs` (runs typecheck and tests first), `prod-query.mjs` (read-only, SELECT only, Data Reader role), `migrate-d1-to-cosmos.ts` (`npm run migrate:d1`). Every production command refuses to run without `EBAY_CONFIRM_PRODUCTION=yes`. ~~`cosmos-setting.mjs`~~: not needed. Resuming writes is owner-only in the app's Settings, and on production K deliberately has read-only data access
 - [x] (C) Import mapping (`src/store/migrate.ts`, tested in `test/migrate.test.ts`); **dry run on the real Sandbox D1 export passed**: 59 documents, every table, sampled documents and old-vs-new metrics match
 - [x] (C) `check-production.mjs` takes its address from the deployment, and adds: HSTS and no framing, headers on API responses, plain HTTP redirects to HTTPS, /admin closed, HTTPS-only/TLS/FTP/CORS settings, basic-auth publishing off, Cosmos keys disabled and free tier

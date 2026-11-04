@@ -50,7 +50,7 @@ resource container 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/container
             {
               indexingMode: 'consistent'
               automatic: true
-              includedPaths: [for p in c.indexed: { path: p }]
+              includedPaths: map(c.indexed, p => { path: p })
               excludedPaths: [{ path: '/*' }, { path: '/"_etag"/?' }]
             },
             contains(c, 'composite') ? { compositeIndexes: c.composite } : {}

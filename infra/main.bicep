@@ -85,7 +85,6 @@ module cosmosAccess 'modules/cosmos-access.bicep' = {
     ownerObjectId: ownerObjectId
     ownerCanWrite: env == 'sandbox'
   }
-  dependsOn: [cosmos]
 }
 
 resource budget 'Microsoft.Consumption/budgets@2023-11-01' = if (createBudget) {

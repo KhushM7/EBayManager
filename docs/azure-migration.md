@@ -64,7 +64,7 @@ Who does each step: **C** = Claude, **K** = K.
 
 ### M5. Production infrastructure
 - [x] (K) Deploy production infrastructure, secrets and code (`WRITE_MODE=off`); `/health` shows production and off (2026-11-04: https://ebay-autopilot-production-wrpoyt.azurewebsites.net). Secrets: 11 uploaded; the comps keyset, `MCP_TOKEN` and `NTFY_TOPIC` are intentionally unset on production
-- [ ] (K) Redeploy the code with the fixed zip step; the dashboard page loads (not 500)
+- [x] (K) Redeploy the code with the fixed zip step; the dashboard page loads (sign-in page, 2026-11-04)
 
 ### M6. Switch-over
 - [ ] (K) Pause writes on Cloudflare and remove its scheduled jobs
@@ -108,6 +108,7 @@ Production D1:
 
 ## Log
 
+- 2026-11-04: **M5 complete.** Production redeployed with the Node-built zip: sign-in page loads, `/health` production/off, `/admin` 401, `/mcp` 404. Next: M6 switch-over, when K is ready.
 - 2026-11-04: M5 deployed by K. Public checks from the cloud session: HSTS, CSP, nosniff, X-Frame-Options DENY; `/admin` 401; `/mcp` 404; `/api/me` 401 when signed out. The dashboard page answered 500: the deploy zip was made with PowerShell's Compress-Archive, which writes `web\index.html` (backslashes), a file name rather than a folder on the Linux host. `azure-deploy.mjs` now builds the zip in Node (`scripts/make-zip.mjs`; a first fix using `tar.exe` failed on K's PC, where `tar` is GNU tar) and refuses a zip with backslash paths or without `index.js` and `web/index.html`.
 - 2026-11-04: **M4 complete.** The cloud session signed out of Azure (`az logout`). Next: M5, K deploys production (read-only).
 - 2026-11-04: More M4 checks passed: push to the installed app (K); first-day audit as a background job (report saved, no failed steps); nightly run (snapshots refreshed); a second approved price change applied (item 110591497965, £12 → £10.80, Ack Success). Claude spend for all Sandbox checks: $0.14. Cosmos peaked at 100% normalised RU only during the import (02:09), 32–41% otherwise, no throttling (429). Its 400s are the gateway's documented first-chance reply to sorted cross-partition queries, which the SDK retries with a query plan. Application Insights: no app exceptions, only the Functions host's own storage-probe 404/409s and one restart.

@@ -107,6 +107,7 @@ Production D1:
 
 ## Log
 
+- 2026-11-04: Production dry run (K): 246 documents, every table and the sampled documents matched; the one failure was a false alarm (proposal counts in a different key order). The metrics check now sorts object keys before comparing.
 - 2026-11-04: K merged the Phase 7 pull request and chose France Central (the UK and West/North Europe regions aren't allowed by the Students policy). Defaults switched from `uksouth` to `francecentral`.
 - 2026-11-03: plan approved; branch and this doc created.
 - 2026-11-04: M3 written. The importer dry run on the Sandbox export matched (a float rounding difference in summed costs was a false alarm; the check now compares to 1e-9). Template validation waits for the Azure CLI.

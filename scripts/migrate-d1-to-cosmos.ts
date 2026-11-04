@@ -91,7 +91,13 @@ const newM = await metrics({ store } as Env);
 const oldM = oldMetrics(db, now);
 for (const k of ["listings", "sales", "spend", "proposals", "medianMinutesToDecide"] as const) {
   // Sums of money can differ in the last binary digit depending on the order they were added: compare to 1e-9.
-  const round = (x: unknown) => JSON.stringify(x, (_k, v) => (typeof v === "number" ? Math.round(v * 1e9) / 1e9 : v));
+  // Object keys are sorted: SQL GROUP BY and the store can list the same counts in a different order
+  // (e.g. proposals {agreed, rejected} against {rejected, agreed}); arrays keep their order.
+  const round = (x: unknown) =>
+    JSON.stringify(x, (_k, v) =>
+      typeof v === "number" ? Math.round(v * 1e9) / 1e9
+      : v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v);
   const a = round(oldM[k]);
   const b = round((newM as any)[k]);
   if (a !== b) fail(`metrics.${k} differs:\n    old ${a}\n    new ${b}`);

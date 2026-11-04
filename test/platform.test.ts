@@ -89,3 +89,34 @@ describe("client address for rate limits", () => {
     expect(clientIp(req({}))).toBe("unknown");
   });
 });
+
+describe("ntfy fallback on Node", () => {
+  it("sends titles with £ and → as JSON (Node refuses them in headers) and never throws", async () => {
+    const { push } = await import("../src/notify");
+    const { vi } = await import("vitest");
+    const env = { store: memoryStore(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", NTFY_TOPIC: "topic-x" } as unknown as Env;
+    const calls: { url: string; init: RequestInit }[] = [];
+    const real = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      // What Node does with a non-Latin-1 header value.
+      new Headers(init?.headers);
+      calls.push({ url: String(url), init });
+      return new Response("{}");
+    }) as any;
+    try {
+      await push(env, "Price: 4.5 → 4.05", "Below £4.50", { approve: "https://a/approve", reject: "https://a/reject" });
+      expect(calls).toHaveLength(1);
+      expect(calls[0].url).toBe("https://ntfy.sh/");
+      const sent = JSON.parse(String(calls[0].init.body));
+      expect(sent).toMatchObject({ topic: "topic-x", title: "[SANDBOX] Price: 4.5 → 4.05", message: "Below £4.50" });
+      expect(sent.actions.map((a: any) => a.label)).toEqual(["Review and approve", "Reject"]);
+
+      globalThis.fetch = vi.fn(async () => {
+        throw new TypeError("network down");
+      }) as any;
+      await expect(push(env, "Price: 1 → 2", "x")).resolves.toBeUndefined();
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
+});

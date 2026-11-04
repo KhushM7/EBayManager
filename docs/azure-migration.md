@@ -59,7 +59,7 @@ Who does each step: **C** = Claude, **K** = K.
 - [x] (K) `az login`; find the allowed regions: France Central chosen (2026-11-04)
 - [x] (C) Deploy sandbox infrastructure (France Central) and code; (K) secrets uploaded from `.dev.vars` (9 of 15: the Claude, sold-data, comps keyset and deletion-token keys aren't in `.dev.vars`). App: https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net; `/health` shows sandbox, approval
 - [ ] (C) Import Sandbox D1 into Cosmos and verify
-- [ ] (K) eBay portal: Sandbox RuName accept URL → new address `/oauth/callback`
+- [x] (K) eBay portal: Sandbox RuName accept URL → new address `/oauth/callback` (round trip verified: tokens refreshed 02:32 UTC)
 - [ ] (C) Verify: key sign-in, an approved price change applied to a test listing, the offer round trip, nightly and audit as background jobs, push, headers and HTTPS settings, forged `X-Client-IP` ignored, RU peaks
 
 ### M5. Production infrastructure
@@ -107,6 +107,7 @@ Production D1:
 
 ## Log
 
+- 2026-11-04: M4 checks on Sandbox. Passed: passkey registration via `/api/setup`, eBay sign-in with the new RuName, the 15-minute timer, a price check as a background job, and an **approved price change applied** (`ReviseFixedPriceItem` The Hobbit £4.50 → £4.05, Ack Success, audit_log `applied`, actor K). Found and fixed: the ntfy fallback sent the title as a header, and Node refuses '→' and '£' in headers, so every price proposal threw after being saved (Claude retried, each retry superseding the last); ntfy is now published as JSON and can't fail the caller. To fix later: a price check with no matches reads "about ? today".
 - 2026-11-04: Client address fixed: `clientIp()` reads `Client-IP` (port stripped), tests updated, temporary diagnostic removed. The sign-in page has no key form: on Sandbox, key sign-in is API-only, so K registers a Sandbox passkey via `/api/setup` (a rehearsal of M6's re-enrolment).
 - 2026-11-04: Sandbox import (K) verified: 63 documents, metrics match; no re-enrolment link because the only Sandbox user is the test user. Forged `X-Client-IP` test FAILED: failed sign-ins were recorded under `203.0.113.77` and `198.51.100.9` as sent, and as `unknown` with no header. Work on the per-network limit stopped for K's decision.
 - 2026-11-04: Sandbox deployed to Azure from the cloud session. First deploy failed: Cosmos rejects `/id/?` as an index path (id is a system property, always indexed) and `auth` listed `/user_id/?` twice; both removed, with a test. `/health` 200 (sandbox, approval); HSTS, X-Frame-Options DENY, nosniff and CSP present; `/admin/host/status` 401; HTTPS only, TLS 1.2, FTP off, no CORS.

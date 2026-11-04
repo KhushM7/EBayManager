@@ -21,7 +21,7 @@ describe("background jobs", () => {
 
   it("runs a job once even if the queue delivers it twice, and records a failure", async () => {
     const e = { store: memoryStore(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", NTFY_TOPIC: "", enqueue: () => {} } as unknown as Env;
-    const fetchMock = vi.fn(async () => new Response("down", { status: 500 }));
+    const fetchMock = vi.fn(async (_url: unknown, _init?: unknown) => new Response("down", { status: 500 }));
     vi.stubGlobal("fetch", fetchMock);
     const { jobId } = await startJob(e, "price_check", { itemId: "123456" }, "K");
     await Promise.all([runJob(e, jobId!), runJob(e, jobId!)]);

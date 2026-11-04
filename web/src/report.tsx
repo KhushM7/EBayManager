@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, SignedOut } from "./api";
+import { api, apiJob, SignedOut } from "./api";
 import { ago, money } from "./format";
 import type { ScreenProps } from "./screens";
 
@@ -207,7 +207,7 @@ export function Report({ me, onSignedOut, onChanged }: ScreenProps) {
     setRunning(true);
     setError(null);
     try {
-      const r = await api<{ report: Report }>("/firstday/run", { body: {} });
+      const r = await apiJob<{ report: Report }>("/firstday/run", {});
       setReport(r.report);
       onChanged();
     } catch (e) {
@@ -221,7 +221,7 @@ export function Report({ me, onSignedOut, onChanged }: ScreenProps) {
   const claudeFix = async (itemId: string) => {
     setFixes((f) => ({ ...f, [itemId]: { busy: true } }));
     try {
-      const out = await api<{ note: string; costUsd: number }>("/audit", { body: { itemId } });
+      const out = await apiJob<{ note: string; costUsd: number }>("/audit", { itemId });
       setFixes((f) => ({ ...f, [itemId]: { note: out.note || "Done." } }));
       onChanged();
     } catch (e) {

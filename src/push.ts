@@ -18,8 +18,8 @@ const concat = (...parts: Uint8Array[]) => {
 };
 
 async function hkdf(salt: Uint8Array, ikm: Uint8Array, info: Uint8Array, bytes: number) {
-  const key = await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]);
-  return new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info }, key, bytes * 8));
+  const key = await crypto.subtle.importKey("raw", ikm as BufferSource, "HKDF", false, ["deriveBits"]);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: salt as BufferSource, info: info as BufferSource }, key, bytes * 8));
 }
 
 /** Encrypts a push message for one subscription (RFC 8291, single aes128gcm record). */
@@ -27,7 +27,7 @@ export async function encryptPayload(plaintext: Uint8Array, p256dh: Uint8Array, 
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const server = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"])) as CryptoKeyPair;
   const serverPub = new Uint8Array((await crypto.subtle.exportKey("raw", server.publicKey)) as ArrayBuffer);
-  const uaKey = await crypto.subtle.importKey("raw", p256dh, { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const uaKey = await crypto.subtle.importKey("raw", p256dh as BufferSource, { name: "ECDH", namedCurve: "P-256" }, false, []);
   const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: uaKey } as any, server.privateKey, 256));
 
   const ikm = await hkdf(auth, shared, concat(enc.encode("WebPush: info\0"), p256dh, serverPub), 32);
@@ -99,7 +99,7 @@ export async function sendToAll(env: Env, msg: PushMessage): Promise<number> {
           TTL: "86400",
           Urgency: "high",
         },
-        body,
+        body: body as BodyInit,
       });
       if (res.status === 404 || res.status === 410) {
         await env.store.push.delete(s.endpoint);

@@ -81,3 +81,22 @@ export interface Device {
   last_ok_at: number | null;
   last_error: string | null;
 }
+
+/**
+ * Calls an endpoint that may start a background job (the audit, a price check, Claude's listing review). If
+ * the server queued it, waits for the job to finish (checking every few seconds, up to 40 minutes) and
+ * returns its result, so callers see the same answer either way. `onQueued` lets the screen say it's running.
+ */
+export async function apiJob<T = any>(path: string, body: unknown, onQueued?: () => void): Promise<T> {
+  const first = await api<any>(path, { body });
+  if (!(first && first.status === "queued" && typeof first.jobId === "string")) return first as T;
+  onQueued?.();
+  const started = Date.now();
+  while (Date.now() - started < 40 * 60_000) {
+    await new Promise((r) => setTimeout(r, 4000));
+    const s = await api<{ status: string; result: T; error: string | null }>(`/jobs/${first.jobId}`);
+    if (s.status === "done") return s.result;
+    if (s.status === "failed") throw new Error(s.error ?? "The job failed");
+  }
+  throw new Error("Still running after 40 minutes; you'll get a notification when it's done.");
+}

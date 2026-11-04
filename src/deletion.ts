@@ -48,7 +48,7 @@ export async function verifySignature(env: Env, header: string | null, body: str
   const key = await crypto.subtle.importKey("spki", der, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
   const signature = derToRaw(Uint8Array.from(atob(sig.signature), (c) => c.charCodeAt(0)));
   const hash = sig.digest?.toUpperCase() === "SHA256" ? "SHA-256" : "SHA-1";
-  return crypto.subtle.verify({ name: "ECDSA", hash }, key, signature, new TextEncoder().encode(body));
+  return crypto.subtle.verify({ name: "ECDSA", hash }, key, signature as BufferSource, new TextEncoder().encode(body));
 }
 
 /** Removes everything the app holds about one eBay user. Returns how many records changed. */

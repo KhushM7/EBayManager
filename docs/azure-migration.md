@@ -39,13 +39,13 @@ Who does each step: **C** = Claude, **K** = K.
 - [x] (C) Safety scans: no `env.DB`, `D1Database` or `prepare(`; `@azure/*` only in `src/store/cosmos*` and `src/platform/azure/`; only `src/store/` touches documents; `promote` is locked
 
 ### M2. Azure platform layer
-- [ ] (C) `handle(request, env)`: platform-neutral routing taken out of `src/index.ts`
-- [ ] (C) HTTP adapter (catch-all function, `routePrefix: ""`), static `web/dist` with SPA fallback, security headers on every response, plus HSTS and X-Frame-Options
-- [ ] (C) Client IP from `X-Client-IP`; per-person sign-in limit (5 per 15 minutes)
-- [ ] (C) Timer triggers (nightly 02:00 UTC, poll every 15 minutes)
-- [ ] (C) Background jobs (Storage Queue trigger) for the audit, price check and listing review; UI shows queued, running and done
-- [ ] (C) Env from app settings; Cosmos and Blob through `DefaultAzureCredential`
-- [ ] (C) Remove wrangler and workers-types; tsconfig and safety scans updated
+- [x] (C) `handle(request, env)` and `runScheduled()` in `src/index.ts`, platform-neutral
+- [x] (C) HTTP adapter (`src/platform/azure/functions.ts`: catch-all, `routePrefix: ""` in `host.json`), static `web/dist` from memory with SPA fallback (`static.ts`), security headers on **every** response with HSTS and X-Frame-Options; server pages and data get stricter CSPs than the app
+- [x] (C) Client IP from `X-Client-IP` only (anything else is "unknown"); per-person limit of 5 failed passkey sign-ins per 15 minutes (`completeLogin`), on top of the 20 per hour per network
+- [x] (C) Timer triggers `0 0 2 * * *` and `0 */15 * * * *`
+- [x] (C) Background jobs (`src/background.ts`): Storage Queue `jobs`, queue-triggered `background` function, run-once claim, push when done or failed, `GET /api/jobs/:id`; the web app waits on them (`apiJob`). Without a queue (tests, local) they run inline, so behaviour there is unchanged
+- [x] (C) Env from app settings (`src/platform/azure/env.ts`); Cosmos through `DefaultAzureCredential` (managed identity); refuses to start in production with key sign-in or /mcp switched on. Blob (photos) is created by Bicep and wired in Phase 10, where it's first used, as R2 was
+- [x] (C) `@cloudflare/workers-types` removed (Node types; byte buffers cast for the DOM types); `npm run build:azure` bundles to `dist/azure`. wrangler stays as a dev tool until M6 (it exports the D1 data and stops Cloudflare's scheduled jobs), then goes in M8
 
 ### M3. Infrastructure as code and scripts
 - [ ] (C) `infra/main.bicep` and `sandbox.bicepparam` / `production.bicepparam`
@@ -105,4 +105,5 @@ Production D1:
 ## Log
 
 - 2026-11-03: plan approved; branch and this doc created.
+- 2026-11-04: M2 done: 209 tests pass (1 skipped). The function package builds (`npm run build:azure`); it is first run for real on Sandbox at M4.
 - 2026-11-04: M1 done. All 25 modules moved to the store; 201 tests pass (1 skipped: the emulator suite). Found and fixed on the way: a date bug in the audit's "days listed" (it used the wall clock), and supersede retries too short under 6 simultaneous creates (now 25 with back-off). Two claims made atomic that weren't before: recovery codes and sign-in challenges.

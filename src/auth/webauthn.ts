@@ -125,7 +125,7 @@ export function derToRaw(der: Uint8Array): Uint8Array {
   return raw;
 }
 
-const sha256 = async (data: Uint8Array) => new Uint8Array(await crypto.subtle.digest("SHA-256", data));
+const sha256 = async (data: Uint8Array) => new Uint8Array(await crypto.subtle.digest("SHA-256", data as BufferSource));
 const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v, i) => v === b[i]);
 
 interface ClientData {
@@ -190,8 +190,8 @@ export async function verifyAuthentication(
       ? await crypto.subtle.verify(
           { name: "ECDSA", hash: "SHA-256" },
           await crypto.subtle.importKey("jwk", stored.jwk, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]),
-          derToRaw(sig),
-          signed,
+          derToRaw(sig) as BufferSource,
+          signed as BufferSource,
         )
       : await crypto.subtle.verify(
           "RSASSA-PKCS1-v1_5",

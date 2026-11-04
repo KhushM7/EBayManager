@@ -3,8 +3,6 @@ import type { Store } from "./store";
 export interface Env {
   /** The data store: Cosmos DB on Azure, in memory in tests (src/store). */
   store: Store;
-  /** R2 photo storage, bound from Phase 8. */
-  PHOTOS?: R2Bucket;
   /** sandbox | production. Selects eBay hosts and keyset; anything else fails closed. */
   EBAY_ENV: string;
   /** off | approval. The write gate refuses every eBay write unless this is "approval". */
@@ -19,8 +17,13 @@ export interface Env {
   /** Optional production keyset used only for Browse comps (public data, no seller account). */
   EBAY_COMPS_APP_ID?: string;
   EBAY_COMPS_CERT_ID?: string;
-  /** Dashboard and PWA static files (web/dist). */
-  ASSETS?: Fetcher;
+  /** Dashboard and PWA static files (web/dist), with the single-page-app fallback. Set by the platform layer. */
+  ASSETS?: { serve(request: Request): Promise<Response> };
+  /**
+   * Hands a background job to the platform's queue (Azure Storage Queue). Unset in tests and local runs, where
+   * jobs run inline instead (src/background.ts).
+   */
+  enqueue?: (message: { jobId: string }) => void | Promise<void>;
   /** Bootstraps the owner's invite when nobody is registered; on Sandbox only, also a test sign-in. */
   DASHBOARD_KEY: string;
   /** VAPID key pair as a P-256 private JWK, for Web Push. */

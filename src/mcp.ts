@@ -45,7 +45,7 @@ export async function handleMcp(env: Env, request: Request): Promise<Response> {
   if (request.headers.get("Authorization") !== `Bearer ${env.MCP_TOKEN}`) return new Response("Unauthorized", { status: 401 });
   if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { Allow: "POST" } });
 
-  const body = await request.json<RpcRequest | RpcRequest[]>();
+  const body = (await request.json()) as RpcRequest | RpcRequest[];
   const batch = Array.isArray(body) ? body : [body];
   const replies = (await Promise.all(batch.map((r) => handleRpc(env, r)))).filter((r) => r !== null);
   if (!replies.length) return new Response(null, { status: 202 });

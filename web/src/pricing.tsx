@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, SignedOut } from "./api";
+import { api, apiJob, SignedOut } from "./api";
 import { ago, money } from "./format";
 
 // The pricing engine in the dashboard (docs/pricing-engine.md): a price check on a listing, and bundle advice.
@@ -149,7 +149,7 @@ export function PriceCheck({ itemId, onSignedOut }: { itemId: string; onSignedOu
   const check = async () => {
     setState({ busy: true });
     try {
-      setState({ result: await api<PriceResult>("/pricing/check", { body: { itemId } }) });
+      setState({ result: await apiJob<PriceResult>("/pricing/check", { itemId }) });
     } catch (e) {
       if (e instanceof SignedOut) onSignedOut();
       else setState({ error: (e as Error).message });

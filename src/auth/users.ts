@@ -231,12 +231,24 @@ export async function loginOptions(env: Env) {
   };
 }
 
+/** Failed passkey checks allowed per person in 15 minutes (docs/security.md), on top of the per-network limit. */
+export const PERSON_FAILURES = 5;
+const PERSON_WINDOW_MS = 15 * 60_000;
+
 export async function completeLogin(env: Env, challengeId: string, credential: any): Promise<string> {
   const { challenge } = await takeChallenge(env, challengeId, "login");
   const found = await env.store.auth.getCredentialWithUser(String(credential?.id));
   if (!found || found.user.disabled) throw new Error("This passkey isn't registered here");
   const row = found.cred;
-  const signCount = await verifyAuthentication(credential, { alg: row.alg, jwk: JSON.parse(row.public_key), signCount: row.sign_count }, { challenge, ...relyingParty(env) });
+  const personKey = `user:${row.user_id}`;
+  if (await tooManyAttempts(env, personKey, PERSON_FAILURES, PERSON_WINDOW_MS)) throw new Error("Too many failed sign-ins for this person. Wait 15 minutes and try again.");
+  let signCount: number;
+  try {
+    signCount = await verifyAuthentication(credential, { alg: row.alg, jwk: JSON.parse(row.public_key), signCount: row.sign_count }, { challenge, ...relyingParty(env) });
+  } catch (e) {
+    await recordFailure(env, personKey);
+    throw e;
+  }
   await env.store.auth.updateCredentialUse(row.id, signCount, Date.now());
   return row.user_id;
 }

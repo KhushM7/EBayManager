@@ -10,7 +10,7 @@ import { CallNotAllowed, assertRest, assertTrading } from "../src/ebay/allowlist
 
 const ORIGIN = "https://app.example";
 const enc = new TextEncoder();
-const sha256 = async (d: Uint8Array) => new Uint8Array(await crypto.subtle.digest("SHA-256", d));
+const sha256 = async (d: Uint8Array) => new Uint8Array(await crypto.subtle.digest("SHA-256", d as BufferSource));
 
 // --- A tiny CBOR encoder, for building authenticator responses. ---
 function cbor(v: any): Uint8Array {
@@ -85,7 +85,7 @@ const api = async (path: string, body?: unknown, cookie = "", headers: Record<st
   const url = new URL(`${ORIGIN}/api${path}`);
   const init: RequestInit = {
     method: body === undefined ? "GET" : "POST",
-    headers: { "X-EbayManager": "1", "CF-Connecting-IP": "1.2.3.4", Cookie: cookie, ...headers },
+    headers: { "X-EbayManager": "1", "X-Client-IP": "1.2.3.4", Cookie: cookie, ...headers },
     body: body === undefined ? undefined : JSON.stringify(body),
   };
   const res = await handleApi(env, new Request(url, init), url);
@@ -221,6 +221,19 @@ describe("request protection", () => {
   it("rate-limits sign-in attempts per network", async () => {
     for (let i = 0; i < 20; i++) await api("/auth/recover", { code: "nope" });
     expect((await api("/auth/recover", { code: "nope" })).status).toBe(429);
+  });
+
+  it("limits failed passkey sign-ins per person (5 in 15 minutes), even from different networks", async () => {
+    const setup = await api("/setup", { key: "boot-key-123", name: "K" });
+    const owner = await join(setup.json.inviteUrl);
+    for (let i = 0; i < 5; i++) {
+      const o = await api("/auth/login/options", {}, "", { "X-Client-IP": `10.0.0.${i}` });
+      const r = await api("/auth/login/verify", { challengeId: o.json.challengeId, credential: await owner.pk.get(o.json.options, { tamper: true }) }, "", { "X-Client-IP": `10.0.0.${i}` });
+      expect(r.status).toBe(400);
+    }
+    const blocked = await signIn(owner.pk);
+    expect(blocked.status).toBe(400);
+    expect(blocked.json.error).toMatch(/Too many failed sign-ins for this person/);
   });
 
   it("refuses cross-site requests and requests without the custom header", async () => {

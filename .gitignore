@@ -6,3 +6,4 @@ web/dist/
 .sandbox-buyer-token
 .prod.vars
 .owner-invite-*.txt
+dist/

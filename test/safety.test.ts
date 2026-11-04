@@ -27,7 +27,7 @@ describe("write gate is the only path to eBay writes", () => {
   });
 
   it("network calls happen only in reviewed modules", () => {
-    // Outgoing calls only; the Worker's own `async fetch(` handler and `env.ASSETS.fetch(` (static files) don't count.
+    // Outgoing calls only (a method named fetch on an object, such as a test double, does not count).
     expect(filesMatching(/(?<!async |[.\w])fetch\(/).sort()).toEqual([
       "src/deletion.ts",
       "src/ebay/auth.ts",

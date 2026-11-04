@@ -1,6 +1,5 @@
 import type { Env } from "./env";
 import { gateClosedReason, setWritesPaused, writesPaused } from "./ebay/write";
-import { auditListing } from "./jobs";
 import { runNightly } from "./nightly";
 import { push } from "./notify";
 import { CLAUDE_DAILY_BUDGET_USD } from "./rules";
@@ -31,10 +30,10 @@ import { checkKey, CSRF_HEADER, getSession, keyLogin } from "./session";
 import { snapshotListings } from "./snapshot";
 import { MONTHLY_CAP, providerEnabled, usedThisMonth, type Provider } from "./solddata";
 import { evaluateProviders } from "./solddata-eval";
-import { priceListing } from "./pricing/engine";
 import { cleanSale } from "./salesreport";
 import { orderLines } from "./store";
-import { latestReport, runFirstDayAudit } from "./firstday";
+import { jobStatus, startJob } from "./background";
+import { latestReport } from "./firstday";
 import { getAnsweredQuestions, getSentMessages } from "./ebay/history";
 import { editStyle, getStyle, learnStyle, saveStyle } from "./style";
 import { reviewPromotions } from "./promotion";
@@ -53,6 +52,15 @@ async function body(request: Request): Promise<any> {
   }
 }
 
+/**
+ * The caller's address, for rate limits. On Azure App Service the front end sets X-Client-IP and overwrites
+ * any value a client sends (checked on Sandbox: docs/azure-migration.md). Anything else counts as "unknown".
+ */
+export function clientIp(request: Request): string {
+  const ip = (request.headers.get("X-Client-IP") ?? "").trim();
+  return /^[0-9a-fA-F:.]{3,45}$/.test(ip) ? ip : "unknown";
+}
+
 const setting = async (env: Env, key: string) =>
   env.store.kv.get(key);
 
@@ -67,7 +75,7 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
   if (method !== "GET" && origin && origin !== new URL(env.PUBLIC_URL).origin && origin !== url.origin)
     return json({ error: "Wrong origin" }, 403);
 
-  const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
+  const ip = clientIp(request);
   const limited = async () => tooManyAttempts(env, `ip:${ip}`, 20, 3_600_000);
   const fail = async (status: number, error: string) => (await recordFailure(env, `ip:${ip}`), json({ error }, status));
   const run = async (fn: () => Promise<Response>) => {
@@ -305,11 +313,18 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
     const { itemId } = await body(request);
     if (typeof itemId !== "string" || !/^\d{6,20}$/.test(itemId)) return json({ error: "Bad item id" }, 400);
     try {
-      const r = await auditListing(env, itemId);
-      return json({ itemId, note: r.text, turns: r.turns, costUsd: r.costUsd, stopReason: r.stopReason });
+      const job = await startJob(env, "listing_review", { itemId }, user.name);
+      return json(job.status === "queued" ? job : job.result);
     } catch (e) {
       return json({ error: e instanceof Error ? e.message : String(e) }, 503);
     }
+  }
+
+  // A background job's progress (src/background.ts).
+  const jobPath = path.match(/^\/jobs\/(job_[\w-]{1,64})$/);
+  if (jobPath && method === "GET") {
+    const s = await jobStatus(env, jobPath[1]);
+    return s ? json(s) : json({ error: "Not found" }, 404);
   }
 
   // The pricing engine on one listing (docs/pricing-engine.md). Read-only on eBay; spends sold-data
@@ -318,7 +333,10 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
     if (!owner) return ownerOnly();
     const { itemId } = await body(request);
     if (typeof itemId !== "string" || !/^\d{6,20}$/.test(itemId)) return json({ error: "Bad item id" }, 400);
-    return run(async () => json(await priceListing(env, itemId)));
+    return run(async () => {
+      const job = await startJob(env, "price_check", { itemId }, user.name);
+      return json(job.status === "queued" ? job : job.result);
+    });
   }
 
   if (path === "/pricing/latest" && method === "GET") {
@@ -344,7 +362,10 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
   if (path === "/firstday/run" && method === "POST") {
     if (!owner) return ownerOnly();
     const b = await body(request);
-    return run(async () => json({ report: await runFirstDayAudit(env, { relearnStyle: b.relearnStyle === true }) }));
+    return run(async () => {
+      const job = await startJob(env, "firstday", { relearnStyle: b.relearnStyle === true }, user.name);
+      return json(job.status === "queued" ? job : job.result);
+    });
   }
 
   // K's reply style guide: everyone can read it; only K edits or relearns it (it's K's voice).

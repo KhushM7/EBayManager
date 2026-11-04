@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, SignedOut, type Activity as Row, type Device, type Listing, type Me, type Proposal } from "./api";
+import { api, apiJob, SignedOut, type Activity as Row, type Device, type Listing, type Me, type Proposal } from "./api";
 import { DraftEditor, EDITABLE } from "./drafts";
 import { ago, daysSince, describe, money } from "./format";
 import { addPasskey } from "./passkey";
@@ -307,7 +307,7 @@ export function Listings({ me, onSignedOut, onChanged }: ScreenProps) {
   const review = async (itemId: string) => {
     setReviews((r) => ({ ...r, [itemId]: { busy: true } }));
     try {
-      const out = await api<{ note: string; costUsd: number }>("/audit", { body: { itemId } });
+      const out = await apiJob<{ note: string; costUsd: number }>("/audit", { itemId });
       setReviews((r) => ({ ...r, [itemId]: { note: `${out.note || "Done."} (cost ${out.costUsd < 0.01 ? "under 1 cent" : usd(out.costUsd)})` } }));
       reload();
       onChanged();

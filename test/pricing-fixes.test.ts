@@ -2,10 +2,10 @@
 // above the typical, and no repeated proposals while changes are off.
 import { describe, expect, it } from "vitest";
 import { daysText, decide, listed, marketState, type MarketSale } from "../src/pricing/model";
-import { ownPriceResult, postageNote, pricingPostage, recordDecision } from "../src/pricing/engine";
+import { ownPriceResult, postageNote, priceOwned, pricingPostage, recordDecision, type PriceResult } from "../src/pricing/engine";
 import { enginePriceCheck } from "../src/tools";
 import { recentlyRevised } from "../src/nightly";
-import { filePriceQuestions, parsePrice } from "../src/todos";
+import { fileOwnPriceReminders, filePriceQuestions, parsePrice } from "../src/todos";
 import { memoryStore } from "../src/store";
 import { seedProposal } from "./fixtures";
 import type { Env } from "../src/env";
@@ -116,5 +116,57 @@ describe("no repeated proposals while changes are off", () => {
     await p("d", "price", "dyson", "agreed", 1);
     expect([...(await recentlyRevised(env, NOW))]).toEqual(["maono"]);
     expect([...(await recentlyRevised(env, NOW, "price"))]).toEqual(["dyson"]);
+  });
+});
+
+describe("a listing on K's own price isn't forgotten", () => {
+  const input = { title: "Techlink Arena AA110B TV Stand", postage: 18 };
+  const noMarket = async (): Promise<PriceResult> => ({ at: NOW, identity: {} as any, components: [], method: "single", decision: { strategy: "ask", price: null, total: null, options: [], why: "", confidence: 0, reason: "no_sales" } });
+  const market = async (): Promise<PriceResult> => ({ at: NOW, identity: {} as any, components: [], method: "single", decision: { strategy: "compete", price: 49.99, total: 55, options: [], why: "Sales clear at £55.00.", confidence: 0.5 } });
+
+  it("looks for a market about once a week, and keeps K's price while there's none", async () => {
+    const env = { store: memoryStore() } as Env;
+    await env.store.listings.setOwnPrice("1", 65, NOW - 7 * DAY);
+    let looked = 0;
+    const r = await priceOwned(env, "1", input, (await env.store.listings.getSettings("1"))!, async () => (looked++, noMarket()), NOW);
+    expect(r.decision).toMatchObject({ strategy: "own", price: 65 });
+    expect(looked).toBe(1);
+    // Looked today: not again tomorrow.
+    await priceOwned(env, "1", input, (await env.store.listings.getSettings("1"))!, async () => (looked++, noMarket()), NOW + DAY);
+    expect(looked).toBe(1);
+  });
+
+  it("lifts K's price and competes as soon as comparable sales appear", async () => {
+    const env = { store: memoryStore() } as Env;
+    await env.store.listings.setOwnPrice("1", 65, NOW - 10 * DAY);
+    const r = await priceOwned(env, "1", input, (await env.store.listings.getSettings("1"))!, market, NOW);
+    expect(r.decision).toMatchObject({ strategy: "compete", price: 49.99, why: expect.stringMatching(/^Sales of this item or close matches have appeared, so your own price \(£65\.00\) is lifted/) });
+    expect((await env.store.listings.getSettings("1"))!.own_price).toBeNull();
+    expect(JSON.parse((await env.store.pricing.latestDecision("1"))!.result).decision.strategy).toBe("compete");
+  });
+
+  it("suggests reviewing it after 30 days unsold, and again 30 days after a dismissal", async () => {
+    const env = { store: memoryStore() } as Env;
+    const live = [{ itemId: "1", title: "TV stand", price: 65, watchers: 5, views7d: 2 }];
+    const settings = (setAt: number) => new Map([["1", { own_price: 65, own_price_set_at: setAt }]]);
+    const set = NOW - 31 * DAY;
+
+    await fileOwnPriceReminders(env, live, settings(NOW - 29 * DAY), NOW);
+    expect(await env.store.todos.list("open")).toHaveLength(0);
+
+    await fileOwnPriceReminders(env, live, settings(set), NOW);
+    const [todo] = await env.store.todos.list("open");
+    expect(todo).toMatchObject({ kind: "answer", title: "Review your price: no sale in 31 days", question: "A new price for it? (Now £65.00)" });
+    expect(todo.detail).toMatch(/5 watchers, 2 views in the last 7 days/);
+
+    await env.store.todos.close(todo.id, "dismissed", "K", NOW);
+    await fileOwnPriceReminders(env, live, settings(set), NOW + 20 * DAY);
+    expect(await env.store.todos.list("open")).toHaveLength(0);
+    await fileOwnPriceReminders(env, live, settings(set), NOW + 30 * DAY);
+    expect(await env.store.todos.list("open")).toEqual([expect.objectContaining({ title: "Review your price: no sale in 61 days" })]);
+
+    // Price cleared (or listing ended): the reminder closes.
+    await fileOwnPriceReminders(env, live, new Map(), NOW + 31 * DAY);
+    expect(await env.store.todos.list("open")).toHaveLength(0);
   });
 });

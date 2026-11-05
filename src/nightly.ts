@@ -9,7 +9,7 @@ import { snapshotListings } from "./snapshot";
 import { learnParams } from "./pricing/learn";
 import { bundleAdvice } from "./pricing/bundles";
 import { reviewPrices, type ReviewOut } from "./pricing/review";
-import { fileHealthTodos, filePriceQuestions, lastSentence } from "./todos";
+import { fileHealthTodos, fileOwnPriceReminders, filePriceQuestions, lastSentence } from "./todos";
 import { reviewPromotions } from "./promotion";
 import { auditDone, runFirstDayAudit } from "./firstday";
 
@@ -162,12 +162,20 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
 
   // Flagged listings that didn't end in a label become Inbox to-dos; to-dos for ended listings close.
   await step(steps, "todos", async () => {
-    const live = (await env.store.listings.latestSet()).map((l) => ({ itemId: l.item_id, title: l.title }));
+    const rows = await env.store.listings.latestSet();
+    const live = rows.map((l) => ({ itemId: l.item_id, title: l.title }));
     if (!live.length) return "skipped: no listings read";
     const open = await env.store.proposals.listWhere([{ f: "status", op: "in", v: ["pending", "approved"] }]);
     const labelled = new Set(open.map((p) => p.item_id));
     const r = await fileHealthTodos(env, live, flagged, triageNotes, (id) => labelled.has(id), at);
-    return `${r.opened} opened, ${r.resolved} resolved`;
+    // Listings on K's own price get a reminder after 30 days unsold.
+    const own = await fileOwnPriceReminders(
+      env,
+      rows.map((l) => ({ itemId: l.item_id, title: l.title, price: l.price, watchers: l.watch_count ?? 0, views7d: l.views_7d ?? null })),
+      await env.store.listings.settingsAll(),
+      at,
+    );
+    return `${r.opened + own.opened} opened, ${r.resolved + own.resolved} resolved`;
   });
 
   // The pricing engine learns from what sold (docs/pricing-engine.md, step 7), then looks for bundles.

@@ -217,6 +217,45 @@ export async function fileHealthTodos(
   return { ...r, resolved: r.resolved + ended };
 }
 
+/** Days an own-priced listing may go unsold before the Inbox suggests K reviews the price (and again after each further period). */
+export const OWN_PRICE_REVIEW_DAYS = 30;
+
+/**
+ * A listing on K's own price isn't forgotten (K, 2026-11-05): after 30 days unsold, a to-do suggests K reviews
+ * it, with what has happened since. Dismissed, it comes back after the next 30 days (the period is in the
+ * fingerprint). It closes when the listing ends or K's price is cleared.
+ */
+export async function fileOwnPriceReminders(
+  env: Env,
+  live: { itemId: string; title: string; price: number; watchers: number; views7d: number | null }[],
+  settings: Map<string, { own_price: number | null; own_price_set_at?: number | null }>,
+  now: number,
+) {
+  const todos: TodoInput[] = [];
+  for (const l of live) {
+    const s = settings.get(l.itemId);
+    if (s?.own_price == null || !s.own_price_set_at) continue;
+    const days = Math.floor((now - s.own_price_set_at) / 86_400_000);
+    if (days < OWN_PRICE_REVIEW_DAYS) continue;
+    const since = new Date(s.own_price_set_at).toISOString().slice(0, 10);
+    todos.push({
+      code: "own_price_review",
+      kind: "answer",
+      question: `A new price for it? (Now £${s.own_price.toFixed(2)})`,
+      itemId: l.itemId,
+      itemTitle: l.title,
+      title: `Review your price: no sale in ${days} days`,
+      detail: [
+        `You set £${s.own_price.toFixed(2)} on ${since}, as nothing comparable had sold. The engine still finds no market for it, and looks again each week.`,
+        `Now: ${l.watchers} watcher${l.watchers === 1 ? "" : "s"}${l.views7d != null ? `, ${l.views7d} view${l.views7d === 1 ? "" : "s"} in the last 7 days` : ""}.`,
+        `Answer with a new price and it becomes your price, with a label to change the listing; or dismiss to keep £${s.own_price.toFixed(2)} for another ${OWN_PRICE_REVIEW_DAYS} days. An offer to watchers or relisting can also help.`,
+      ].join("\n"),
+      fingerprint: `period:${Math.floor(days / OWN_PRICE_REVIEW_DAYS)}`,
+    });
+  }
+  return env.store.todos.sync("nightly", { codes: ["own_price_review"], itemIds: live.map((l) => l.itemId) }, todos, now);
+}
+
 /** Claude's closing sentence for K, from a triage run's text. */
 export function lastSentence(text: string): string {
   const t = text.trim().split(/\n+/).filter(Boolean).at(-1) ?? "";

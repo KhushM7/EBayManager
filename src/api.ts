@@ -400,7 +400,7 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
       const { text } = await body(request);
       const answer = typeof text === "string" ? text.trim().slice(0, 1000) : "";
       if (!answer) return json({ error: "Write an answer" }, 400);
-      if (todo.code === "own_price") {
+      if (todo.code === "own_price" || todo.code === "own_price_review") {
         // Nothing comparable has sold: K's price becomes the listing's own price. If the listing isn't at it, the
         // usual price proposal (floor, step and engine checks; K approves) puts it there.
         const price = parsePrice(answer);

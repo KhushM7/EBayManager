@@ -140,6 +140,9 @@ export interface ItemSettings {
   notes: string | null;
   /** K's own price for a listing with no market to price from; the engine never changes it. */
   own_price: number | null;
+  /** When K set it (for the 30-day reminder), and when the engine last looked for a market for the item. */
+  own_price_set_at?: number | null;
+  own_checked_at?: number | null;
 }
 
 const minIso = (a: string | null | undefined, b: string | null | undefined) => (!a ? b ?? null : !b ? a : Date.parse(a) <= Date.parse(b) ? a : b);
@@ -222,11 +225,17 @@ export function listingsRepo(docs: DocStore) {
       }));
     },
     /** K's own price, for a listing with no market to price from (null clears it). Other settings kept. */
-    async setOwnPrice(itemId: string, price: number | null) {
+    async setOwnPrice(itemId: string, price: number | null, now = Date.now()) {
       await mutate(docs, L, "settings", itemId, (cur) => ({
         ...(cur ?? { id: "settings", pk: itemId, type: "item_settings", item_id: itemId, collection_only: 0, floor_price: null, notes: null }),
         own_price: price,
+        own_price_set_at: price == null ? null : now,
+        own_checked_at: price == null ? null : now,
       }));
+    },
+    /** When the engine last looked for a market for an own-priced listing. */
+    async markOwnChecked(itemId: string, at: number) {
+      await mutate(docs, L, "settings", itemId, (cur) => (cur ? { ...cur, own_checked_at: at } : null));
     },
     /** The MCP/Claude tool: floor and notes only when given, collection-only always. */
     async mergeSettings(itemId: string, s: { floor_price?: number | null; collection_only: boolean; notes?: string | null }) {

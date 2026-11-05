@@ -2,6 +2,7 @@ import type { Env } from "../env";
 import type { MessagesApi } from "../claude";
 import { searchActiveComps, type Comp } from "../ebay/browse";
 import { getItem } from "../ebay/trading";
+import { push } from "../notify";
 import { itemNumber, poolSales, providerEnabled, searchSold, type Provider, type SoldSale } from "../solddata";
 import { identify, identifyByRules, IDENTITY_VERSION, matchTitles, type Component, type Grade, type Identity } from "./identify";
 import {
@@ -354,6 +355,12 @@ export function inputFromItem(item: any): PriceInput {
   };
 }
 
+/**
+ * How often the engine looks again for a market for an own-priced listing: the nightly price review re-checks a
+ * listing every 6 days, so the look happens there, and the review proposes the engine's price the same night.
+ */
+export const OWN_PRICE_RECHECK_DAYS = 6;
+
 /** K's own price for a listing with no market to price from: the engine reports it and never moves it. */
 export function ownPriceResult(input: PriceInput, own: number): PriceResult {
   return {
@@ -365,22 +372,49 @@ export function ownPriceResult(input: PriceInput, own: number): PriceResult {
       price: own,
       total: r2(own + (input.postage ?? 0)),
       options: [],
-      why: "Your own price: there were no sales of this item or anything close to price it from. The engine won't change it; clear it on Listings to let it price again.",
+      why: "Your own price: there were no sales of this item or anything close to price it from. The engine looks for a market about once a week and prices it as soon as one appears; clear it on Listings to let it price now.",
       confidence: 1,
     },
     method: "single",
   };
 }
 
+/**
+ * A listing on K's own price. About once a week the engine looks again for a market (K, 2026-11-05: an
+ * own-priced listing mustn't be forgotten); as soon as sales of the item or something close turn up, K's price
+ * is lifted, K is told, and the engine's price is returned (the nightly review then proposes it as usual).
+ */
+export async function priceOwned(
+  env: Env,
+  itemId: string,
+  input: PriceInput,
+  s: { own_price: number | null; own_price_set_at?: number | null; own_checked_at?: number | null },
+  marketCheck: () => Promise<PriceResult>,
+  now = Date.now(),
+): Promise<PriceResult> {
+  const ownPrice = s.own_price!;
+  if (now - (s.own_checked_at ?? s.own_price_set_at ?? 0) >= OWN_PRICE_RECHECK_DAYS * DAY) {
+    const market = await marketCheck();
+    if (market.decision.strategy !== "ask") {
+      await env.store.listings.setOwnPrice(itemId, null);
+      market.decision.why = `Sales of this item or close matches have appeared, so your own price (£${ownPrice.toFixed(2)}) is lifted and the engine prices it again. ${market.decision.why}`;
+      await recordDecision(env, itemId, market);
+      await push(env, "A market for your item appeared", `${input.title.slice(0, 60)}: comparable sales found. The engine prices it again; any change comes as a label.`, undefined, `market-${itemId}`).catch(() => {});
+      return market;
+    }
+    await env.store.listings.markOwnChecked(itemId, now);
+  }
+  const own = ownPriceResult(input, ownPrice);
+  await recordDecision(env, itemId, own);
+  return own;
+}
+
 /** Prices one of K's live listings (read-only eBay calls) and records the decision. */
 export async function priceListing(env: Env, itemId: string, api?: MessagesApi): Promise<PriceResult> {
   const input = inputFromItem(await getItem(env, itemId));
   const s = await env.store.listings.getSettings(itemId);
-  if (s?.own_price != null) {
-    const own = ownPriceResult(input, s.own_price);
-    await recordDecision(env, itemId, own);
-    return own;
-  }
+  if (s?.own_price != null)
+    return priceOwned(env, itemId, input, s, () => priceItem(env, { ...input, itemId, floor: s.floor_price ?? null, factsFromK: s.notes ?? null, excludeItemIds: [itemId] }, api));
   const r = await priceItem(env, { ...input, itemId, floor: s?.floor_price ?? null, factsFromK: s?.notes ?? null, excludeItemIds: [itemId] }, api);
   await recordDecision(env, itemId, r);
   return r;

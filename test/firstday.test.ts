@@ -153,9 +153,9 @@ describe("settings", () => {
 
   it("ranks the most important findings first", () => {
     const r = rankFindings([
-      { area: "listing", severity: "low", title: "a", detail: "", fix: "you" },
-      { area: "listing", severity: "high", title: "b", detail: "", fix: "claude" },
-      { area: "listing", severity: "medium", title: "c", detail: "", fix: "you" },
+      { area: "listing", code: "a", severity: "low", title: "a", detail: "", fix: "you" },
+      { area: "listing", code: "b", severity: "high", title: "b", detail: "", fix: "claude" },
+      { area: "listing", code: "c", severity: "medium", title: "c", detail: "", fix: "you" },
     ]);
     expect(r.map((x) => x.title)).toEqual(["b", "c", "a"]);
   });

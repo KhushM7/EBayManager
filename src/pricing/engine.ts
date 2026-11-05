@@ -36,6 +36,8 @@ export interface PriceInput {
   /** Postage K charges; null if unknown (then the market's typical postage is assumed). */
   postage?: number | null;
   floor?: number | null;
+  /** K's facts about the item (src/pricing/identify.ts), e.g. an answer to the engine's question. */
+  factsFromK?: string | null;
   current?: number | null;
   /** eBay item numbers left out of the evidence (K's own listing or sale). */
   excludeItemIds?: string[];
@@ -86,8 +88,10 @@ export async function paramsFor(env: Env, group: string): Promise<SaleParams> {
 export const CLOSE_WEIGHT = 0.35;
 
 async function cachedIdentity(env: Env, input: PriceInput, api?: MessagesApi): Promise<Identity> {
-  // Redone when the listing's title, condition, description or first photo changes.
-  const key = `v${IDENTITY_VERSION}|${input.title}|${input.condition ?? ""}|${(input.description ?? "").length}|${input.photos?.[0] ?? ""}`;
+  // Redone when the listing's title, condition, description or first photo changes, or K's facts do (added
+  // only when there are some, so identities cached before facts existed still hit).
+  const facts = input.factsFromK?.trim();
+  const key = `v${IDENTITY_VERSION}|${input.title}|${input.condition ?? ""}|${(input.description ?? "").length}|${input.photos?.[0] ?? ""}${facts ? `|k:${facts}` : ""}`;
   const hit = await env.store.pricing.getIdentity(key);
   if (hit) return JSON.parse(hit);
   const id = await identify(env, input, api);
@@ -337,7 +341,7 @@ export function inputFromItem(item: any): PriceInput {
 export async function priceListing(env: Env, itemId: string, api?: MessagesApi): Promise<PriceResult> {
   const input = inputFromItem(await getItem(env, itemId));
   const s = await env.store.listings.getSettings(itemId);
-  const r = await priceItem(env, { ...input, itemId, floor: s?.floor_price ?? null, excludeItemIds: [itemId] }, api);
+  const r = await priceItem(env, { ...input, itemId, floor: s?.floor_price ?? null, factsFromK: s?.notes ?? null, excludeItemIds: [itemId] }, api);
   await recordDecision(env, itemId, r);
   return r;
 }

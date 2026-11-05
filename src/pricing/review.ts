@@ -19,7 +19,13 @@ export const MIN_CONFIDENCE = 0.3;
  * check first. With `all` (the first-day audit): every listing, however recently checked, up to `limit`.
  * Only a pending price change holds a listing back; a pending listing edit doesn't.
  */
-export async function reviewPrices(env: Env, now = Date.now(), opts: { all?: boolean; limit?: number } = {}): Promise<string> {
+/** What a review priced, and the questions the engine asked: the nightly files those as Inbox to-dos. */
+export interface ReviewOut {
+  priced: string[];
+  asked: { itemId: string; title: string; question: string }[];
+}
+
+export async function reviewPrices(env: Env, now = Date.now(), opts: { all?: boolean; limit?: number; out?: ReviewOut } = {}): Promise<string> {
   // The latest snapshot set, minus listings with a pending price change (unless all) or one applied in the
   // last 7 days, oldest engine check first.
   const priceProposals = await env.store.proposals.listWhere([{ f: "kind", op: "=", v: "price" }]);
@@ -28,7 +34,7 @@ export async function reviewPrices(env: Env, now = Date.now(), opts: { all?: boo
   const lastCheck = new Map((await env.store.pricing.latestDecisions()).map((d) => [d.item_id, d.at]));
   const results = (await env.store.listings.latestSet())
     .filter((s) => !held.has(s.item_id) && !recentlyChanged.has(s.item_id))
-    .map((s) => ({ item_id: s.item_id, price: s.price, last_check: lastCheck.get(s.item_id) ?? null }))
+    .map((s) => ({ item_id: s.item_id, title: s.title, price: s.price, last_check: lastCheck.get(s.item_id) ?? null }))
     .sort((a, b) => (a.last_check ?? 0) - (b.last_check ?? 0));
   const due = results.filter((r) => opts.all || !r.last_check || now - r.last_check > 6 * DAY).slice(0, opts.limit ?? PRICED_PER_NIGHT);
   const propose = tools.find((t) => t.name === "propose_price_change")!;
@@ -39,8 +45,10 @@ export async function reviewPrices(env: Env, now = Date.now(), opts: { all?: boo
     try {
       const r = await priceListing(env, l.item_id);
       const d = r.decision;
+      opts.out?.priced.push(l.item_id);
       if (d.strategy === "ask" || d.price == null) {
         asked++;
+        opts.out?.asked.push({ itemId: l.item_id, title: l.title, question: d.question ?? "Which brand and model is it?" });
         continue;
       }
       if (Math.abs(d.price - l.price) / l.price < MIN_CHANGE || d.confidence < MIN_CONFIDENCE) continue;

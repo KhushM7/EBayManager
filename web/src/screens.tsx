@@ -5,6 +5,8 @@ import { ago, daysSince, describe, money } from "./format";
 import { addPasskey } from "./passkey";
 import { SoldDataCard } from "./solddata";
 import { BundleAdvice, PriceCheck } from "./pricing";
+import { Todos } from "./todos";
+import { Facts, StyleCard } from "./report";
 
 export interface ScreenProps {
   me: Me;
@@ -103,6 +105,7 @@ export function Inbox({ me, onSignedOut, onChanged }: ScreenProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [results, setResults] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [todoCount, setTodoCount] = useState(0);
 
   useEffect(() => setSelected(new Set()), [status]);
 
@@ -130,18 +133,21 @@ export function Inbox({ me, onSignedOut, onChanged }: ScreenProps) {
 
   const rows = data ?? [];
   const waiting = status === "pending";
+  const heading = [todoCount && `${todoCount} to do`, rows.length && `${rows.length} to decide`].filter(Boolean).join(", ") || "All clear";
   return (
     <>
       <div class="page-head">
-        <h1 class="title-in">{waiting && data ? (rows.length ? `${rows.length} to decide` : "All clear") : "Inbox"}</h1>
-        {waiting && <p>Each label is a change waiting for one of you. Nothing reaches eBay until it's stamped.</p>}
+        <h1 class="title-in">{waiting && data ? heading : "Inbox"}</h1>
+        {waiting && <p>To-dos are things only you can do. Labels are changes waiting for one of you: nothing reaches eBay until it's stamped.</p>}
       </div>
       {waiting && me.writesBlocked && (
         <p class="paper" style={{ marginBottom: "16px" }}>
           <span class="state state-held">Held</span> Approved changes wait for now: {me.writesBlocked.toLowerCase()}.
         </p>
       )}
+      {waiting && <Todos me={me} onSignedOut={onSignedOut} onCount={setTodoCount} onChanged={onChanged} />}
       {waiting && <BundleAdvice onSignedOut={onSignedOut} />}
+      {waiting && todoCount > 0 && <h2 class="inbox-sub">To approve</h2>}
       <div class="tabs" role="tablist">
         {STATUSES.map((s) => (
           <button role="tab" aria-selected={s.id === status} class="tab" onClick={() => setStatus(s.id)}>
@@ -373,6 +379,7 @@ export function Listings({ me, onSignedOut, onChanged }: ScreenProps) {
                 </>
               )}
             </div>
+            {me.user.role === "owner" && <Facts itemId={l.item_id} hasFloor={l.floor_price != null} onSignedOut={onSignedOut} />}
           </li>
         ))}
       </ol>
@@ -715,6 +722,10 @@ export function Settings(props: ScreenProps) {
         )}
 
         <SoldDataCard owner={owner} onSignedOut={onSignedOut} />
+
+        <div class="span">
+          <StyleCard owner={owner} onSignedOut={onSignedOut} />
+        </div>
 
         <section class="paper">
           <h2>Claude</h2>

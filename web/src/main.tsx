@@ -51,9 +51,10 @@ function App() {
       .then((m) => (setMe(m), setSignedOut(false)))
       .catch((e) => (e instanceof SignedOut ? setSignedOut(true) : setMe(null)));
 
+  // The badge counts what needs someone: labels to decide and open to-dos.
   const countWaiting = () =>
-    api<unknown[]>("/proposals?status=pending")
-      .then((p) => setWaiting(p.length))
+    Promise.all([api<unknown[]>("/proposals?status=pending"), api<unknown[]>("/todos").catch(() => [])])
+      .then(([p, t]) => setWaiting(p.length + t.length))
       .catch(() => {});
 
   useEffect(() => {

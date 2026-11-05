@@ -8,7 +8,8 @@ import { expireStale } from "./proposals";
 import { snapshotListings } from "./snapshot";
 import { learnParams } from "./pricing/learn";
 import { bundleAdvice } from "./pricing/bundles";
-import { reviewPrices } from "./pricing/review";
+import { reviewPrices, type ReviewOut } from "./pricing/review";
+import { fileHealthTodos, filePriceQuestions, lastSentence } from "./todos";
 import { reviewPromotions } from "./promotion";
 import { auditDone, runFirstDayAudit } from "./firstday";
 
@@ -103,18 +104,24 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
 
   // The pricing engine re-prices a few listings and proposes changes the market supports, before triage,
   // so triage sees those proposals as pending and doesn't repeat them.
-  await step(steps, "prices", async () =>
-    env.TRAWL_API_KEY || env.COMPSAPI_KEY ? reviewPrices(env, at) : "skipped: no sold-data provider keys",
-  );
+  // Its questions become Inbox to-dos for the listings it priced (src/todos.ts).
+  const review: ReviewOut = { priced: [], asked: [] };
+  await step(steps, "prices", async () => {
+    if (!env.TRAWL_API_KEY && !env.COMPSAPI_KEY) return "skipped: no sold-data provider keys";
+    const out = await reviewPrices(env, at, { out: review });
+    await filePriceQuestions(env, review.priced, review.asked, at);
+    return out;
+  });
 
   // Promotion research on the listings the engine has a market picture for (docs/pricing-and-promotion.md).
   await step(steps, "promotion", async () => reviewPromotions(env));
 
   let triaged = 0;
+  const triageNotes = new Map<string, string>();
   await step(steps, "triage", async () => {
     if (!env.ANTHROPIC_API_KEY) return "skipped: no ANTHROPIC_API_KEY";
     for (const f of flagged.slice(0, MAX_TRIAGED_PER_NIGHT)) {
-      await runAgent(env, {
+      const r = await runAgent(env, {
         job: `triage:${f.itemId}`,
         model: MODELS.triage,
         system: TRIAGE_SYSTEM,
@@ -123,9 +130,21 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
         maxTurns: 6,
         effort: "low",
       });
+      const note = lastSentence(r.text);
+      if (note) triageNotes.set(f.itemId, note);
       triaged++;
     }
     return `${triaged} of ${flagged.length} triaged`;
+  });
+
+  // Flagged listings that didn't end in a label become Inbox to-dos; to-dos for ended listings close.
+  await step(steps, "todos", async () => {
+    const live = (await env.store.listings.latestSet()).map((l) => ({ itemId: l.item_id, title: l.title }));
+    if (!live.length) return "skipped: no listings read";
+    const open = await env.store.proposals.listWhere([{ f: "status", op: "in", v: ["pending", "approved"] }]);
+    const labelled = new Set(open.map((p) => p.item_id));
+    const r = await fileHealthTodos(env, live, flagged, triageNotes, (id) => labelled.has(id), at);
+    return `${r.opened} opened, ${r.resolved} resolved`;
   });
 
   // The pricing engine learns from what sold (docs/pricing-engine.md, step 7), then looks for bundles.

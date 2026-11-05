@@ -89,7 +89,7 @@ Who does each step: **C** = Claude, **K** = K.
 ### M7. Back to the same point
 - [x] (K) Run the first-day audit; it finishes with no failed steps (2026-11-05 00:58 UTC: every step completed, including those that failed on Cloudflare)
 - [x] (C) Data check: floors and facts, proposals (4 approved dry runs, 7 rejected, 3 pending) (2026-11-05, see the log), sold-data counters, specs, style guide, reports, Claude usage
-- [ ] (K) One full nightly cycle on Azure with no failed steps
+- [ ] (K) One full nightly cycle on Azure with no failed steps (2026-11-05 01:14 UTC, started by K with Run now: no failed steps. Still to confirm: the 02:00 UTC timer run)
 - [ ] (C) Docs updated: CLAUDE.md, README, security.md, safety-and-environments.md, app-and-dashboard.md, go-live-tests.md, roadmap.md, privacy.html; free-plan-queue.md marked superseded
 
 ### M8. Two weeks later
@@ -122,6 +122,8 @@ At the switch-over export (2026-11-05), after the last Cloudflare runs: 281 docu
 | 4 | Does App Service overwrite a forged `X-Client-IP` on Flex? | **No.** Resolved 2026-11-04 (K chose to find a trustworthy header): a Sandbox-only diagnostic showed the front end overwrites `Client-IP` (as `ip:port`) and appends the real address to `X-Forwarded-For`; `X-Client-IP`, `X-Real-IP`, `X-Azure-ClientIP`, `X-Azure-SocketIP` and `X-Original-For` pass forged values through. The app now reads `Client-IP` only; diagnostic removed |
 
 ## Log
+
+- 2026-11-05: Nightly run on Azure (K, Run now on Metrics, 01:14 UTC): no failed steps. 4 listings, 2 orders, traffic for 7 listings, 1 flagged and triaged, prices 0 priced (the audit had just priced them), 15 outcomes learned, bundles skipped (made this week), no proposals. The 02:00 UTC timer run is checked next.
 
 - 2026-11-05: **M7 data check (C, read-only with `prod-query.mjs`)** after K's audit on Azure. Audit job `done`, no error; report: 4 listings read, 4 priced (2 proposed, 1 needs K's answer), 2 sold and 0 unsold in 60 days, 23 sales, 14 answered questions and 32 sent messages, style learned from 25 replies (39 on 2026-11-03: style guide v2 learns from pre-sale replies only), private seller, no business policies, 0 policy fixes. Proposals: 4 agreed, 7 rejected, 4 pending, 1 expired, all dry runs (baseline 3 pending: one expired, the audit added 2 price proposals); `audit_log` has no applied entries. TV stand floor £55 and its facts intact. Specs for 4 listings; price decisions 8 (4 new), latest 4; bundle advice 1; 23 orders. Sold-data usage unchanged (Trawl 29, CompsAPI 31: the audit priced from the 30-day cache). Claude: 15 calls today, $0.024; 98 calls in all (83 imported). `writes_paused` = 1. People: K only, passkeys "Android phone" and "Windows computer"; the re-enrolment invite used; 10 recovery codes, all from the Windows passkey (00:50 UTC), so the Cloudflare and phone sets are gone; 2 push devices. The 15-minute poll runs on Azure (01:00, no errors). Next: the 02:00 UTC nightly.
 

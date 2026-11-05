@@ -2,6 +2,7 @@ import type { DocStore } from "./doc";
 import { MemoryDocStore } from "./memory";
 import { auditRepo, proposalsRepo } from "./proposals";
 import { authRepo } from "./auth";
+import { todosRepo } from "./todos";
 import { jobsRepo, kvRepo, listingsRepo, messagesRepo, ordersRepo, pricingRepo, pushRepo, reportsRepo, soldDataRepo, usageRepo } from "./data";
 
 // The app's data store (replaces Cloudflare D1; docs/azure-migration.md). Code uses env.store's repositories;
@@ -23,6 +24,7 @@ export function makeStore(docs: DocStore) {
     usage: usageRepo(docs),
     reports: reportsRepo(docs),
     jobs: jobsRepo(docs),
+    todos: todosRepo(docs),
   };
 }
 
@@ -36,3 +38,4 @@ export function memoryStore(clock?: () => number): Store {
 export { orderLines } from "./data";
 export type { DecisionRow, ItemSettings, LatestRow, OrderDoc, PushRow, JobRow, UsageRow } from "./data";
 export type { ProposalRow, AuditRow } from "./proposals";
+export type { TodoInput, TodoRow, TodoScope, TodoKind, TodoStatus } from "./todos";

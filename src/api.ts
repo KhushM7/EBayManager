@@ -361,6 +361,55 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
     return json({ ok: true });
   }
 
+  // Inbox to-dos (src/todos.ts): what needs one of you but isn't an eBay change. None of these write to eBay:
+  // an answer is saved as K's facts, and a Claude draft files ordinary proposals for approval.
+  if (path === "/todos" && method === "GET") {
+    const status = url.searchParams.get("status") ?? "open";
+    if (!["open", "done", "dismissed", "resolved"].includes(status)) return json({ error: "Bad status" }, 400);
+    const order = { answer: 0, claude: 1, you: 2 } as const;
+    const rows = await env.store.todos.list(status as "open");
+    rows.sort((a, b) => (status === "open" ? order[a.kind] - order[b.kind] || a.created_at - b.created_at : (b.decided_at ?? 0) - (a.decided_at ?? 0)));
+    return json(rows);
+  }
+  const todoPath = path.match(/^\/todos\/(todo:[\w-]{1,64})\/(done|dismiss|answer|claude)$/);
+  if (todoPath && method === "POST") {
+    const [, id, action] = todoPath;
+    const todo = await env.store.todos.get(id);
+    if (!todo) return json({ error: "Not found" }, 404);
+    if (todo.status !== "open") return json({ error: "Already dealt with" }, 409);
+    const now = Date.now();
+    if (action === "done" || action === "dismiss") {
+      await env.store.todos.close(id, action === "done" ? "done" : "dismissed", user.name, now);
+      return json({ ok: true });
+    }
+    if (action === "answer") {
+      // Facts are K's own words about K's items, so only K answers (as for the facts box).
+      if (!owner) return ownerOnly();
+      if (todo.kind !== "answer" || !todo.item_id) return json({ error: "This to-do doesn't take an answer" }, 400);
+      const { text } = await body(request);
+      const answer = typeof text === "string" ? text.trim().slice(0, 1000) : "";
+      if (!answer) return json({ error: "Write an answer" }, 400);
+      const cur = await env.store.listings.getSettings(todo.item_id);
+      const notes = [cur?.notes, answer].filter(Boolean).join("\n").slice(0, 2000);
+      await env.store.listings.setFloorAndNotes(todo.item_id, cur?.floor_price ?? null, notes);
+      // The engine prices it again with the answer; its result arrives by push.
+      let note = "Saved as a fact about this listing.";
+      if (todo.code === "engine_question")
+        note = await startJob(env, "price_check", { itemId: todo.item_id }, user.name)
+          .then(() => "Saved. The engine is pricing it again; you'll get a notification.")
+          .catch(() => "Saved. Run a price check from Listings to use it.");
+      await env.store.todos.close(id, "done", user.name, now, note);
+      return json({ ok: true, note });
+    }
+    if (todo.kind !== "claude" || !todo.item_id) return json({ error: "This to-do isn't for Claude" }, 400);
+    return run(async () => {
+      await startJob(env, "listing_review", { itemId: todo.item_id }, user.name);
+      const note = "Claude is reviewing it. Its changes arrive as labels to approve.";
+      await env.store.todos.close(id, "done", user.name, now, note);
+      return json({ ok: true, note });
+    });
+  }
+
   // The first-day audit (docs/listing-assistant.md). Reading the report is open to all three; running it
   // spends sold-data searches and a Claude call, so owner only. Read-only on eBay either way.
   if (path === "/firstday" && method === "GET") return json({ report: await latestReport(env) });

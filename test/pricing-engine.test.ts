@@ -145,6 +145,15 @@ describe("identify and match", () => {
     expect(content.at(-1).text).toContain("Used twice , 45L");
     expect(identifyByRules("Sensor bin 45L").condition).toBe("unknown");
   });
+
+  it("gives Claude K's facts, such as an answer to the engine's question, as a true source", async () => {
+    const { api, calls } = fakeClaude(() => ({ product: "x", group: "g", condition: "unknown", keyFacts: [], components: [{ name: "x", query: "x y", valued: true }], priceable: true, question: null }));
+    await identify(env, { title: "Ceiling lights", factsFromK: "Brand: Astro, model Ascoli 1286" }, api);
+    expect(calls[0].prompt).toContain("Facts from the seller (K), true:\nBrand: Astro, model Ascoli 1286");
+    expect(calls[0].system).toMatch(/facts from the seller, which are true/);
+    await identify(env, { title: "Ceiling lights" }, api);
+    expect(calls[1].prompt).not.toContain("Facts from the seller");
+  });
 });
 
 describe("thin markets", () => {

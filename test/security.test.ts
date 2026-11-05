@@ -184,6 +184,11 @@ describe("people and roles", () => {
     expect((await api("/settings/writes", { paused: true }, manager.cookie)).status).toBe(200);
     expect((await api("/settings/writes", { paused: false }, manager.cookie)).status).toBe(403);
     expect((await api("/settings/writes", { paused: false }, owner.cookie)).status).toBe(200);
+    // An Inbox answer is saved as K's facts about K's item: only K gives one.
+    await env.store.todos.sync("audit", { codes: ["measurements"] }, [{ code: "measurements", kind: "answer", itemId: "1", itemTitle: null, title: "t", detail: "", fingerprint: "m" }], Date.now());
+    const [todo] = await env.store.todos.list("open");
+    expect((await api(`/todos/${todo.id}/answer`, { text: "Width 1 m" }, manager.cookie)).status).toBe(403);
+    expect((await api(`/todos/${todo.id}/answer`, { text: "Width 1 m" }, owner.cookie)).status).toBe(200);
   });
 
   it("records who decided a proposal", async () => {

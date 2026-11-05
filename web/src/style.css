@@ -946,3 +946,67 @@ a {
     grid-column: 1 / -1;
   }
 }
+
+/* ---------------------------------------------------------------- Inbox to-dos and the audit summary */
+
+/* A to-do leads with what to do; its title can be a sentence, so it wraps and stays a little smaller. */
+.todo-title {
+  margin: 6px 0 10px;
+  text-wrap: balance;
+}
+
+.todo-points {
+  margin: 0 0 12px;
+  padding-left: 1.1em;
+}
+
+.todo-points li + li {
+  margin-top: 4px;
+}
+
+.inbox-sub {
+  margin-top: 40px;
+}
+
+.audit-summary {
+  margin-top: 8px;
+}
+
+.audit-summary .kind {
+  margin-bottom: 10px;
+}
+
+/* Folded sections: the heading is the button; a short line says what's inside. */
+.fold > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  padding: 4px 0;
+  border-bottom: 2px solid var(--ground);
+  margin-bottom: 16px;
+}
+
+.fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.fold > summary h2 {
+  margin: 0;
+}
+
+.fold > summary h2::after {
+  content: " +";
+  color: var(--muted);
+}
+
+.fold[open] > summary h2::after {
+  content: " \2212";
+}
+
+.fold > summary:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 4px;
+}

@@ -23,6 +23,7 @@ import { providerEnabled } from "./solddata";
 import { getStyle, learnStyle, saveStyle, STYLE_VERSION, type StyleGuide } from "./style";
 import { orderLines } from "./store";
 import { specsFor, type SpecLookup } from "./specs";
+import { fileAuditTodos } from "./todos";
 
 // The first-day audit (docs/listing-assistant.md): a read-only review of the whole account once it's
 // connected. It reads every active listing in full, the sold history (K's imported Seller Hub sales and eBay's
@@ -47,6 +48,8 @@ export interface Finding {
   severity: Severity;
   itemId?: string | null;
   itemTitle?: string | null;
+  /** Stable name of the check, e.g. "photos" or "engine_question": the Inbox to-do made from it is matched on it. */
+  code: string;
   title: string;
   detail: string;
   /** How it gets fixed: a proposal already filed, the Claude listing review, K, or nothing to do. */
@@ -216,32 +219,33 @@ export function auditListing(
   const bestOffer = String(item?.BestOfferDetails?.BestOfferEnabled) === "true";
   const conditionId = num(item?.ConditionID);
   const f: Finding[] = [];
-  const add = (severity: Severity, t: string, detail: string, fix: FixBy, area: Finding["area"] = "listing") =>
-    f.push({ area, severity, itemId, itemTitle: title, title: t, detail, fix });
+  const add = (code: string, severity: Severity, t: string, detail: string, fix: FixBy, area: Finding["area"] = "listing") =>
+    f.push({ area, code, severity, itemId, itemTitle: title, title: t, detail, fix });
 
   // Rules K set: returns accepted, buyer pays return postage. A listing on a business policy is covered by
   // that policy's own finding and proposal.
   if (!returns.businessPolicy && !returns.accepted)
-    add("high", "Returns not accepted", "Your rule is returns always accepted, buyer pays return postage. A policy proposal has been filed.", "proposal", "settings");
+    add("returns", "high", "Returns not accepted", "Your rule is returns always accepted, buyer pays return postage. A policy proposal has been filed.", "proposal", "settings");
   else if (!returns.businessPolicy && returns.buyerPays === false)
-    add("high", "You pay return postage", "Your rule is that the buyer pays return postage. A policy proposal has been filed.", "proposal", "settings");
+    add("returns", "high", "You pay return postage", "Your rule is that the buyer pays return postage. A policy proposal has been filed.", "proposal", "settings");
 
   // Title.
   if (title.length < 45)
-    add("medium", "Short title", `Uses ${title.length} of 80 characters. Brand, model and key details buyers search for are probably missing.`, "claude");
+    add("short_title", "medium", "Short title", `Uses ${title.length} of 80 characters. Brand, model and key details buyers search for are probably missing.`, "claude");
   const caps = title.split(/\s+/).filter((w) => w.length > 3 && w === w.toUpperCase() && /[A-Z]/.test(w)).length;
-  if (caps >= 4) add("low", "Title in capitals", `${caps} words in capitals read as shouting in search results.`, "claude");
+  if (caps >= 4) add("title_caps", "low", "Title in capitals", `${caps} words in capitals read as shouting in search results.`, "claude");
 
   // Item specifics.
   const req = missing.filter((a) => a.required).map((a) => a.name);
   const rec = missing.filter((a) => !a.required).map((a) => a.name);
-  if (req.length) add("high", "Required item specifics missing", req.join(", "), "claude");
+  if (req.length) add("required_specifics", "high", "Required item specifics missing", req.join(", "), "claude");
   // Published specs for the exact product fill what they can; only what isn't published needs K.
   const pub = ctx.published;
   const published = new Set((pub?.specs ?? []).map((s) => s.name.toLowerCase()));
   const fromWeb = [...req, ...rec].filter((n) => published.has(n.toLowerCase()));
   if (fromWeb.length)
     add(
+      "published_specifics",
       "medium",
       `${fromWeb.length} specifics found in published specs`,
       `${fromWeb.join(", ")}, from the published specifications for the ${pub!.product}. Claude fills them in, with the source on the label.`,
@@ -251,6 +255,7 @@ export function auditListing(
   const other = rec.filter((n) => !MEASURE.test(n) && !published.has(n.toLowerCase()));
   if (measured.length)
     add(
+      "measurements",
       "medium",
       "Measurements missing",
       `${measured.join(", ")}. ${
@@ -263,42 +268,44 @@ export function auditListing(
       "you",
     );
   if (other.length >= 2)
-    add("low", `${other.length} other recommended item specifics missing`, `${other.join(", ")}. Claude fills the ones that apply and that the listing states; some may not apply to this item.`, "claude");
+    add("other_specifics", "low", `${other.length} other recommended item specifics missing`, `${other.join(", ")}. Claude fills the ones that apply and that the listing states; some may not apply to this item.`, "claude");
   else if (!ctx.aspects && specificNames.length < 4)
-    add("medium", "Few item specifics", `Only ${specificNames.length}. Buyers filter search by them (brand, model, colour, size).`, "claude");
+    add("few_specifics", "medium", "Few item specifics", `Only ${specificNames.length}. Buyers filter search by them (brand, model, colour, size).`, "claude");
 
   // Description and condition.
   if (!description || repeatsTitle(description, title))
     add(
+      "no_description",
       "high",
       "No description",
       description ? "The description only repeats the title. Say what it is, its condition in plain words, and what's included." : "Say what it is, its condition in plain words, and what's included.",
       "claude",
     );
-  else if (description.length < 200) add("medium", "Thin description", `${description.length} characters. Add condition, what's included and measurements if known.`, "claude");
+  else if (description.length < 200) add("thin_description", "medium", "Thin description", `${description.length} characters. Add condition, what's included and measurements if known.`, "claude");
   const conditionNote = String(item?.ConditionDescription ?? "").trim();
   if (conditionId === 7000 && !conditionNote && !FAULT_WORDS.test(description))
-    add("high", "Fault not described", "A spares or repair listing needs to say what's wrong and what works. Buyers won't bid blind, and it protects you if it's returned.", "you");
+    add("fault", "high", "Fault not described", "A spares or repair listing needs to say what's wrong and what works. Buyers won't bid blind, and it protects you if it's returned.", "you");
   else if (conditionId != null && conditionId >= 2000 && conditionId !== 7000 && !conditionNote && !CONDITION_WORDS.test(description))
-    add("low", "No condition note", "Neither the condition note nor the description says what condition it's in. Describe any marks or wear.", "you");
+    add("condition_note", "low", "No condition note", "Neither the condition note nor the description says what condition it's in. Describe any marks or wear.", "you");
 
   // Photos.
-  if (photos < 3) add("high", `${photos} photo${photos === 1 ? "" : "s"}`, "Buyers want every side, labels and any flaws. eBay allows 24.", "you");
-  else if (photos < 6) add("medium", `${photos} photos`, "More angles, the label or model number, and close-ups of any wear help it sell.", "you");
+  if (photos < 3) add("photos", "high", `${photos} photo${photos === 1 ? "" : "s"}`, "Buyers want every side, labels and any flaws. eBay allows 24.", "you");
+  else if (photos < 6) add("photos", "medium", `${photos} photos`, "More angles, the label or model number, and close-ups of any wear help it sell.", "you");
 
   // Postage, handling, offers.
-  if (post.kind === "unknown") add("medium", "No postage found", "Check the postage on this listing.", "you");
-  if (handlingDays != null && handlingDays > 3) add("low", `${handlingDays}-day handling time`, "Buyers rank faster dispatch higher; 1 to 2 days is typical.", "you");
-  if (!bestOffer) add("low", "Best Offer off", "Offers let interested buyers make a move; you approve every answer.", "you");
+  if (post.kind === "unknown") add("no_postage", "medium", "No postage found", "Check the postage on this listing.", "you");
+  if (handlingDays != null && handlingDays > 3) add("handling", "low", `${handlingDays}-day handling time`, "Buyers rank faster dispatch higher; 1 to 2 days is typical.", "you");
+  if (!bestOffer) add("best_offer", "low", "Best Offer off", "Offers let interested buyers make a move; you approve every answer.", "you");
 
   // Price against the market (the engine's latest check).
   const d = ctx.pricing?.decision ?? null;
-  if (!ctx.pricing) add("medium", "Not priced against the market", "The pricing engine hasn't checked this listing yet: see the prices step at the bottom of the report.", "none");
-  if (d && d.strategy === "ask") add("medium", "Engine needs your answer", d.question ?? "The engine couldn't identify this item exactly.", "you");
+  if (!ctx.pricing) add("not_priced", "medium", "Not priced against the market", "The pricing engine hasn't checked this listing yet: see the prices step at the bottom of the report.", "none");
+  if (d && d.strategy === "ask") add("engine_question", "medium", "Engine needs your answer", d.question ?? "The engine couldn't identify this item exactly.", "you");
   else if (d && d.price != null && input.current) {
     const gap = (input.current - d.price) / d.price;
     if (Math.abs(gap) >= 0.05)
       add(
+        "price_gap",
         Math.abs(gap) >= 0.15 ? "high" : "medium",
         `${gap > 0 ? "Above" : "Below"} the market by ${Math.round(Math.abs(gap) * 100)}%`,
         `${d.strategy[0].toUpperCase()}${d.strategy.slice(1)} at £${d.price.toFixed(2)}: ${d.why} Confidence ${Math.round(d.confidence * 100)}%.`,
@@ -309,7 +316,7 @@ export function auditListing(
   // Promotion.
   const p = ctx.promotion;
   if (p && p.advice.action !== "none")
-    add("medium", p.advice.action === "promote" ? `Promote at ${p.advice.rate}%` : p.advice.action === "lower" ? `Lower the ad rate to ${p.advice.rate}%` : "End the promotion", p.advice.why, "proposal", "promotion");
+    add("promotion", "medium", p.advice.action === "promote" ? `Promote at ${p.advice.rate}%` : p.advice.action === "lower" ? `Lower the ad rate to ${p.advice.rate}%` : "End the promotion", p.advice.why, "proposal", "promotion");
 
   return {
     itemId,
@@ -387,18 +394,18 @@ export function soldSummary(rows: SaleRow[]): SoldSummary {
 
 export function soldFindings(s: SoldSummary): Finding[] {
   const f: Finding[] = [];
-  const add = (severity: Severity, title: string, detail: string) => f.push({ area: "sold", severity, title, detail, fix: "none" });
+  const add = (code: string, severity: Severity, title: string, detail: string) => f.push({ area: "sold", code, severity, title, detail, fix: "none" });
   if (!s.count) {
-    add("low", "No sold history", "Import the Seller Hub orders report in Settings so prices learn from your sales.");
+    add("no_sales", "low", "No sold history", "Import the Seller Hub orders report in Settings so prices learn from your sales.");
     return f;
   }
-  add("low", `${s.count} sales, £${s.revenue.toFixed(2)}`, `${s.first} to ${s.last}; median sale £${s.median?.toFixed(2)}.`);
-  if (s.avgDaysToSell != null && s.timedSales >= 5) add("low", `About ${Math.round(s.avgDaysToSell)} days to sell`, `Average over the ${s.timedSales} sales whose listing date is known.`);
+  add("sales", "low", `${s.count} sales, £${s.revenue.toFixed(2)}`, `${s.first} to ${s.last}; median sale £${s.median?.toFixed(2)}.`);
+  if (s.avgDaysToSell != null && s.timedSales >= 5) add("days_to_sell", "low", `About ${Math.round(s.avgDaysToSell)} days to sell`, `Average over the ${s.timedSales} sales whose listing date is known.`);
   const below = s.askingVsSold.filter((x) => x.sold < x.asked * 0.9);
   if (below.length)
-    add("medium", `${below.length} sold 10%+ under the asking price`, below.slice(0, 3).map((x) => `${x.title}: asked £${x.asked.toFixed(2)}, sold £${x.sold.toFixed(2)}`).join("; "));
+    add("sold_under_asking", "medium", `${below.length} sold 10%+ under the asking price`, below.slice(0, 3).map((x) => `${x.title}: asked £${x.asked.toFixed(2)}, sold £${x.sold.toFixed(2)}`).join("; "));
   if (s.feeShare != null && s.feeShare > 0.05)
-    add("medium", `Fees took ${Math.round(s.feeShare * 100)}% of revenue`, "The pricing engine assumes 0% final value fees (a UK private seller). Tell Claude if you sell as a business.");
+    add("fees", "medium", `Fees took ${Math.round(s.feeShare * 100)}% of revenue`, "The pricing engine assumes 0% final value fees (a UK private seller). Tell Claude if you sell as a business.");
   return f;
 }
 
@@ -415,19 +422,19 @@ export function unsoldReason(e: EndedListing, now = Date.now()): UnsoldAudit {
 
 export function settingsFindings(policies: BusinessPolicies | null, seller: SellerRecord | null): Finding[] {
   const f: Finding[] = [];
-  const add = (severity: Severity, title: string, detail: string, fix: FixBy) => f.push({ area: "settings", severity, title, detail, fix });
+  const add = (code: string, severity: Severity, title: string, detail: string, fix: FixBy) => f.push({ area: "settings", code, severity, title, detail, fix });
   for (const r of policies?.returns ?? []) {
-    if (!r.accepted) add("high", `Return policy "${r.name}" doesn't accept returns`, "Your rule: returns always accepted, buyer pays return postage. A policy proposal has been filed.", "proposal");
-    else if (r.buyerPaysReturnPostage === false) add("high", `Return policy "${r.name}": you pay return postage`, "Your rule: the buyer pays. A policy proposal has been filed.", "proposal");
+    if (!r.accepted) add("policy_returns", "high", `Return policy "${r.name}" doesn't accept returns`, "Your rule: returns always accepted, buyer pays return postage. A policy proposal has been filed.", "proposal");
+    else if (r.buyerPaysReturnPostage === false) add("policy_returns", "high", `Return policy "${r.name}": you pay return postage`, "Your rule: the buyer pays. A policy proposal has been filed.", "proposal");
     else if (r.periodDays != null && r.periodDays < RETURNS.periodDays)
-      add("low", `Return policy "${r.name}": ${r.periodDays}-day returns`, `${RETURNS.periodDays} days is your setting; eBay ranks 30-day returns higher.`, "you");
+      add("policy_return_period", "low", `Return policy "${r.name}": ${r.periodDays}-day returns`, `${RETURNS.periodDays} days is your setting; eBay ranks 30-day returns higher.`, "you");
   }
   for (const p of policies?.postage ?? []) {
-    if (p.handlingDays != null && p.handlingDays > 3) add("low", `Postage policy "${p.name}": ${p.handlingDays}-day handling`, "1 to 2 days ranks better.", "you");
-    if (!p.services.length && !p.collection) add("medium", `Postage policy "${p.name}" has no UK service`, "Check it in Seller Hub.", "you");
+    if (p.handlingDays != null && p.handlingDays > 3) add("policy_handling", "low", `Postage policy "${p.name}": ${p.handlingDays}-day handling`, "1 to 2 days ranks better.", "you");
+    if (!p.services.length && !p.collection) add("policy_no_service", "medium", `Postage policy "${p.name}" has no UK service`, "Check it in Seller Hub.", "you");
   }
   if (seller?.businessType === "Commercial")
-    add("high", "Registered as a business seller", "The pricing engine assumes 0% final value fees (private seller). Business sellers pay fees, so prices need a fee setting before going live.", "you");
+    add("business_seller", "high", "Registered as a business seller", "The pricing engine assumes 0% final value fees (private seller). Business sellers pay fees, so prices need a fee setting before going live.", "you");
   return f;
 }
 
@@ -619,6 +626,7 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
     ...soldFindings(sold),
     ...unsold.filter((u) => u.watchers >= 2 || (u.views ?? 99) < 20).map<Finding>((u) => ({
       area: "unsold",
+      code: "ended_unsold",
       severity: "medium",
       itemId: u.itemId,
       itemTitle: u.title,
@@ -629,7 +637,7 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
     ...settingsFindings(policies, seller),
     ...(replies.length
       ? []
-      : [{ area: "messages", severity: "low", title: "No past replies found", detail: "The style guide starts from a plain default. Edit it to sound like you.", fix: "you" } as Finding]),
+      : [{ area: "messages", code: "no_replies", severity: "low", title: "No past replies found", detail: "The style guide starts from a plain default. Edit it to sound like you.", fix: "you" } as Finding]),
   ]);
 
   const made = (await env.store.proposals.listWhere([{ f: "created_at", op: ">=", v: startProposals }]))
@@ -657,11 +665,13 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
   };
   await env.store.reports.add(at, env.EBAY_ENV, JSON.stringify(report));
 
-  const high = findings.filter((f) => f.severity === "high").length;
+  // What needs K becomes Inbox to-dos (src/todos.ts); fixes already filed as labels are left to the labels.
+  await fileAuditTodos(env, report, at);
+  const open = (await env.store.todos.list("open")).length;
   await push(
     env,
     "First-day audit ready",
-    `${listings.length} listings, ${sold.count} past sales, ${unsold.length} ended unsold. ${high} important findings, ${made.length} proposals to review.`,
+    `${open ? `${open} to do` : "Nothing to do"}${made.length ? `, ${made.length} to approve` : ""}. Open the Inbox.`,
     undefined,
     "audit",
   );

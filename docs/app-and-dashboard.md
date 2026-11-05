@@ -56,12 +56,13 @@ Nothing runs continuously. The Worker runs only when a request, a push decision 
 
 | Screen | Shows | Actions |
 | --- | --- | --- |
-| **Inbox** (home) | Pending proposals, newest first. Each shows the item photo, old → new values, the reason and guardrail flags | Approve, reject, batch approve |
-| **Listings** | Every active listing with price, days listed, views, watchers, health score and pending proposals | Filter and sort, open detail |
+| **Inbox** (home) | To-dos first (answers, then Claude drafts, then things to do yourself; see [approvals.md](approvals.md#to-dos-2026-11-05-ks-choice)), then pending proposals, newest first. Each label shows old → new values, the reason and guardrail flags | Answer, let Claude draft, done or dismiss; approve, reject, batch approve |
+| **Audit** | A one-paragraph summary of the last first-day audit and how many to-dos and labels it left, with folded sections: listings, sold history, ended listings, settings and what it read (failed parts flagged) | Run again (owner), open the Inbox |
+| **Listings** | Every active listing with price, days listed, watchers, floor and pending labels | Review with Claude, price check, K's facts and floor (owner) |
 | **Listing detail** | Price, views and watchers over time from snapshots, comps, proposal history, K's floor price and notes | Edit floor and notes (D1 only) |
 | **Metrics** | See below | Pick a date range |
 | **Activity** | The audit log: every eBay write, refusal and failure | Filter by outcome |
-| **Settings** | Environment and write mode (read-only display), Pause all writes, push devices, test push, auto-apply toggles (later) | Toggle pause, manage devices |
+| **Settings** | Environment and write mode (read-only display), Pause all writes, push devices, test push, people, sold data, the reply style guide, Claude spend, auto-apply toggles (later) | Toggle pause, manage devices, edit the style guide (owner) |
 
 A coloured banner is always shown at the top of every screen: **SANDBOX** (amber), **PRODUCTION · READ-ONLY** (blue), or none in full production. Push titles carry the same prefix, for example `[SANDBOX] Price: 24.99 → 22.50`.
 

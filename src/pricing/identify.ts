@@ -42,12 +42,14 @@ export interface ListingFacts {
   description?: string | null;
   /** Listing photo URLs; the first few are shown to Claude. */
   photos?: string[];
+  /** What K has told the app about this item (Inbox answers, facts on the Listings screen): true, and a source. */
+  factsFromK?: string | null;
 }
 
 /** Bump when identification changes, so cached identities are redone. */
 export const IDENTITY_VERSION = 3;
 
-const IDENTIFY_SYSTEM = `You identify an item for sale on eBay UK, so its market price can be found from real sold listings. Use every source: the title, the item specifics, the description and the photos (labels, model numbers on the item or box, what's included, visible wear or damage).
+const IDENTIFY_SYSTEM = `You identify an item for sale on eBay UK, so its market price can be found from real sold listings. Use every source: the title, the item specifics, the description, the photos (labels, model numbers on the item or box, what's included, visible wear or damage) and any facts from the seller, which are true and count as a source ("(from K)").
 
 Return:
 - product: exactly what it is. Never guess a model, size, capacity or variant that no source shows.
@@ -122,6 +124,7 @@ export async function identify(env: Env, listing: ListingFacts, api?: MessagesAp
       : "",
     listing.description ? `Description:\n${plain(listing.description).slice(0, 4000)}` : "No description available.",
     photos.length ? `The ${photos.length} photos above are the seller's listing photos.` : "No photos available.",
+    listing.factsFromK ? `Facts from the seller (K), true:\n${listing.factsFromK.slice(0, 2000)}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");

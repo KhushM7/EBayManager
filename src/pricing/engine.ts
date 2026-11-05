@@ -296,6 +296,11 @@ export async function priceItem(env: Env, input: PriceInput, api?: MessagesApi):
   const typical = bundle ? Math.max(...components.map((c) => c.typicalPostage)) : 0;
   const decision = bundle ? sumOfParts(components, pricingPostage(input.postage, typical), input.floor) : components[0].decision;
   if (bundle && input.postage != null && pricingPostage(input.postage, typical) < input.postage) decision.why += postageNote(input.postage, typical);
+  if (identity.fallback) {
+    // Word rules stood in for Claude: say so, and don't let the price look surer than it is.
+    decision.why = `${identity.fallback}, so simple word rules were used: check this price. ${decision.why}`;
+    decision.confidence = Math.round(decision.confidence * 0.5 * 100) / 100;
+  }
   return { at, identity, components, decision, method: bundle ? "sum of parts" : "single" };
 }
 

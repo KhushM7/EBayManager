@@ -28,6 +28,8 @@ export interface Identity {
    * and say the rest works; "major" for a serious or several faults; "unknown" when they don't say. Null otherwise.
    */
   fault?: "minor" | "major" | "unknown" | null;
+  /** Set when Claude couldn't be asked (or failed) and word rules stood in: shown on the label, confidence lowered. */
+  fallback?: string;
   /** Facts that change the price, as found (model number, size, capacity, what's included, flaws). */
   keyFacts: string[];
   /** One for a single item; several for a bundle. */
@@ -60,7 +62,7 @@ Return:
 - product: exactly what it is. Never guess a model, size, capacity or variant that no source shows.
 - group: a short category group, e.g. "headphones", "phone accessories", "lighting", "kitchen appliances", "toys".
 - condition: new, used, or parts (not working), only if a source says or the photos clearly show it (e.g. sealed box = new). Otherwise unknown.
-- fault: only for parts. "minor" when a source names exactly one fault with a simple, inexpensive fix (a split hose, a missing charger, a broken clip) AND says the rest works; "major" for a serious fault (motor, board, screen) or several; "unknown" when no source says what's wrong or whether the rest works. null when condition isn't parts.
+- fault: only for parts. "minor" when a source names exactly one fault with a simple, inexpensive fix (a split hose, a missing charger, a broken clip) AND says the rest works; "major" for a serious fault (motor, board, screen) or several; "unknown" when no source says what's wrong or whether the rest works. "none" when condition isn't parts.
 - keyFacts: up to 8 short facts that change the price, each with its source, e.g. "model SSG-4100GB (title)", "45 litres (specifics)", "remote is BN59-01199F (photo)", "box missing (description)".
 - components: one entry for a single item. For a bundle of different things (e.g. "keyboard + remote"), one entry per part a buyer would value, each identified as precisely as the sources allow, plus valued=false for throwaway extras (manuals, cables, boxes). Several of the same item ("Lot of 2 pairs") is ONE component whose name says the quantity. Accessories that come with the product as standard (in its own box, e.g. a blaster's clip and bipod, a phone's charger) are part of that product, not separate components: use several components only for separately sold products the seller has put together.
 - query for each: 2 to 6 search words: brand, model, variant and model numbers exactly as written, single digits kept ("Galaxy Buds 2 Pro" keeps "2"). Use a model number from the description or photos when the title lacks it. No condition words; no colours unless they change the price.
@@ -74,7 +76,7 @@ const IDENTIFY_SCHEMA = {
     product: { type: "string" },
     group: { type: "string" },
     condition: { type: "string", enum: ["new", "used", "parts", "unknown"] },
-    fault: { type: ["string", "null"], enum: ["minor", "major", "unknown", null] },
+    fault: { type: "string", enum: ["minor", "major", "unknown", "none"] },
     keyFacts: { type: "array", items: { type: "string" } },
     components: {
       type: "array",
@@ -136,16 +138,24 @@ export async function identify(env: Env, listing: ListingFacts, api?: MessagesAp
   ]
     .filter(Boolean)
     .join("\n\n");
-  const out = await completeOnce<Omit<Identity, "by">>(
+  // A failure is never silent (2026-11-05: a schema Claude rejected sent every item to word rules unnoticed):
+  // it's logged, and the rules identity carries why, which the engine shows on the label.
+  let failure = "";
+  const out = await completeOnce<Omit<Identity, "by" | "fault"> & { fault?: string }>(
     env,
     { job: "pricing:identify", model: MODELS.triage, system: IDENTIFY_SYSTEM, prompt, schema: IDENTIFY_SCHEMA, images: photos },
     api,
-  ).catch(() => null);
-  if (!out || !out.components?.length) return identifyByRules(listing.title);
+  ).catch((e) => {
+    failure = e instanceof Error ? e.message : String(e);
+    console.error(`pricing:identify failed for "${listing.title.slice(0, 80)}": ${failure.slice(0, 500)}`);
+    return null;
+  });
+  if (!out || !out.components?.length)
+    return { ...identifyByRules(listing.title), fallback: failure ? `Claude couldn't identify it (${failure.slice(0, 160)})` : "Claude gave no usable identification" };
   return {
     ...out,
     keyFacts: (out.keyFacts ?? []).slice(0, 8),
-    fault: out.condition === "parts" ? (out.fault ?? "unknown") : null,
+    fault: out.condition === "parts" && (out.fault === "minor" || out.fault === "major") ? out.fault : out.condition === "parts" ? "unknown" : null,
     components: out.components.slice(0, 6).map((c) => ({ ...c, query: c.query.slice(0, 100) })),
     by: "claude",
   };
@@ -228,7 +238,7 @@ export async function matchTitles(
       env,
       { job: "pricing:match", model: MODELS.triage, system: MATCH_SYSTEM, prompt, schema: MATCH_SCHEMA, maxTokens: 8000 },
       api,
-    ).catch(() => null);
+    ).catch((e) => (console.error(`pricing:match failed: ${(e instanceof Error ? e.message : String(e)).slice(0, 500)}`), null));
     if (!res) return false;
     const ok = (n: number) => Number.isInteger(n) && n >= 1 && n <= batch.length;
     for (const n of res.exact ?? []) if (ok(n)) out.push({ i: start + n - 1, grade: "exact", factor: 1 });

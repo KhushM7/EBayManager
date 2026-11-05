@@ -188,3 +188,19 @@ describe("acting on a price check", () => {
     expect(await proposeEnginePrice(env, "178245985136", 39.99)).toMatch(/already at £39\.99/);
   });
 });
+
+describe("Claude failing is never silent", () => {
+  it("marks a word-rules identity with why, so the label says so", async () => {
+    const { identify } = await import("../src/pricing/identify");
+    const failing = { create: async () => { throw new Error("400 invalid schema"); } } as any;
+    const id = await identify({ store: memoryStore() } as Env, { title: "Samsung SSG-4100GB 3D Glasses Lot of 2" }, failing);
+    expect(id).toMatchObject({ by: "rules", fallback: expect.stringMatching(/^Claude couldn't identify it \(400 invalid schema\)/) });
+  });
+
+  it("keeps null out of every enum in a structured-output schema (it broke every identification once)", async () => {
+    const { readdirSync, readFileSync, statSync } = await import("node:fs");
+    const walk = (d: string): string[] => readdirSync(d).flatMap((f) => (statSync(`${d}/${f}`).isDirectory() ? walk(`${d}/${f}`) : f.endsWith(".ts") ? [`${d}/${f}`] : []));
+    const offenders = walk("src").filter((f) => /enum:\s*\[[^\]]*\bnull\b/.test(readFileSync(f, "utf8")));
+    expect(offenders).toEqual([]);
+  });
+});

@@ -195,6 +195,21 @@ describe("people and roles", () => {
     expect((await api("/pricing/own", { itemId: "123456", price: "no idea" }, owner.cookie)).status).toBe(400);
   });
 
+  it("refuses an invite link after 24 hours (go-live B5)", async () => {
+    const { owner } = await team();
+    const inv = await api("/people/invite", { name: "Alex" }, owner.cookie);
+    const token = inv.json.inviteUrl.split("#")[1];
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 24 * 3_600_000 + 60_000);
+    try {
+      const late = await api("/auth/register/options", { invite: token });
+      expect(late.status).toBeGreaterThanOrEqual(400);
+      expect(late.json.error).toMatch(/expired or been used/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("records who decided a proposal", async () => {
     const { manager } = await team();
     const p = await createProposal(env, { kind: "price", itemId: "1", payload: { newPrice: 5 } });

@@ -4,10 +4,25 @@ import { spawnSync } from "node:child_process";
 
 /** Runs az with arguments; returns stdout. Throws with az's message on failure. */
 export function az(args, { json = false, quiet = false } = {}) {
-  const r = spawnSync("az", [...args, ...(json ? ["-o", "json"] : [])], { encoding: "utf8", shell: process.platform === "win32" });
+  const all = [...args, ...(json ? ["-o", "json"] : [])];
+  // On Windows az is az.cmd, which only runs through cmd.exe, and cmd splits unquoted arguments at spaces
+  // (a JMESPath query like "{a:b, c:d}"). So each argument is double-quoted into one command line; inside
+  // quotes cmd takes & | < > ^ literally. A " or % can't be quoted safely for cmd, so those are refused.
+  const r =
+    process.platform === "win32"
+      ? spawnSync(["az", ...all.map(winQuote)].join(" "), { encoding: "utf8", shell: true })
+      : spawnSync("az", all, { encoding: "utf8" });
   if (r.status !== 0) throw new Error(`az ${args.slice(0, 3).join(" ")} failed:\n${(r.stderr || r.stdout || "").trim()}`);
   if (!quiet && r.stderr?.trim()) process.stderr.write(r.stderr);
   return json ? JSON.parse(r.stdout || "null") : r.stdout.trim();
+}
+
+/** One argument, double-quoted for cmd.exe. Exported for the test. */
+export function winQuote(arg) {
+  const s = String(arg);
+  if (/["%\r\n]/.test(s)) throw new Error(`az argument can't be passed safely through cmd.exe: ${JSON.stringify(s.slice(0, 40))}`);
+  // Trailing backslashes are doubled, or the last one would escape the closing quote for az's Python.
+  return `"${s.replace(/(\\+)$/, "$1$1")}"`;
 }
 
 export function envArg() {

@@ -37,6 +37,10 @@ crons = ["0 2 * * *", "*/15 * * * *"]
 [env.sandbox]
 name = "ebay-autopilot-sandbox"
 
+# Scheduled jobs removed after the move to Azure (docs/azure-migration.md, M6): `npx wrangler triggers deploy --env sandbox`.
+[env.sandbox.triggers]
+crons = []
+
 [env.sandbox.vars]
 EBAY_ENV = "sandbox"
 WRITE_MODE = "approval"
@@ -65,6 +69,10 @@ database_id = "94aa60bf-c500-476c-9d4b-70df3fbfd31a"
 # --- Production: K's real account. WRITE_MODE stays "off" (read-only) until the go-live checklist in Phase 7. ---
 [env.production]
 name = "ebay-autopilot-production"
+
+# Scheduled jobs removed at the Azure switch-over (docs/azure-migration.md, M6): `npx wrangler triggers deploy --env production`.
+[env.production.triggers]
+crons = []
 
 [env.production.vars]
 EBAY_ENV = "production"

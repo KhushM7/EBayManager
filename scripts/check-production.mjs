@@ -53,7 +53,12 @@ check("B8  API responses carry the headers too", /default-src 'none'/.test(api.h
 const plain = await fetch(URL_.replace("https://", "http://") + "/health", { redirect: "manual" });
 check("AZ  plain HTTP redirects to HTTPS", plain.status >= 301 && plain.status <= 308 && (plain.headers.get("location") ?? "").startsWith("https://"), String(plain.status));
 check("AZ  the Functions host's /admin endpoints are closed", [401, 403, 404].includes((await get("/admin/host/status")).status));
-const site = az(["functionapp", "show", "-g", o.resourceGroup, "-n", o.functionAppName, "--query", "{https:httpsOnly, tls:siteConfig.minTlsVersion, ftps:siteConfig.ftpsState, cors:siteConfig.cors.allowedOrigins}"], { json: true });
+// The site's settings come from `config show`: on Flex `functionapp show` leaves siteConfig empty, and newer
+// CLIs (2.92) put httpsOnly under properties.
+const site = {
+  https: az(["functionapp", "show", "-g", o.resourceGroup, "-n", o.functionAppName, "--query", "httpsOnly || properties.httpsOnly"], { json: true }),
+  ...az(["functionapp", "config", "show", "-g", o.resourceGroup, "-n", o.functionAppName, "--query", "{tls:minTlsVersion, ftps:ftpsState, cors:cors.allowedOrigins}"], { json: true }),
+};
 check("AZ  HTTPS only, TLS 1.2+, no FTP, no CORS", site.https === true && site.tls === "1.2" && site.ftps === "Disabled" && (site.cors ?? []).length === 0, JSON.stringify(site));
 for (const kind of ["ftp", "scm"]) {
   const allow = az(["resource", "show", "-g", o.resourceGroup, "--namespace", "Microsoft.Web", "--resource-type", "basicPublishingCredentialsPolicies", "--parent", `sites/${o.functionAppName}`, "-n", kind, "--query", "properties.allow"], { json: true });

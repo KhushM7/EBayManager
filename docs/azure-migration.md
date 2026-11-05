@@ -67,15 +67,28 @@ Who does each step: **C** = Claude, **K** = K.
 - [x] (K) Redeploy the code with the fixed zip step; the dashboard page loads (sign-in page, 2026-11-04)
 
 ### M6. Switch-over
-- [ ] (K) Pause writes on Cloudflare and remove its scheduled jobs
-- [ ] (K) Export production D1, import into Cosmos, verify (counts, checksums, sample rows, `metrics()` identical)
-- [ ] (K) eBay portal: production RuName accept URL and account-deletion endpoint → new address; C6 challenge passes
-- [ ] (K) Register a new passkey from the re-enrolment invite, save the recovery codes, install the app, turn on notifications
-- [ ] (K) `node scripts/check-production.mjs` passes
+- [x] (K) Pause writes on Cloudflare and remove its scheduled jobs (2026-11-05: `writes_paused` = 1 in production D1; `[env.*.triggers] crons = []` in `wrangler.toml`, applied with `npx wrangler triggers deploy`; the Cloudflare API shows no schedules on either Worker, Sandbox removed by C)
+- [x] (K) Export production D1, import into Cosmos, verify (counts, checksums, sample rows, `metrics()` identical) (2026-11-05: 281 documents verified; the temporary write role removed, K back to Data Reader on production)
+
+  Write access for the import (K has only Data Reader on production). Grant it just before the import, and remove it straight after:
+  ```powershell
+  $acct = az deployment sub show --name ebay-production --query properties.outputs.cosmosAccount.value -o tsv
+  $acctId = az cosmosdb show -g rg-ebay-shared -n $acct --query id -o tsv
+  $me = az ad signed-in-user show --query id -o tsv
+  # grant (Cosmos DB Built-in Data Contributor, the production database only)
+  az cosmosdb sql role assignment create -g rg-ebay-shared -a $acct --role-definition-id 00000000-0000-0000-0000-000000000002 --principal-id $me --scope "$acctId/dbs/ebay-production"
+  # remove
+  $id = az cosmosdb sql role assignment list -g rg-ebay-shared -a $acct --query "[?principalId=='$me' && ends_with(roleDefinitionId, '00000000-0000-0000-0000-000000000002') && ends_with(scope, '/dbs/ebay-production')].name" -o tsv
+  # $id must be exactly one GUID: K also holds Data Contributor on ebay-sandbox (from the template), which stays
+  az cosmosdb sql role assignment delete -g rg-ebay-shared -a $acct --role-assignment-id $id --yes
+  ```
+- [x] (K) eBay portal: production RuName accept URL and account-deletion endpoint → new address; C6 challenge passes (2026-11-05: both saved, the challenge verified and eBay's test notification succeeded)
+- [x] (K) Register a new passkey from the re-enrolment invite, save the recovery codes, install the app, turn on notifications (2026-11-05: a test notification arrived)
+- [x] (K) `node scripts/check-production.mjs` passes (2026-11-05: all 25 checks, A6, B1, B2, B7, B8, AZ and C6)
 
 ### M7. Back to the same point
-- [ ] (K) Run the first-day audit; it finishes with no failed steps
-- [ ] (C) Data check: floors and facts, proposals (4 approved dry runs, 7 rejected), sold-data counters, specs, style guide, reports, Claude usage
+- [x] (K) Run the first-day audit; it finishes with no failed steps (2026-11-05 00:58 UTC: every step completed, including those that failed on Cloudflare)
+- [x] (C) Data check: floors and facts, proposals (4 approved dry runs, 7 rejected, 3 pending) (2026-11-05, see the log), sold-data counters, specs, style guide, reports, Claude usage
 - [ ] (K) One full nightly cycle on Azure with no failed steps
 - [ ] (C) Docs updated: CLAUDE.md, README, security.md, safety-and-environments.md, app-and-dashboard.md, go-live-tests.md, roadmap.md, privacy.html; free-plan-queue.md marked superseded
 
@@ -97,6 +110,8 @@ Production D1:
 - The style guide is the plain default (the learned one was lost to the subrequest limit; it relearns when the audit runs again)
 - Sold-data usage this month: Trawl 26/250, CompsAPI 27/100
 
+At the switch-over export (2026-11-05), after the last Cloudflare runs: 281 documents planned (dry run verified). Changes since 2026-11-03: 3 more proposals, **pending** dry runs from the 2026-11-04 nightly (14 in all: 4 agreed, 7 rejected, 3 pending; none applied); product specs for 4 listings; sold-data usage Trawl 29/250, CompsAPI 31/100. Not carried over by design: 2 sessions, 15 sign-in attempts, 1 push device, 1 passkey, 1 invite (all bound to the old address).
+
 ## Open questions and issues
 
 | # | Question | Status |
@@ -107,6 +122,14 @@ Production D1:
 | 4 | Does App Service overwrite a forged `X-Client-IP` on Flex? | **No.** Resolved 2026-11-04 (K chose to find a trustworthy header): a Sandbox-only diagnostic showed the front end overwrites `Client-IP` (as `ip:port`) and appends the real address to `X-Forwarded-For`; `X-Client-IP`, `X-Real-IP`, `X-Azure-ClientIP`, `X-Azure-SocketIP` and `X-Original-For` pass forged values through. The app now reads `Client-IP` only; diagnostic removed |
 
 ## Log
+
+- 2026-11-05: **M7 data check (C, read-only with `prod-query.mjs`)** after K's audit on Azure. Audit job `done`, no error; report: 4 listings read, 4 priced (2 proposed, 1 needs K's answer), 2 sold and 0 unsold in 60 days, 23 sales, 14 answered questions and 32 sent messages, style learned from 25 replies (39 on 2026-11-03: style guide v2 learns from pre-sale replies only), private seller, no business policies, 0 policy fixes. Proposals: 4 agreed, 7 rejected, 4 pending, 1 expired, all dry runs (baseline 3 pending: one expired, the audit added 2 price proposals); `audit_log` has no applied entries. TV stand floor £55 and its facts intact. Specs for 4 listings; price decisions 8 (4 new), latest 4; bundle advice 1; 23 orders. Sold-data usage unchanged (Trawl 29, CompsAPI 31: the audit priced from the 30-day cache). Claude: 15 calls today, $0.024; 98 calls in all (83 imported). `writes_paused` = 1. People: K only, passkeys "Android phone" and "Windows computer"; the re-enrolment invite used; 10 recovery codes, all from the Windows passkey (00:50 UTC), so the Cloudflare and phone sets are gone; 2 push devices. The 15-minute poll runs on Azure (01:00, no errors). Next: the 02:00 UTC nightly.
+
+- 2026-11-05: **M6 complete.** `check-production.mjs` passed on production (K), all 25 checks. Next: M7, K runs the first-day audit on Azure.
+
+- 2026-11-05: First `check-production.mjs` on production (K): A6, B1, B2, B7, B8, the HTTPS redirect and /admin passed, then the script crashed: on Windows `az()` ran az.cmd through cmd.exe with unquoted arguments (also the DEP0190 warning), so a JMESPath query with spaces was split. It had only run on Linux before. `azure-common.mjs` now double-quotes each argument into one command line and refuses `"`, `%` or newlines (secrets never go through az arguments: Key Vault reads them from a file). The site check then read nulls: on Flex with az 2.92 `functionapp show` leaves siteConfig empty and puts httpsOnly under properties, so it now uses `functionapp config show`. The full check passes on Sandbox. K uninstalled the old workers.dev app from the phone.
+
+- 2026-11-05: eBay portal pointed at Azure (RuName accept URL, privacy URL, account-deletion endpoint); C6 passed on Azure. K re-enrolled with a new passkey, saved the recovery codes, installed the app and received a test notification.
 
 - 2026-11-04: **M5 complete.** Production redeployed with the Node-built zip: sign-in page loads, `/health` production/off, `/admin` 401, `/mcp` 404. Next: M6 switch-over, when K is ready.
 - 2026-11-04: M5 deployed by K. Public checks from the cloud session: HSTS, CSP, nosniff, X-Frame-Options DENY; `/admin` 401; `/mcp` 404; `/api/me` 401 when signed out. The dashboard page answered 500: the deploy zip was made with PowerShell's Compress-Archive, which writes `web\index.html` (backslashes), a file name rather than a folder on the Linux host. `azure-deploy.mjs` now builds the zip in Node (`scripts/make-zip.mjs`; a first fix using `tar.exe` failed on K's PC, where `tar` is GNU tar) and refuses a zip with backslash paths or without `index.js` and `web/index.html`.

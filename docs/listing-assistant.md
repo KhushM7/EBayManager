@@ -61,3 +61,15 @@ Before the camera opens, the app shows a short checklist. It checks each photo a
 - **Publish:** eBay checks the listing first (`VerifyAddFixedPriceItem`), then it's a proposal K approves, and only then is it published.
 
 Photos are stored in Azure Blob Storage (Cloudflare R2 until the move on 2026-11-05; wired in with Phase 10) and uploaded to eBay when the listing is published.
+
+### Wizard API contract (Phase 10)
+
+The **New listing** wizard in the app (`web/src/wizard.tsx`, 2026-11-05, see [design-system.md](design-system.md#the-new-listing-wizard)) is built ahead of its server side. Photos are graded in the browser (`web/src/photocheck.ts`); the three calls below are what the server must answer. All are `POST`, owner or manager, with the session cookie and `X-EbayManager: 1`. None of them changes eBay.
+
+| Endpoint | Body | Answer |
+| --- | --- | --- |
+| `/api/listing-assistant/describe` | `{ title, condition, facts: { brand, model }, flaws, photoCount }` | `{ description, questions: string[] }`. Facts only from the body and the photos; anything uncertain is a question, never a guess. Sonnet |
+| `/api/listing-assistant/price` | `{ title, condition }` | `{ recommended, low, high, basis, postage: { service, price } \| null }`, from the pricing engine; `basis` says the sales it used in words |
+| `/api/listing-assistant/propose` | `{ title, condition, facts, flaws, description, price, postage, collectionOnly }` | `{ proposalId }`: a `create_listing` proposal (`VerifyAddFixedPriceItem` first), applied only after approval through `ebayWrite()` |
+
+`condition` is one of `new`, `like_new`, `used_good`, `used_fair`, `parts`. Photo upload (Blob Storage, then eBay's Media API) is added to `propose` when Phase 10 wires storage; until then the wizard keeps photos on the device only.

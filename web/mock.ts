@@ -151,6 +151,26 @@ export function mockApi(): Plugin {
         if (p === "/usage") return send({ today: { usd: 0.04, calls: 6 }, month: { usd: 0.61, calls: 88 }, byJob: [{ job: "audit", calls: 40, usd: 0.52 }, { job: "triage", calls: 48, usd: 0.09 }], dailyBudgetUsd: 1, apiKeySet: false });
         if (p === "/audit") { await new Promise((r) => setTimeout(r, 600)); return send({ error: "ANTHROPIC_API_KEY is not set on this Worker yet." }, 503); }
         if (p === "/settings/writes") { me.writesPaused = Boolean(body.paused); (me as any).writesBlocked = me.writesPaused ? "Writes are paused" : null; return send({ writesPaused: me.writesPaused }); }
+        if (p === "/solddata") return send({ providers: [{ provider: "trawl", enabled: true, used: 26, cap: 250 }, { provider: "compsapi", enabled: true, used: 27, cap: 100 }], primary: "trawl", lastEval: null });
+        // Listing assistant (Phase 10): the contract the wizard calls; the real server side isn't built yet.
+        if (p === "/listing-assistant/describe") {
+          await new Promise((r) => setTimeout(r, 2600));
+          const t = String(body.title || "this item");
+          return send({
+            description: `${t}.\n\nCondition: ${String(body.condition || "used").replace(/_/g, " ")}. ${body.flaws ? `Please note: ${body.flaws}.` : "No marks or faults that we know of."}\n\nShown in ${body.photoCount} photos, which are of the actual item you'll receive. Posted within 2 working days, well packed. Returns accepted (buyer pays return postage).`,
+            questions: body.facts?.model ? [] : ["Is there a model number on a label or underneath? It helps buyers find it."],
+          });
+        }
+        if (p === "/listing-assistant/price") {
+          await new Promise((r) => setTimeout(r, 1200));
+          return send({ recommended: 24.5, low: 19, high: 31, basis: "11 of the same item in the same condition sold in the last 90 days for £19 to £31, most around £24. 6 are listed now.", postage: { service: "Royal Mail Tracked 48", price: 3.35 } });
+        }
+        if (p === "/listing-assistant/propose") {
+          await new Promise((r) => setTimeout(r, 900));
+          const id = `n${Date.now()}`;
+          proposals.unshift({ id, kind: "create_listing", item_id: null, item_title: null, item_price: null, payload: { title: body.title, price: body.price, collectionOnly: body.collectionOnly, verifiedFees: 0 }, reason: "Built with the listing assistant.", status: "pending", dry_run: 0, created_at: Date.now(), expires_at: Date.now() + 7 * 24 * h, decided_at: null, result: null });
+          return send({ proposalId: id });
+        }
         return send({ ok: true });
       });
     },

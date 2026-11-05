@@ -1,5 +1,7 @@
 # Running on Cloudflare's free plan: the job queue
 
+> **Superseded (2026-11-05).** K chose Azure for Students over this design on 2026-11-03, and the app now runs on Azure Functions without these limits ([azure-migration.md](azure-migration.md)). Kept for the record only; nothing here is built.
+
 K decided on 2026-11-03 to stay on the Workers Free plan. This design gives the same results (same data, same prompts, same checks, same volume) by doing the work in small steps from a queue. Jobs take hours instead of minutes. Nothing may fail because a limit was reached: running out of budget pauses a job until the next step, it never breaks one.
 
 ## Why

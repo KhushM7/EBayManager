@@ -1,7 +1,8 @@
 # ebay-autopilot
 
-K's eBay seller service: a Cloudflare Worker that holds the eBay credentials and rules, calls the Claude API for judgement, and exposes
-MCP tools for optional use from the Claude app or Claude Code. See CLAUDE.md for decisions and next steps.
+K's eBay seller service: an Azure Function App that holds the eBay credentials and rules, calls the Claude API for judgement, serves
+the dashboard app, and (on Sandbox) exposes MCP tools for the Claude app or Claude Code. See CLAUDE.md for decisions and next steps,
+and [azure-migration.md](docs/azure-migration.md) for the move from Cloudflare.
 
 Plan: https://claude.ai/artifact/JowUE86DsPhFBsswMms8jf
 
@@ -21,7 +22,8 @@ Design docs: [roadmap](docs/roadmap.md) · [safety and environments](docs/safety
 | `src/notify.ts` | Push to K's phone via ntfy with Approve / Reject, prefixed `[SANDBOX]` or `[READ-ONLY]` |
 | `src/tools.ts`, `src/mcp.ts` | MCP tools over Streamable HTTP at `/mcp` |
 | `src/rules.ts` | House rules and locked approval kinds, enforced in code |
-| `schema.sql` | D1 tables: tokens, snapshots, item settings, proposals, audit log, settings |
+| `src/store/` | The data store (Cosmos DB in Azure, in memory in tests); containers in `infra/cosmos-containers.json` |
+| `src/platform/azure/`, `infra/` | The Azure Functions adapter and the Bicep templates |
 
 There is deliberately no tool that changes eBay directly. The `propose_*` tools record a proposal and push K an
 approval link. Only K's tap on that link (HMAC signed, expiring, POST only) reaches the write gate, which applies it.
@@ -33,28 +35,27 @@ approval link. Only K's tap on that link (HMAC signed, expiring, POST only) reac
 
 ```sh
 npm install
-npx wrangler login
-npx wrangler d1 create ebay-autopilot-sandbox          # paste database_id into [env.sandbox] in wrangler.toml
-npm run db:init:sandbox
-for s in EBAY_APP_ID EBAY_CERT_ID EBAY_DEV_ID EBAY_RUNAME MCP_TOKEN SIGNING_KEY NTFY_TOPIC; do npx wrangler secret put $s --env sandbox; done
-npm run deploy:sandbox                                 # set PUBLIC_URL in [env.sandbox] to the printed URL, deploy again
+az login
+node scripts/azure-infra.mjs sandbox      # the resources, from infra/main.bicep (region: AZURE_LOCATION, default francecentral)
+node scripts/make-keys.mjs                # DASHBOARD_KEY and VAPID_KEY into .dev.vars if missing
+node scripts/azure-secrets.mjs sandbox    # .dev.vars into the Sandbox Key Vault (values never printed)
+node scripts/azure-deploy.mjs sandbox     # typecheck, tests, build, deploy; prints the address
 ```
 
 Then:
 
 1. In the eBay developer portal (Sandbox keyset, User Tokens), set the RuName's "auth accepted URL" to `<PUBLIC_URL>/oauth/callback`.
-2. Open `<PUBLIC_URL>/oauth/start?key=<MCP_TOKEN>` and sign in with the Sandbox test user.
-3. Optional: add a custom connector in Claude settings: URL `<PUBLIC_URL>/mcp`, request header `Authorization: Bearer <MCP_TOKEN>`.
-4. Subscribe to `NTFY_TOPIC` in the ntfy app.
+2. Sign in to the dashboard as the owner, then Settings → **Connect the eBay account**, and sign in with the Sandbox test user.
+3. Optional (Sandbox only): add a custom connector in Claude settings: URL `<PUBLIC_URL>/mcp`, request header `Authorization: Bearer <MCP_TOKEN>`.
+4. Install the app and turn on notifications in Settings. ntfy (`NTFY_TOPIC`) is an optional fallback.
 
-`<PUBLIC_URL>/health` shows the environment and write mode. The `pause_writes` tool stops all eBay writes at once;
-`npm run writes:resume:sandbox` resumes them.
+`<PUBLIC_URL>/health` shows the environment and write mode. Anyone can pause all eBay changes from Settings (or the `pause_writes`
+tool); only the owner resumes them, from Settings.
 
 ## Dashboard and Android app
 
-The Worker also serves the dashboard at its root URL. Sign in with `DASHBOARD_KEY` from `.dev.vars`
-(`node scripts/make-keys.mjs` adds it and `VAPID_KEY` if missing; upload with
-`npx wrangler secret bulk .dev.vars --env sandbox`).
+The app also serves the dashboard at its root address. The owner registers a passkey from the setup invite, then invites up to two
+managers. On Sandbox only, `DASHBOARD_KEY` from `.dev.vars` also signs in (through the API).
 
 On Android: open the URL in Chrome, choose **Install app**, sign in, then **Settings → Turn on for this device**.
 Approval notifications then carry Approve and Reject buttons that act without opening the app.
@@ -63,6 +64,6 @@ Approval notifications then carry Approve and Reject buttons that act without op
 
 ```sh
 npm run typecheck && npm test
-npx wrangler dev        # local, Sandbox, with secrets from .dev.vars; run `npm run db:init:local` first
 MOCK=1 npm run dev:web  # the dashboard on sample data, no account needed
+npm run test:cosmos     # the store's conformance tests against the Cosmos DB emulator (if installed)
 ```

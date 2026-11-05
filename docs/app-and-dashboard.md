@@ -1,6 +1,6 @@
 # App and dashboard
 
-One web app serves as both the dashboard website and K's Android notification app. It is a Progressive Web App (PWA): K opens it in Chrome and taps **Install app**, after which it has its own icon, runs full screen and receives push notifications with Approve and Reject buttons. It is served by the same Cloudflare Worker as the backend.
+One web app serves as both the dashboard website and K's Android notification app. It is a Progressive Web App (PWA): K opens it in Chrome and taps **Install app**, after which it has its own icon, runs full screen and receives push notifications with Approve and Reject buttons. It is served by the same Azure Function App as the backend (Cloudflare Worker until 2026-11-05, [azure-migration.md](azure-migration.md)).
 
 Decided 2026-11-02. Web Push is the main notification channel. ntfy stays as an optional fallback.
 
@@ -26,28 +26,29 @@ Settings shows **Last push delivered** with a **Send test push** button, so a br
 
 | Piece | Where | Cost |
 | --- | --- | --- |
-| Backend API, cron, `/decide`, `/mcp` | Cloudflare Worker | Free tier: 100k requests a day |
-| Dashboard and PWA files | Workers static assets, same Worker | Free |
-| Database | D1 | Free tier: 5 GB |
-| Photos | R2 | Free tier: 10 GB |
-| Login | `DASHBOARD_KEY` sign-in in the Worker (Cloudflare Access optional later) | Free |
+| Backend API, timers, background jobs, `/decide` | Azure Functions, Flex Consumption (France Central) | Azure for Students credit; expected under $1 a month |
+| Dashboard and PWA files | Served from memory by the same Function App | Free |
+| Database | Cosmos DB for NoSQL, free tier (400 RU/s per environment) | Free |
+| Photos | Blob Storage (from Phase 10) | Pennies |
+| Secrets | Key Vault, read by the app's managed identity | Pennies |
+| Login | Passkeys for K and up to two managers | Free |
 | Claude | Anthropic API | About $3–6 a month (the only running cost) |
 
-Nothing runs continuously. The Worker runs only when a request, a push decision or the nightly cron arrives. Running the system on the phone itself would be worse, for no saving: the cron needs a machine that's always on, and eBay's OAuth callback and notifications need a public HTTPS address.
+Nothing runs continuously. The app runs only when a request, a push decision, a timer (02:00 nightly, every 15 minutes for messages) or a background job arrives. Running the system on the phone itself would be worse, for no saving: the cron needs a machine that's always on, and eBay's OAuth callback and notifications need a public HTTPS address.
 
 ## Stack
 
-- **Frontend:** Vite + Preact + TypeScript in `web/`, built to `web/dist`. Wrangler serves it with an `[assets]` block. Plain CSS, mobile first.
+- **Frontend:** Vite + Preact + TypeScript in `web/`, built to `web/dist` and bundled into the Function App, which serves it with the SPA fallback and security headers on every response. Plain CSS, mobile first.
 - **Charts:** small hand-rolled SVG components, or uPlot if the time series grow large.
 - **API:** JSON routes under `/api/*` in `src/api.ts`, called by the dashboard.
-- **Push:** Web Push with one `VAPID_KEY` secret (a P-256 private JWK; the public key is derived from it). Encryption (RFC 8291) and VAPID (RFC 8292) are written on Web Crypto in `src/push.ts`, with no library, and tested by decrypting a message as a browser would. Subscriptions are stored in a D1 `push_subscriptions` table; gone ones are removed.
+- **Push:** Web Push with one `VAPID_KEY` secret (a P-256 private JWK; the public key is derived from it). Encryption (RFC 8291) and VAPID (RFC 8292) are written on Web Crypto in `src/push.ts`, with no library, and tested by decrypting a message as a browser would. Subscriptions are stored in the data store (`kv` container); gone ones are removed.
 
 ## Auth
 
 | Route | Protected by |
 | --- | --- |
 | `/` and other app paths | Public static files: the app shell holds no data |
-| `/api/*` | K's session: a signed 30-day `HttpOnly`, `SameSite=Strict` cookie set after entering `DASHBOARD_KEY`. State changes also need the `X-EbayManager: 1` header (CSRF). Cloudflare Access can be put in front later for a second factor |
+| `/api/*` | A person's session: a signed `__Host-` cookie (`HttpOnly`, `Secure`, `SameSite=Strict`) set after a passkey sign-in. State changes also need the `X-EbayManager: 1` header (CSRF). See [security.md](security.md) |
 | `/decide/:id` | HMAC-signed link with expiry, POST only (see [approvals.md](approvals.md)) |
 | `/mcp` | Bearer `MCP_TOKEN` |
 | `/oauth/start` | `MCP_TOKEN` query key, unchanged from Phase 0 |
@@ -59,7 +60,7 @@ Nothing runs continuously. The Worker runs only when a request, a push decision 
 | **Inbox** (home) | To-dos first (answers, then Claude drafts, then things to do yourself; see [approvals.md](approvals.md#to-dos-2026-11-05-ks-choice)), then pending proposals, newest first. Each label shows old → new values, the reason and guardrail flags | Answer, let Claude draft, done or dismiss; approve, reject, batch approve |
 | **Audit** | A one-paragraph summary of the last first-day audit and how many to-dos and labels it left, with folded sections: listings, sold history, ended listings, settings and what it read (failed parts flagged) | Run again (owner), open the Inbox |
 | **Listings** | Every active listing with price, days listed, watchers, floor and pending labels | Review with Claude, price check, K's facts and floor (owner) |
-| **Listing detail** | Price, views and watchers over time from snapshots, comps, proposal history, K's floor price and notes | Edit floor and notes (D1 only) |
+| **Listing detail** | Price, views and watchers over time from snapshots, comps, proposal history, K's floor price and notes | Edit floor and notes (stored in the app only) |
 | **Metrics** | See below | Pick a date range |
 | **Activity** | The audit log: every eBay write, refusal and failure | Filter by outcome |
 | **Settings** | Environment and write mode (read-only display), Pause all writes, push devices, test push, people, sold data, the reply style guide, Claude spend, auto-apply toggles (later) | Toggle pause, manage devices, edit the style guide (owner) |

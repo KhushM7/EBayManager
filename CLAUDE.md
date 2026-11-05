@@ -10,14 +10,14 @@ Design docs: [roadmap](docs/roadmap.md), [pricing engine](docs/pricing-engine.md
 
 - **Sandbox first.** Everything is built and tested on eBay Sandbox. K's real seller account is connected read-only at Phase 6 and accepts approved writes only from Phase 8. See [safety-and-environments.md](docs/safety-and-environments.md).
 - **Every eBay write needs approval**, not only prices and messages. Strict at launch. Later, K may opt eligible kinds into auto-apply. See [approvals.md](docs/approvals.md).
-- **One PWA is both the website and the app.** The dashboard is an installable Android PWA with Web Push Approve/Reject, served by the same Worker. ntfy becomes an optional fallback. See [app-and-dashboard.md](docs/app-and-dashboard.md).
+- **One PWA is both the website and the app.** The dashboard is an installable Android PWA with Web Push Approve/Reject, served by the same app as the backend. ntfy becomes an optional fallback. See [app-and-dashboard.md](docs/app-and-dashboard.md).
 
 ## Stack
 
-- TypeScript on Cloudflare Workers, with D1 (SQLite) for state and R2 for photos. Deployed with `wrangler`, with separate `sandbox` and `production` environments that each have their own D1 and R2.
+- TypeScript on Azure (moved from Cloudflare on 2026-11-05, [azure-migration.md](docs/azure-migration.md)): Azure Functions on Flex Consumption (France Central), Cosmos DB for NoSQL (free tier: one account, databases `ebay-sandbox` and `ebay-production`), Blob Storage for photos, Key Vault for secrets, a Storage Queue for background jobs. Infrastructure is Bicep (`infra/`); `sandbox` and `production` are separate resource groups that share only the Cosmos account, each app reaching only its own database through its managed identity.
 - eBay: Trading API (XML) for existing listings, best offers and revisions; REST APIs (Browse, Inventory, Marketing, Negotiation, Analytics, Taxonomy) elsewhere. Marketplace is EBAY_GB, site ID 3. `EBAY_ENV` (`sandbox` | `production`) selects hosts and keyset.
-- Claude: called from the Worker through the Anthropic API with K's key, using `@anthropic-ai/sdk`. This decision was made on 2026-11-01 and replaces the earlier plan to run on the Claude subscription. Use Claude Sonnet 5.5 (`claude-sonnet-5-5`) for listing builds and photo feedback. Use Claude Haiku 5.5 (`claude-haiku-5-5`) for nightly triage and buyer message drafts. The target spend is about $3 to $6 a month.
-- Dashboard and PWA: Vite + Preact + TypeScript in `web/`, served as Workers static assets at the site root. K signs in with `DASHBOARD_KEY` (separate from `MCP_TOKEN`); `/api/*` needs that session cookie plus an `X-EbayManager` header. Cloudflare Access can be added in front later. Design: the tasteskill "quiet instrument" direction (Switzer, Frost and slate); its house rules apply to every screen.
+- Claude: called from the app (server side) through the Anthropic API with K's key, using `@anthropic-ai/sdk`. This decision was made on 2026-11-01 and replaces the earlier plan to run on the Claude subscription. Use Claude Sonnet 5.5 (`claude-sonnet-5-5`) for listing builds and photo feedback. Use Claude Haiku 5.5 (`claude-haiku-5-5`) for nightly triage and buyer message drafts. The target spend is about $3 to $6 a month.
+- Dashboard and PWA: Vite + Preact + TypeScript in `web/`, served by the same Function App at the site root. People sign in with passkeys (Sandbox also allows `DASHBOARD_KEY`, never production); `/api/*` needs the session cookie plus an `X-EbayManager` header. Design: the tasteskill "quiet instrument" direction (Switzer, Frost and slate); its house rules apply to every screen.
 - Notifications: Web Push (VAPID, implemented on Web Crypto in `src/push.ts`, no library) to the installed PWA, with signed Approve/Reject actions handled by `web/public/sw.js`. ntfy.sh is the fallback.
 - The `/mcp` endpoint stays. It lets K use the same tools from the Claude app or Claude Code when they want to, but nothing depends on it.
 
@@ -59,7 +59,8 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/proposals.ts` | Proposals, signed expiring approval links, and deciding them |
 | `src/tools.ts`, `src/mcp.ts` | Tool definitions and a minimal stateless MCP server |
 | `src/notify.ts`, `src/push.ts` | Notifications: Web Push to the PWA (RFC 8291/8292), ntfy fallback |
-| `schema.sql` | D1 schema |
+| `src/store/`, `infra/cosmos-containers.json` | The data store: one document layer with a Cosmos DB and an in-memory implementation, repositories on top, and the 14 containers (`schema.sql` is the old D1 schema, kept for the import) |
+| `src/platform/azure/`, `infra/`, `scripts/azure-*.mjs` | The Azure Functions adapter (HTTP, timers, queue), Bicep templates, and the infra, secrets and deploy scripts |
 | `test/` | Vitest: gate refusal paths (`gate.test.ts`), source scans keeping writes behind the gate (`safety.test.ts`) |
 | `docs/` | Design docs and roadmap |
 | `src/api.ts`, `src/session.ts` | Dashboard JSON API and K's sign-in session |
@@ -79,19 +80,19 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 ```sh
 npm install
 npm run typecheck && npm test   # tsc + vitest
-npx wrangler dev                # local, Sandbox; secrets in .dev.vars
-npm run deploy:sandbox          # Claude may run this
-npm run deploy:production       # K runs this, then: node scripts/check-production.mjs
+MOCK=1 npm run dev:web          # the dashboard on sample data
+node scripts/azure-deploy.mjs sandbox      # Claude may run this (typecheck and tests first)
+$env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-deploy.mjs production   # K runs this, then: node scripts/check-production.mjs
 ```
 
-Production is read-only (`WRITE_MODE=off`). Claude can read production D1 for diagnosis (`npx wrangler d1 execute ebay-autopilot-production --env production --remote --json --command "SELECT ..."`), but K runs anything that changes production: deploys, migrations (`migrations/*.sql`, also appended to `schema.sql`) and secrets (`npx wrangler secret bulk .prod.vars --env production`). Never print secrets or `.prod.vars`.
+Production is read-only (`WRITE_MODE=off`, forced by the Bicep template). Claude can read production data for diagnosis (`node scripts/prod-query.mjs production <container> "SELECT ..."`: K's Azure login, which has only Data Reader on production), but K runs anything that changes production: infrastructure (`scripts/azure-infra.mjs`), deploys (`scripts/azure-deploy.mjs`) and secrets (`scripts/azure-secrets.mjs` from `.prod.vars`). Every production script refuses to run without `EBAY_CONFIRM_PRODUCTION=yes`. Never print secrets or `.prod.vars`.
 
-## Where things stand (2026-11-03)
+## Where things stand (2026-11-05)
 
-- Phases 0–6 are done. K's real eBay account is connected **read-only** to production: https://ebay-autopilot-production.ebay-autopilot.workers.dev (Sandbox: https://ebay-autopilot-sandbox.ebay-autopilot.workers.dev).
+- Phases 0–6 are done, and the move to Azure is done (M0–M7; M8, deleting Cloudflare, is due about 2026-11-19). K's real eBay account is connected **read-only** to production: https://ebay-autopilot-production-wrpoyt.azurewebsites.net (Sandbox: https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net). K is the only user for now.
 - The pricing engine is built (`src/pricing/`, [pricing-engine.md](docs/pricing-engine.md)). It prices listings, Best Offers and counters, audits and a nightly price review, and the code enforces that prices come from it. In K's backtest against 5 real sales it was 12.4% off on average (4 priced), against CompsAPI 27.1% and Trawl 77%.
 - K's past sales (23, from 2025-03 to 2026-09) are imported from the Seller Hub orders report. eBay's APIs return only 90 days.
-- **Current phase: 7, read-only on the real account.** Built: the first-day audit and report (`src/firstday.ts`, Audit screen), the reply style guide (`src/style.ts`, used by every draft) and promotion research (`src/promotion.ts`). Next: K runs the audit on production, then one full nightly cycle and go-live tests A to H ([go-live-tests.md](docs/go-live-tests.md)). See [roadmap.md](docs/roadmap.md).
+- **Current phase: 7, read-only on the real account.** Built: the first-day audit (`src/firstday.ts`), the reply style guide (`src/style.ts`), promotion research (`src/promotion.ts`), and Inbox to-dos (`src/todos.ts`) for everything that needs K but isn't an eBay change. The audit and nightly cycle have run on Azure with no failed steps. Next: go-live tests A to H ([go-live-tests.md](docs/go-live-tests.md)), manager items N/A until a manager joins. See [roadmap.md](docs/roadmap.md).
 
 ## Open items
 

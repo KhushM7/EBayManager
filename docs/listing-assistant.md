@@ -60,4 +60,4 @@ Before the camera opens, the app shows a short checklist. It checks each photo a
 - **Returns:** accepted, with the buyer paying return postage.
 - **Publish:** eBay checks the listing first (`VerifyAddFixedPriceItem`), then it's a proposal K approves, and only then is it published.
 
-Photos are stored in Cloudflare R2 (enabled 2026-11-02) and uploaded to eBay when the listing is published.
+Photos are stored in Azure Blob Storage (Cloudflare R2 until the move on 2026-11-05; wired in with Phase 10) and uploaded to eBay when the listing is published.

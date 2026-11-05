@@ -27,7 +27,7 @@ These never change anything on eBay:
 
 - Reading listings, orders, messages, traffic and comps.
 - Nightly snapshots (`listing_snapshots`).
-- K's own settings stored in D1: floor price, collection only, notes, auto-apply toggles.
+- K's own settings stored in the app: floor price, own price, collection only, facts, auto-apply toggles.
 - Claude analysis, drafts and proposals. Creating a proposal changes nothing.
 - Inbox to-dos (below).
 

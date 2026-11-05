@@ -30,7 +30,7 @@ Since 2026-11-05 production runs on Azure (docs/azure-migration.md): Cosmos DB a
 - [ ] B11. (K) Each manager registers through their invite, signs in on their own phone, and turns on notifications. **N/A until a manager joins** (K's decision, 2026-11-05: go live with K only; run this the day the first manager is invited)
 - [ ] B12. (K) K signs one manager out of all devices from Settings, and that manager has to sign in again. **N/A until a manager joins** (K's decision, 2026-11-05: go live with K only; run this the day the first manager is invited)
 - [ ] B13. (K) Each person stores their recovery codes, and one code is tested once, then a new passkey is registered. (K now; each manager when they join)
-- [ ] B14. (K, optional) Cloudflare Access is on for the three emails, and a fourth email is turned away.
+- [ ] B14. (K, optional) An identity gate in front of the app (on Azure: App Service authentication with Entra ID, replacing the Cloudflare Access idea) admits the three people and turns a fourth away. Not set up; passkeys are the gate.
 
 ## C. eBay connection, read-only (R and K)
 

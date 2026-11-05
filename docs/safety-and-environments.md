@@ -25,17 +25,19 @@ Decided 2026-11-02. See [roadmap.md](roadmap.md) for the phases and [approvals.m
 
 ## Configuration
 
-Two Worker variables control the environment. Each stage is a separate wrangler environment with its own D1 database and R2 bucket, so sandbox data and real data never mix.
+Two app settings control the environment. Each stage is a separate Azure deployment (`infra/sandbox.bicepparam`, `infra/production.bicepparam`) with its own resource group, Function App, Key Vault, storage and Cosmos DB database (`ebay-sandbox`, `ebay-production`), so sandbox data and real data never mix. Each app's managed identity can reach only its own database, vault and storage.
 
-```toml
-[env.sandbox]
-vars = { EBAY_ENV = "sandbox", WRITE_MODE = "approval" }
-# own D1 database and R2 bucket
+```bicep
+// infra/sandbox.bicepparam
+param env = 'sandbox'
+param writeMode = 'approval'
 
-[env.production]
-vars = { EBAY_ENV = "production", WRITE_MODE = "off" }   # flipped to "approval" at Phase 7
-# own D1 database and R2 bucket
+// infra/production.bicepparam
+param env = 'production'
+param writeMode = 'off'   // flipped to 'approval' at go-live (section I of go-live-tests.md)
 ```
+
+The template itself refuses test sign-in and `/mcp` in production, whatever the parameters say, and the app refuses to start in production with either switched on. (Until 2026-11-05 these were wrangler environments with their own D1 and R2; see [azure-migration.md](azure-migration.md).)
 
 `EBAY_ENV` selects the hosts and the keyset:
 
@@ -46,7 +48,7 @@ vars = { EBAY_ENV = "production", WRITE_MODE = "off" }   # flipped to "approval"
 | Trading API | `api.sandbox.ebay.com/ws/api.dll` | `api.ebay.com/ws/api.dll` |
 | Keyset secrets | sandbox App ID, Cert ID, Dev ID, RuName | production App ID, Cert ID, Dev ID, RuName |
 
-`ebayHosts(env)` in `src/ebay/hosts.ts` is the only place hosts are chosen (a test checks this). An unset or misspelt `EBAY_ENV` throws rather than defaulting to production. The top level of `wrangler.toml` is for local `wrangler dev` only and uses Sandbox.
+`ebayHosts(env)` in `src/ebay/hosts.ts` is the only place hosts are chosen (a test checks this). An unset or misspelt `EBAY_ENV` throws rather than defaulting to production.
 
 **Comps exception.** Browse API comps use an application token (client credentials). They read public listings and are not tied to any seller account. Sandbox has almost no realistic listings, so during the sandbox stage comps may use the production keyset's app token: set the optional `EBAY_COMPS_APP_ID` and `EBAY_COMPS_CERT_ID` secrets. This links no account and cannot write anything.
 
@@ -54,7 +56,7 @@ vars = { EBAY_ENV = "production", WRITE_MODE = "off" }   # flipped to "approval"
 
 Every eBay call that changes something goes through one function, `ebayWrite()` in `src/ebay/write.ts`. No other module may call an eBay write endpoint.
 
-`ebayWrite(env, proposalId)` reads the proposal from D1 itself, so a caller can't talk it into anything. It refuses, and logs the refusal, unless **all** of these hold:
+`ebayWrite(env, proposalId)` reads the proposal from the store itself, so a caller can't talk it into anything. It refuses, and logs the refusal, unless **all** of these hold:
 
 1. `WRITE_MODE` is `approval`.
 2. The kill switch is off.
@@ -74,7 +76,7 @@ Tests enforce all of this (`test/gate.test.ts`, `test/safety.test.ts`):
 
 ### Kill switch
 
-The `pause_writes` tool (and, from Phase 2, a **Pause all writes** switch in the dashboard's Settings screen) sets `writes_paused = 1` in the D1 `settings` table. Claude can pause but not resume: K resumes with `npm run writes:resume:sandbox` (or `:production`), and from Phase 2 in Settings. The gate reads that row on every write. Pausing takes effect immediately, with no redeploy. Proposals keep arriving while paused. Ones K approves stay `approved` and are not applied.
+The `pause_writes` tool (and, from Phase 2, a **Pause all writes** switch in the dashboard's Settings screen) sets `writes_paused = 1` in the store's settings (`kv` container). Anyone can pause; only the owner resumes, from Settings (Claude can pause but never resume). The gate reads it on every write. Pausing takes effect immediately, with no redeploy. Proposals keep arriving while paused. Ones K approves stay `approved` and are not applied.
 
 ### Audit log
 

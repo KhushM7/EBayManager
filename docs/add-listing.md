@@ -1,6 +1,6 @@
 # Add Listing: plan
 
-K's request (2026-11-05): build and finish **Add Listing** before going live. Status: **L1 built** (on the `add-listing` branch, 2026-11-05); L2 next. K's decisions are at the end of this doc. Design principles stay those of [listing-assistant.md](listing-assistant.md): coach the photos, never assume a fact, price from the market, and nothing is listed until K approves.
+K's request (2026-11-05): build and finish **Add Listing** before going live. Status: **L1 to L5 built and tested with stand-ins** (on the `add-listing` branch, 2026-11-05), not yet deployed or tried with real photos. What's done, what K needs to test, and what's left: [add-listing-handover.md](add-listing-handover.md). K's decisions are at the end of this doc. Design principles stay those of [listing-assistant.md](listing-assistant.md): coach the photos, never assume a fact, price from the market, and nothing is listed until K approves.
 
 ## What already exists
 

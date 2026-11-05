@@ -8,24 +8,24 @@ Since 2026-11-05 production runs on Azure (docs/azure-migration.md): Cosmos DB a
 
 ## A. Code and build (R)
 
-- [ ] A1. `npm run typecheck && npm test` pass on the exact commit being deployed.
-- [ ] A2. `npm audit --omit=dev` shows no high or critical issues.
-- [ ] A3. Write-gate tests pass: every refusal path (writes off, paused, pending, rejected, expired, dry run, already applied, empty reply, unbuilt kind, title lock).
-- [ ] A4. Source scans pass: write calls only in `src/ebay/write.ts`, network calls only in reviewed modules, hosts only in `hosts.ts`, eBay calls only from the allowlist.
-- [ ] A5. A deliberate stray write call in a scratch file makes the scan fail (then the file is removed).
+- [x] A1. `npm run typecheck && npm test` pass on the exact commit being deployed. (2026-11-05, C: typecheck and 244 tests pass on 216fcaa, the deployed code. Re-run on the commit K deploys before switching on)
+- [x] A2. `npm audit --omit=dev` shows no high or critical issues. (2026-11-05, C: npm audit --omit=dev, 0 vulnerabilities)
+- [x] A3. Write-gate tests pass: every refusal path (writes off, paused, pending, rejected, expired, dry run, already applied, empty reply, unbuilt kind, title lock). (2026-11-05, C: test/gate.test.ts, 20 tests, every refusal path)
+- [x] A4. Source scans pass: write calls only in `src/ebay/write.ts`, network calls only in reviewed modules, hosts only in `hosts.ts`, eBay calls only from the allowlist. (2026-11-05, C: test/safety.test.ts, 10 tests)
+- [x] A5. A deliberate stray write call in a scratch file makes the scan fail (then the file is removed). (2026-11-05, C: a scratch file with a ReviseFixedPriceItem call to api.ebay.com failed 3 scans (write call named, unreviewed network call, eBay host outside hosts.ts); removed, suite green)
 - [x] A6. The production config has `EBAY_ENV=production` and `WRITE_MODE=off`, its own database (Cosmos `ebay-production`) and storage, `/mcp` off, and no Sandbox secrets. (2026-11-05, K: `check-production.mjs`; the template forces these for production)
 
 ## B. Access and security (R and K)
 
 - [x] B1. (R) Every `/api` route returns 401 without a session, including with a forged or expired cookie.
 - [x] B2. (R) State-changing requests without the `X-EbayManager` header return 403.
-- [ ] B3. (R) A manager session gets 403 on owner-only actions (invite, remove user, resume, auto-apply settings, connect eBay).
-- [ ] B4. (R) A fourth user can't be added.
-- [ ] B5. (R) An invite link works once and expires after 24 hours.
-- [ ] B6. (R) Sign-in is rate-limited after 5 failures.
+- [x] B3. (R) A manager session gets 403 on owner-only actions (invite, remove user, resume, auto-apply settings, connect eBay). (2026-11-05, C: security.test "keeps owner-only actions from managers", including Inbox answers and price actions)
+- [x] B4. (R) A fourth user can't be added. (2026-11-05, C: security.test "allows three people at most")
+- [x] B5. (R) An invite link works once and expires after 24 hours. (2026-11-05, C: single use tested at setup; 24-hour expiry test added)
+- [x] B6. (R) Sign-in is rate-limited after 5 failures. (2026-11-05, C: security.test, 5 failed passkey sign-ins per person in 15 minutes, 20 per network per hour)
 - [x] B7. (R) `/mcp` returns 404 in production; `/oauth/start` without the owner's session returns 401.
 - [x] B8. (R) Security headers are present on every page (CSP, no framing, nosniff, no referrer), and cookies are `__Host-`, `HttpOnly`, `Secure`, `SameSite=Strict`.
-- [ ] B9. (R) The production decide link is refused without a signed-in session, even when correctly signed.
+- [x] B9. (R) The production decide link is refused without a signed-in session, even when correctly signed. (2026-11-05, C: security.test "needs a signed-in device for a production approval link, even when it is correctly signed")
 - [x] B10. (K) K registers a passkey on their phone and on a computer, and signs in on both. (2026-11-05, K: "Android phone" and "Windows computer" on Azure production)
 - [ ] B11. (K) Each manager registers through their invite, signs in on their own phone, and turns on notifications. **N/A until a manager joins** (K's decision, 2026-11-05: go live with K only; run this the day the first manager is invited)
 - [ ] B12. (K) K signs one manager out of all devices from Settings, and that manager has to sign in again. **N/A until a manager joins** (K's decision, 2026-11-05: go live with K only; run this the day the first manager is invited)

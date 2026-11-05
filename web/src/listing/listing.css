@@ -1,0 +1,138 @@
+/* Add Listing (web/src/listing/). Kept in its own file, using the app's design tokens, so the screens restyle
+   with the rest of the app and don't touch style.css. */
+
+.sell-drafts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.sell-draft {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 12px 16px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.sell-draft strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.sell-draft img,
+.sell-noimg {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  background: var(--ground);
+  display: block;
+}
+
+.sell-draft:focus-visible,
+.sell-photo button:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 3px;
+}
+
+.sell-what input {
+  width: 100%;
+}
+
+.sell-checklist > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.sell-checklist > summary::-webkit-details-marker {
+  display: none;
+}
+
+.sell-checklist > summary h2::after {
+  content: " +";
+  color: var(--muted);
+}
+
+.sell-checklist[open] > summary h2::after {
+  content: " \2212";
+}
+
+.sell-checklist ul {
+  margin: 0;
+  padding: 18px 22px 18px 38px;
+  display: grid;
+  gap: 8px;
+}
+
+.sell-grid {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.sell-photo {
+  padding: 0;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+}
+
+.sell-photo img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  background: var(--ground);
+  display: block;
+}
+
+.sell-photo-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 8px 10px 0;
+  min-height: 8px;
+}
+
+.sell-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding: 6px 10px 10px;
+  font-size: var(--step-small);
+}
+
+.sell-pending {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.sell-pending-card {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 14px;
+  padding: 12px 16px;
+  align-items: start;
+}
+
+.sell-pending-card img,
+.sell-pending-card .sell-noimg {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+}
+
+.sell-issues {
+  margin: 0 0 10px;
+  padding-left: 1.1em;
+  color: var(--warn-ink);
+  font-weight: 600;
+}

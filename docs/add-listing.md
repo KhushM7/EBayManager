@@ -1,6 +1,6 @@
 # Add Listing: plan
 
-K's request (2026-11-05): build and finish **Add Listing** before going live. Status: **planned; K decided on 2026-11-05** (end of this doc). One open item: the postage rate source. Design principles stay those of [listing-assistant.md](listing-assistant.md): coach the photos, never assume a fact, price from the market, and nothing is listed until K approves.
+K's request (2026-11-05): build and finish **Add Listing** before going live. Status: **L1 built** (on the `add-listing` branch, 2026-11-05); L2 next. K's decisions are at the end of this doc. Design principles stay those of [listing-assistant.md](listing-assistant.md): coach the photos, never assume a fact, price from the market, and nothing is listed until K approves.
 
 ## What already exists
 
@@ -69,12 +69,18 @@ The screens are built in the current design. K's UI update, which is coming, the
    - Never: generative fill, AI background replacement, removing or adding objects, retouching marks, scratches or wear, or changing the item's colour or shape. Flaws must stay visible (eBay requires photos to show the actual item).
    - Done with plain image operations (no image-generation model), the original kept, a before-and-after shown, and K chooses per photo. Off for a photo where the selection would touch the item.
 
-## Open: postage rate source
+## Postage rate source (K, 2026-11-05)
 
-There's no free public live-rates service for Royal Mail. The options, for K to pick before step L4:
+The **Parcel2Go Quoting API**, matching eBay's Simple Delivery carriers:
 
-- **A courier comparison service with an API** (for example Parcel2Go or Packlink): live prices from Royal Mail, Evri, DPD and others for a size and weight. Needs K's account and an API key (a secret in Key Vault), and adds their host to the reviewed network list.
-- **Royal Mail Click & Drop** with K's account: Royal Mail services only, at K's account prices.
-- **Royal Mail's published price list**, kept in the code and updated when Royal Mail changes prices (usually once or twice a year): not live, but accurate and free, no account needed.
+1. Send the listing's parcel size and weight to Parcel2Go's quote endpoint.
+2. Keep only the carriers eBay uses for Simple Delivery: **Evri, Royal Mail, DHL and InPost**.
+3. Sort by price and show the cheapest as the postage estimate, with the carrier and service named.
 
-Not considered: scraping any website (against the project rules).
+Needs K's Parcel2Go API credentials (secrets in Key Vault, never in code) and Parcel2Go's host added to the reviewed network list (the safety scans). Details are checked against Parcel2Go's API documentation at step L4, and K is asked for the credentials then. Not considered: scraping any website (against the project rules).
+
+## L1 as built
+
+- Server: `src/drafts.ts` (routes under `/api/drafts`), `src/store/drafts.ts`, `src/photos.ts` (JPEG checks, metadata stripped again on the server), `src/platform/azure/photos.ts` (the private `photos` container, through the app's identity; no infrastructure change). The nightly abandons drafts untouched for 30 days and deletes their photos.
+- Phone: `web/src/listing/` (the Sell screen, the checklist, camera or file picker, resize to 2400 px and re-encode, which drops the location; instant checks for size, light, blur and repeated shots, with retake advice and "Keep anyway"). Photos are served only to a signed-in person.
+- Tests: `test/drafts.test.ts`, `test/listing-checks.test.ts`. The blur limit is a starting value, tuned in the Sandbox walk-through.

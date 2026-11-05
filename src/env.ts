@@ -1,4 +1,5 @@
 import type { Store } from "./store";
+import type { PhotoStore } from "./photos";
 
 export interface Env {
   /** The data store: Cosmos DB on Azure, in memory in tests (src/store). */
@@ -17,6 +18,8 @@ export interface Env {
   /** Optional production keyset used only for Browse comps (public data, no seller account). */
   EBAY_COMPS_APP_ID?: string;
   EBAY_COMPS_CERT_ID?: string;
+  /** Listing photos, private (Blob Storage on Azure, in memory in tests). Unset: photo uploads are refused. */
+  photos?: PhotoStore;
   /** Dashboard and PWA static files (web/dist), with the single-page-app fallback. Set by the platform layer. */
   ASSETS?: { serve(request: Request): Promise<Response> };
   /**

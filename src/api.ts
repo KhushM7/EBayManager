@@ -39,6 +39,7 @@ import { proposeEnginePrice, setOwnPrice } from "./pricing/actions";
 import { getAnsweredQuestions, getSentMessages } from "./ebay/history";
 import { editStyle, getStyle, learnStyle, saveStyle } from "./style";
 import { reviewPromotions } from "./promotion";
+import { handleDrafts } from "./drafts";
 
 // JSON API for the dashboard. Everything except sign-in needs a signed-in person (docs/security.md); some
 // actions are owner-only. Sign-in failures are rate-limited per network.
@@ -144,6 +145,10 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
   // After a recovery code, the only thing allowed is registering a new passkey.
   if (session.mustAddPasskey && !["/me", "/passkeys/options", "/passkeys/verify"].includes(path))
     return json({ error: "Register a new passkey first", mustAddPasskey: true }, 403);
+
+  // New-listing drafts and their photos (src/drafts.ts).
+  const drafts = await handleDrafts(env, request, url, path, user);
+  if (drafts) return drafts;
 
   if (path === "/passkeys/options" && method === "POST") return json(await addPasskeyOptions(env, user));
   if (path === "/passkeys/verify" && method === "POST") {

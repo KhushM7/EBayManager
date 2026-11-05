@@ -6,11 +6,13 @@ import { Logo } from "./logo";
 import { Metrics } from "./metrics";
 import { Report } from "./report";
 import { Activity, Aside, Inbox, Listings, Settings } from "./screens";
+import { Sell } from "./listing/Sell";
 import "./style.css";
 
 const ROUTES = [
   { path: "/", label: "Inbox", View: Inbox },
   { path: "/listings", label: "Listings", View: Listings },
+  { path: "/sell", label: "Sell", View: Sell },
   { path: "/metrics", label: "Metrics", View: Metrics },
   { path: "/audit", label: "Audit", View: Report },
   { path: "/activity", label: "Activity", View: Activity },

@@ -12,6 +12,7 @@ import { reviewPrices, type ReviewOut } from "./pricing/review";
 import { fileHealthTodos, fileOwnPriceReminders, filePriceQuestions, lastSentence } from "./todos";
 import { reviewPromotions } from "./promotion";
 import { auditDone, runFirstDayAudit } from "./firstday";
+import { cleanUpDrafts } from "./drafts";
 
 // The 02:00 run: read eBay, score listing health by rule, and send only flagged listings to Haiku, which may
 // file proposals for K. Each step runs on its own, so one failure (Sandbox has no traffic data, say) doesn't
@@ -184,6 +185,9 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
     return `${r.outcomes} outcomes, ${r.groups} groups`;
   });
   await step(steps, "bundles", async () => (env.ANTHROPIC_API_KEY ? bundleAdvice(env, at) : "skipped: no ANTHROPIC_API_KEY"));
+
+  // New-listing drafts untouched for 30 days are abandoned and their photos deleted (docs/add-listing.md).
+  await step(steps, "drafts", async () => cleanUpDrafts(env, at));
 
   // The first-day audit runs once, on the first night after the account connects (or K runs it from the app).
   await step(steps, "first_day_audit", async () => {

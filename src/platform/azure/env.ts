@@ -5,6 +5,7 @@ import type { Env } from "../../env";
 import { makeStore, type Store } from "../../store";
 import { CosmosDocStore } from "../../store/cosmos";
 import { staticAssets } from "./static";
+import { azurePhotoStore } from "./photos";
 
 // Builds the app's Env on Azure Functions (docs/azure-migration.md). Settings come from the Function App's
 // app settings; secrets in them are Key Vault references the platform resolves using the app's managed
@@ -23,9 +24,10 @@ export function azureEnv(): Omit<Env, "enqueue"> {
   if (missing.length) throw new Error(`Missing app settings: ${missing.join(", ")}`);
   if (v.EBAY_ENV !== "sandbox" && v.EBAY_ENV !== "production") throw new Error(`EBAY_ENV must be sandbox or production, not ${v.EBAY_ENV}`);
 
+  const credential = new DefaultAzureCredential(v.AZURE_CLIENT_ID ? { managedIdentityClientId: v.AZURE_CLIENT_ID } : {});
   const client = new CosmosClient({
     endpoint: v.COSMOS_ENDPOINT!,
-    aadCredentials: new DefaultAzureCredential(v.AZURE_CLIENT_ID ? { managedIdentityClientId: v.AZURE_CLIENT_ID } : {}),
+    aadCredentials: credential,
     // Throttled requests (429) are retried with the server's suggested wait, up to 30 seconds.
     connectionPolicy: { retryOptions: { maxRetryAttemptCount: 9, fixedRetryIntervalInMilliseconds: 0, maxWaitTimeInSeconds: 30 } },
   });
@@ -48,6 +50,8 @@ export function azureEnv(): Omit<Env, "enqueue"> {
     EBAY_COMPS_APP_ID: opt("EBAY_COMPS_APP_ID"),
     EBAY_COMPS_CERT_ID: opt("EBAY_COMPS_CERT_ID"),
     ASSETS: staticAssets(join(__dirname, "web")),
+    // The same storage account as the Functions host (its name is already an app setting), container "photos".
+    photos: v.AzureWebJobsStorage__accountName ? azurePhotoStore(v.AzureWebJobsStorage__accountName, credential) : undefined,
     DASHBOARD_KEY: v.DASHBOARD_KEY ?? "",
     VAPID_KEY: opt("VAPID_KEY"),
     ANTHROPIC_API_KEY: opt("ANTHROPIC_API_KEY"),

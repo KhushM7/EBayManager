@@ -1,6 +1,6 @@
 # Add Listing: plan
 
-K's request (2026-11-05): build and finish **Add Listing** before going live. Status: **plan, waiting for K's decisions** (end of this doc). Design principles stay those of [listing-assistant.md](listing-assistant.md): coach the photos, never assume a fact, price from the market, and nothing is listed until K approves.
+K's request (2026-11-05): build and finish **Add Listing** before going live. Status: **planned; K decided on 2026-11-05** (end of this doc). One open item: the postage rate source. Design principles stay those of [listing-assistant.md](listing-assistant.md): coach the photos, never assume a fact, price from the market, and nothing is listed until K approves.
 
 ## What already exists
 
@@ -25,7 +25,7 @@ Screens, photo handling, the guided flow, category choice, postage, drafts, and 
 4. **Category and specifics.** eBay's category suggestions for the item (Taxonomy, read-only), K confirms; required and recommended specifics filled only from confirmed facts, the rest asked or left out.
 5. **The draft.** Title (80 characters, the words buyers search), description in K's voice (condition first, what's included, measurements, collection offered for big items), specifics, eBay condition. K can edit every field.
 6. **Price.** The pricing engine on the draft (photos and facts): recommended price with its evidence, the same as a price check. Nothing comparable: "Set the price yourself" (own price, watched weekly). Floor price optional; Best Offer on by default.
-7. **Postage.** A suggestion from size and weight (see decision 2), rounded up, as K prefers. Collection in person always offered on large items; "collection only" a switch.
+7. **Postage.** Live carrier rates for the size and weight (see the decisions), the cheapest suitable service suggested and rounded up, as K prefers. Collection in person always offered on large items; "collection only" a switch.
 8. **Check and submit.** eBay checks the listing (`VerifyAddFixedPriceItem`): errors explained in plain words, fees shown. It then becomes a `create_listing` label in the Inbox.
 9. **Publish, on approval only.** Through the write gate: photos uploaded to eBay's picture service as file bytes (`UploadSiteHostedPictures`, never a public link to our storage), then `AddFixedPriceItem`, then the audit log. The new listing appears in Listings, with the engine's weekly watch if it's on an own price.
 
@@ -53,15 +53,28 @@ About 10 to 20p in Claude (photo review, identification, specs, draft) and 2 to 
 | L1 | Drafts and photo storage: upload (resize, strip location), on-phone checks, list and resume drafts | Photos stored privately, a draft survives closing the app |
 | L2 | Photo review and identification (images sent as data), the facts form, sources on every fact | A draft lists its facts with sources and asks only what K knows |
 | L3 | Category suggestions, specifics from confirmed facts, title and description in K's voice | A complete draft K can edit |
-| L4 | Price (engine or own price), postage suggestion, collection | Price and postage set with their reasons |
+| L4 | Price (engine or own price), live postage rates, collection, background tidy-up (ordinary edits only) | Price and postage set with their reasons |
 | L5 | eBay's check, the `create_listing` label, publishing through the gate with picture upload | A listing published on Sandbox from an approved label |
 | L6 | Tests (scans, sources-only facts, gate refusals), docs, Sandbox walk-through with K | K publishes a test listing on Sandbox from the phone |
 
 The screens are built in the current design. K's UI update, which is coming, then restyles them with the rest.
 
-## Decisions for K
+## K's decisions (2026-11-05)
 
-1. **Who can create listings?** Recommended: anyone can draft, only K approves the `create_listing` label (today any of the three can approve any label).
-2. **Postage suggestion.** Recommended: K's own price table by size band (for example small parcel, medium parcel, large or heavy), set once in Settings and rounded up, instead of live carrier rates. It matches K's choice to charge a little more and refund.
-3. **Photo cleanup.** Recommended: delete a listing's photos from our storage 30 days after it's published (eBay keeps its own copies).
-4. **Background tidy-up** (cropping and whitening the background automatically). Recommended: not now. The coaching aims for good photos instead; it can be added later.
+1. **Who lists:** any of the three people can draft and approve a new listing, as with other labels.
+2. **Postage: live carrier rates.** The draft shows real prices for the parcel's size and weight, and suggests the cheapest suitable service, rounded up (K prefers charging a little more and refunding). Open: the data source (below).
+3. **Photo cleanup:** a listing's photos are deleted from our storage 30 days after it's published; an abandoned draft's photos after 30 days too. eBay keeps its own copies.
+4. **Background tidy-up: yes, ordinary photo edits only.** Nothing AI-generated, and nothing a buyer could call a fake photo of the item:
+   - Allowed (what anyone could do in a basic editor): crop and straighten, exposure, contrast and white balance on the whole photo, and brightening the plain background to white with an edge-based "magic wand" selection that stops at the item's outline.
+   - Never: generative fill, AI background replacement, removing or adding objects, retouching marks, scratches or wear, or changing the item's colour or shape. Flaws must stay visible (eBay requires photos to show the actual item).
+   - Done with plain image operations (no image-generation model), the original kept, a before-and-after shown, and K chooses per photo. Off for a photo where the selection would touch the item.
+
+## Open: postage rate source
+
+There's no free public live-rates service for Royal Mail. The options, for K to pick before step L4:
+
+- **A courier comparison service with an API** (for example Parcel2Go or Packlink): live prices from Royal Mail, Evri, DPD and others for a size and weight. Needs K's account and an API key (a secret in Key Vault), and adds their host to the reviewed network list.
+- **Royal Mail Click & Drop** with K's account: Royal Mail services only, at K's account prices.
+- **Royal Mail's published price list**, kept in the code and updated when Royal Mail changes prices (usually once or twice a year): not live, but accurate and free, no account needed.
+
+Not considered: scraping any website (against the project rules).

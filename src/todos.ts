@@ -110,7 +110,44 @@ export function auditTodos(report: Pick<AuditReport, "listings" | "findings">): 
 }
 
 export async function fileAuditTodos(env: Env, report: Pick<AuditReport, "listings" | "findings">, now: number) {
-  return env.store.todos.sync("audit", { codes: AUDIT_TODO_CODES }, auditTodos(report), now);
+  return env.store.todos.sync("audit", { codes: AUDIT_TODO_CODES }, auditTodos(withCodes(report)), now);
+}
+
+/** Codes for findings in reports saved before findings had one (before 2026-11-05), from their wording. */
+const OLD_TITLES: [RegExp, string][] = [
+  [/^(Returns not accepted|You pay return postage)$/, "returns"],
+  [/^Short title$/, "short_title"],
+  [/^Title in capitals$/, "title_caps"],
+  [/^Required item specifics missing$/, "required_specifics"],
+  [/specifics found in published specs$/, "published_specifics"],
+  [/^Measurements missing$/, "measurements"],
+  [/other recommended item specifics missing$/, "other_specifics"],
+  [/^Few item specifics$/, "few_specifics"],
+  [/^No description$/, "no_description"],
+  [/^Thin description$/, "thin_description"],
+  [/^Fault not described$/, "fault"],
+  [/^No condition note$/, "condition_note"],
+  [/^\d+ photos?$/, "photos"],
+  [/^No postage found$/, "no_postage"],
+  [/^\d+-day handling time$/, "handling"],
+  [/^Best Offer off$/, "best_offer"],
+  [/^Not priced against the market$/, "not_priced"],
+  [/^Engine needs your answer$/, "engine_question"],
+  [/the market by \d+%$/, "price_gap"],
+  [/^(Promote at|Lower the ad rate|End the promotion)/, "promotion"],
+  [/^Ended unsold: /, "ended_unsold"],
+  [/^Return policy .*(doesn't accept returns|you pay return postage)$/, "policy_returns"],
+  [/^Return policy .*-day returns$/, "policy_return_period"],
+  [/^Postage policy .*-day handling$/, "policy_handling"],
+  [/^Postage policy .*has no UK service$/, "policy_no_service"],
+  [/^Registered as a business seller$/, "business_seller"],
+  [/^No past replies found$/, "no_replies"],
+];
+export const oldCode = (title: string) => OLD_TITLES.find(([re]) => re.test(title))?.[1] ?? `other:${title}`;
+
+function withCodes<R extends Pick<AuditReport, "listings" | "findings">>(report: R): R {
+  const fix = (f: Finding): Finding => (f.code ? f : { ...f, code: oldCode(f.title) });
+  return { ...report, findings: report.findings.map(fix), listings: report.listings.map((l) => ({ ...l, findings: l.findings.map(fix) })) };
 }
 
 /** The nightly price review's questions, for the listings it priced this run. */

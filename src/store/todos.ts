@@ -101,6 +101,8 @@ export function todosRepo(docs: DocStore) {
       return n;
     },
 
+    /** Whether any to-do was ever filed (any status). */
+    any: async () => (await docs.query<any>(C, { pk: PK, limit: 1, fields: ["id"] })).length > 0,
     list: async (status: TodoStatus): Promise<TodoRow[]> => (await docs.query<any>(C, { pk: PK, where: [{ f: "status", op: "=", v: status }] })).map(strip),
     get: async (id: string): Promise<TodoRow | null> => {
       if (!/^todo:[\w-]{1,64}$/.test(id)) return null;

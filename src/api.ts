@@ -34,6 +34,7 @@ import { cleanSale } from "./salesreport";
 import { orderLines } from "./store";
 import { jobStatus, startJob } from "./background";
 import { latestReport } from "./firstday";
+import { fileAuditTodos } from "./todos";
 import { getAnsweredQuestions, getSentMessages } from "./ebay/history";
 import { editStyle, getStyle, learnStyle, saveStyle } from "./style";
 import { reviewPromotions } from "./promotion";
@@ -367,6 +368,12 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
     const status = url.searchParams.get("status") ?? "open";
     if (!["open", "done", "dismissed", "resolved"].includes(status)) return json({ error: "Bad status" }, 400);
     const order = { answer: 0, claude: 1, you: 2 } as const;
+    // Once, the first time: the to-dos from the audit report saved before to-dos existed (no eBay or Claude
+    // calls; K's choice on 2026-11-05 rather than running the audit again).
+    if (status === "open" && !(await env.store.todos.any())) {
+      const report = await latestReport(env);
+      if (report) await fileAuditTodos(env, report, Date.now());
+    }
     const rows = await env.store.todos.list(status as "open");
     rows.sort((a, b) => (status === "open" ? order[a.kind] - order[b.kind] || a.created_at - b.created_at : (b.decided_at ?? 0) - (a.decided_at ?? 0)));
     return json(rows);

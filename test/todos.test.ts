@@ -182,6 +182,18 @@ describe("to-do API", () => {
     expect((await env.store.todos.get(todo.id))!.status).toBe("done");
   });
 
+  it("files the to-dos from a report saved before to-dos existed, once, working out the old findings' codes", async () => {
+    const old = (title: string, fix: string, itemId: string | null = "1") => ({ area: "listing", severity: "medium", itemId, itemTitle: "Lamp", title, detail: "Item Length, Maximum Height. Not published.", fix });
+    const findings = [old("Measurements missing", "you"), old("2 photos", "you"), old("Short title", "claude"), old("Above the market by 11%", "proposal"), old("23 sales, £630.14", "none", null)];
+    await env.store.reports.add(NOW, "sandbox", JSON.stringify({ listings: [{ itemId: "1", title: "Lamp", findings: findings.slice(0, 4) }], findings, steps: {} }));
+
+    const list = (await (await call("/todos")).json()) as any[];
+    expect(list.map((x) => `${x.kind} ${x.code}`)).toEqual(["answer measurements", "claude claude_review", "you photos"]);
+    // Once only: dismissing everything doesn't bring them back.
+    for (const x of list) await call(`/todos/${x.id}/dismiss`, {});
+    expect(await (await call("/todos")).json()).toEqual([]);
+  });
+
   it("refuses an answer on a to-do that doesn't take one, and unknown ids", async () => {
     await env.store.todos.sync("audit", { codes: ["photos"] }, [t("photos", "1")], NOW);
     const [todo] = await env.store.todos.list("open");

@@ -13,7 +13,7 @@ interface Option {
 }
 
 interface Decision {
-  strategy: "compete" | "hold" | "clear" | "ask";
+  strategy: "compete" | "hold" | "clear" | "ask" | "own";
   price: number | null;
   total: number | null;
   options: Option[];
@@ -48,6 +48,7 @@ const STRATEGY: Record<Decision["strategy"], [string, string]> = {
   hold: ["state-held", "Hold"],
   clear: ["state-decide", "Clear"],
   ask: ["state-info", "Ask"],
+  own: ["state-off", "Your price"],
 };
 
 const days = (d: number) => (!Number.isFinite(d) || d > 365 ? "over a year" : d <= 1 ? "about a day" : `about ${d} days`);

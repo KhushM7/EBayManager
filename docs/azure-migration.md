@@ -89,7 +89,7 @@ Who does each step: **C** = Claude, **K** = K.
 ### M7. Back to the same point
 - [x] (K) Run the first-day audit; it finishes with no failed steps (2026-11-05 00:58 UTC: every step completed, including those that failed on Cloudflare)
 - [x] (C) Data check: floors and facts, proposals (4 approved dry runs, 7 rejected, 3 pending) (2026-11-05, see the log), sold-data counters, specs, style guide, reports, Claude usage
-- [ ] (K) One full nightly cycle on Azure with no failed steps (2026-11-05 01:14 UTC, started by K with Run now: no failed steps. Still to confirm: the 02:00 UTC timer run)
+- [x] (K) One full nightly cycle on Azure with no failed steps (2026-11-05: Run now at 01:14 UTC, then the 02:00 UTC timer run, both with no failed steps)
 - [ ] (C) Docs updated: CLAUDE.md, README, security.md, safety-and-environments.md, app-and-dashboard.md, go-live-tests.md, roadmap.md, privacy.html; free-plan-queue.md marked superseded
 
 ### M8. Two weeks later
@@ -122,6 +122,8 @@ At the switch-over export (2026-11-05), after the last Cloudflare runs: 281 docu
 | 4 | Does App Service overwrite a forged `X-Client-IP` on Flex? | **No.** Resolved 2026-11-04 (K chose to find a trustworthy header): a Sandbox-only diagnostic showed the front end overwrites `Client-IP` (as `ip:port`) and appends the real address to `X-Forwarded-For`; `X-Client-IP`, `X-Real-IP`, `X-Azure-ClientIP`, `X-Azure-SocketIP` and `X-Original-For` pass forged values through. The app now reads `Client-IP` only; diagnostic removed |
 
 ## Log
+
+- 2026-11-05: **The 02:00 UTC nightly ran on Azure's timer** with no failed steps: 4 listings, 2 orders, traffic for 7, 3 flagged and triaged, 4 dry-run proposals, to-dos 1 opened. Only the docs update is left in M7.
 
 - 2026-11-05: Nightly run on Azure (K, Run now on Metrics, 01:14 UTC): no failed steps. 4 listings, 2 orders, traffic for 7 listings, 1 flagged and triaged, prices 0 priced (the audit had just priced them), 15 outcomes learned, bundles skipped (made this week), no proposals. The 02:00 UTC timer run is checked next.
 

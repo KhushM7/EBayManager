@@ -18,6 +18,22 @@ import { auditDone, runFirstDayAudit } from "./firstday";
 // stop the rest. The outcome is kept in settings.last_nightly for the Metrics screen.
 
 const MAX_TRIAGED_PER_NIGHT = 5;
+/** A change proposed this recently (waiting, approved, agreed as a dry run, or applied) isn't redone by triage. */
+export const REVISE_QUIET_DAYS = 7;
+
+/**
+ * Listings with a recent listing edit: triage mustn't propose another. While changes are off an approved dry
+ * run doesn't change eBay, so triage would otherwise read the old listing and undo K's approved edit (2026-11-05:
+ * a review removed unsupported specifics from the Maono listing and the same night's triage put them back).
+ */
+export async function recentlyRevised(env: Env, now: number, kind: "revise" | "price" = "revise"): Promise<Set<string>> {
+  const rows = await env.store.proposals.listWhere([
+    { f: "kind", op: "=", v: kind },
+    { f: "status", op: "in", v: ["pending", "approved", "agreed", "applied"] },
+    { f: "created_at", op: ">", v: now - REVISE_QUIET_DAYS * 86_400_000 },
+  ]);
+  return new Set(rows.map((p) => p.item_id).filter((x): x is string => Boolean(x)));
+}
 
 export const TRIAGE_SYSTEM = `A nightly rule check flagged one of K's eBay UK listings. Decide whether one small change would help it sell, and if so propose it. You cannot change eBay: propose_* tools record proposals that K approves or rejects.
 
@@ -120,13 +136,20 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
   const triageNotes = new Map<string, string>();
   await step(steps, "triage", async () => {
     if (!env.ANTHROPIC_API_KEY) return "skipped: no ANTHROPIC_API_KEY";
+    const revised = await recentlyRevised(env, at);
+    const repriced = await recentlyRevised(env, at, "price");
     for (const f of flagged.slice(0, MAX_TRIAGED_PER_NIGHT)) {
+      const noEdit = revised.has(f.itemId);
+      const noPrice = repriced.has(f.itemId);
       const r = await runAgent(env, {
         job: `triage:${f.itemId}`,
         model: MODELS.triage,
         system: TRIAGE_SYSTEM,
-        prompt: `Listing ${f.itemId} was flagged:\n${f.flags.map((x) => `- ${x.flag}: ${x.detail}`).join("\n")}`,
-        toolNames: AUDIT_TOOLS,
+        prompt:
+          `Listing ${f.itemId} was flagged:\n${f.flags.map((x) => `- ${x.flag}: ${x.detail}`).join("\n")}` +
+          (noEdit ? "\nA listing edit for it was proposed in the last week: don't propose another." : "") +
+          (noPrice ? "\nA price change for it was proposed in the last week: don't propose another." : ""),
+        toolNames: AUDIT_TOOLS.filter((t) => !(noEdit && t === "propose_listing_revision") && !(noPrice && t === "propose_price_change")),
         maxTurns: 6,
         effort: "low",
       });

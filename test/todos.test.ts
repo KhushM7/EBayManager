@@ -188,7 +188,9 @@ describe("to-do API", () => {
     await env.store.reports.add(NOW, "sandbox", JSON.stringify({ listings: [{ itemId: "1", title: "Lamp", findings: findings.slice(0, 4) }], findings, steps: {} }));
 
     const list = (await (await call("/todos")).json()) as any[];
-    expect(list.map((x) => `${x.kind} ${x.code}`)).toEqual(["answer measurements", "claude claude_review", "you photos"]);
+    // Old reports asked K for measurements; now they're part of Claude's review.
+    expect(list.map((x) => `${x.kind} ${x.code}`)).toEqual(["claude claude_review", "you photos"]);
+    expect(list[0].detail).toMatch(/^Measurements missing: .*\nShort title: /);
     // Once only: dismissing everything doesn't bring them back.
     for (const x of list) await call(`/todos/${x.id}/dismiss`, {});
     expect(await (await call("/todos")).json()).toEqual([]);

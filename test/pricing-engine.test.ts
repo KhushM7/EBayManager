@@ -146,6 +146,13 @@ describe("identify and match", () => {
     expect(identifyByRules("Sensor bin 45L").condition).toBe("unknown");
   });
 
+  it("keeps Claude's fault reading only for spares or repair items", async () => {
+    const answer = (condition: string, fault: string | null) => fakeClaude(() => ({ product: "x", group: "g", condition, fault, keyFacts: [], components: [{ name: "x", query: "x y", valued: true }], priceable: true, question: null })).api;
+    expect((await identify(env, { title: "Dyson hose split" }, answer("parts", "minor"))).fault).toBe("minor");
+    expect((await identify(env, { title: "Dyson" }, answer("used", "minor"))).fault).toBeNull();
+    expect((await identify(env, { title: "Dyson spares" }, answer("parts", null))).fault).toBe("unknown");
+  });
+
   it("gives Claude K's facts, such as an answer to the engine's question, as a true source", async () => {
     const { api, calls } = fakeClaude(() => ({ product: "x", group: "g", condition: "unknown", keyFacts: [], components: [{ name: "x", query: "x y", valued: true }], priceable: true, question: null }));
     await identify(env, { title: "Ceiling lights", factsFromK: "Brand: Astro, model Ascoli 1286" }, api);

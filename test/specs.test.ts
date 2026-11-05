@@ -119,7 +119,7 @@ describe("the audit with published specs", () => {
     expect(a.findings.map((f) => f.title)).not.toContain("Thin description");
   });
 
-  it("sends specifics found online to Claude and only the rest to K", () => {
+  it("sends specifics found online to Claude, and the missing measurements to Claude too (from K's facts)", () => {
     const published = {
       itemId: "1", title: "", at: 0, exact: true, product: "Techlink Arena AA110B", note: "", dropped: 0, costUsd: 0,
       specs: [
@@ -133,7 +133,7 @@ describe("the audit with published specs", () => {
     );
     expect(a.findings.find((f) => f.fix === "claude" && /published specs/.test(f.title))!.detail).toMatch(/Item Width, Item Weight/);
     const measure = a.findings.find((f) => f.title === "Measurements missing")!;
-    expect(measure.detail).toMatch(/^Item Depth\. Not published for the Techlink Arena AA110B/);
+    expect(measure).toMatchObject({ fix: "claude", detail: expect.stringMatching(/^eBay also asks for Item Depth\. Claude fills them from your facts/) });
     expect(a.published!.specs).toHaveLength(2);
   });
 });

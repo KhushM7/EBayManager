@@ -1,0 +1,120 @@
+// K's fixes of 2026-11-05: a known minor fault, no comparable sales (K's own price), readable waits, postage
+// above the typical, and no repeated proposals while changes are off.
+import { describe, expect, it } from "vitest";
+import { daysText, decide, listed, marketState, type MarketSale } from "../src/pricing/model";
+import { ownPriceResult, postageNote, pricingPostage, recordDecision } from "../src/pricing/engine";
+import { enginePriceCheck } from "../src/tools";
+import { recentlyRevised } from "../src/nightly";
+import { filePriceQuestions, parsePrice } from "../src/todos";
+import { memoryStore } from "../src/store";
+import { seedProposal } from "./fixtures";
+import type { Env } from "../src/env";
+
+const DAY = 86_400_000;
+const NOW = Date.UTC(2026, 10, 5);
+
+/** Spares sales like the Dyson's: totals spread from about £16 to £32, one every 10 days. */
+function spares(): MarketSale[] {
+  const totals = [24, 29.9, 17.26, 28.35, 21.49, 31.5, 15.78, 26, 22.5, 30, 19.5, 27];
+  return totals.map((total, i) => ({ total, at: NOW - (i * 10 + 1) * DAY }));
+}
+
+describe("a spares item with one known, simple fault", () => {
+  const market = marketState(spares(), [{ total: 22 }, { total: 30 }, { total: 35 }], { now: NOW });
+
+  it("is priced from the middle of spares sales, not the cheap end", () => {
+    expect(market.regime).toBe("normal");
+    const usual = decide({ market, costs: { postage: 6 } });
+    const minor = decide({ market, costs: { postage: 6 }, minorFault: true });
+    expect(minor.total!).toBeGreaterThanOrEqual(market.mNow! - 1);
+    expect(minor.total!).toBeGreaterThan(usual.total!);
+    expect(minor.total!).toBeLessThanOrEqual(market.mNow! + 0.5 * (market.p75! - market.mNow!) + 1);
+    expect(minor.why).toMatch(/One known fault with the rest working/);
+    expect(usual.why).not.toMatch(/known fault/);
+  });
+});
+
+describe("no comparable sales", () => {
+  it("asks K for a price, saying why, instead of asking for the model", () => {
+    const empty = marketState([], [], { now: NOW });
+    const d = decide({ market: empty, costs: { postage: 10 } });
+    expect(d).toMatchObject({ strategy: "ask", reason: "no_sales", question: expect.stringMatching(/What price do you want for it\?$/) });
+  });
+
+  it("files that as 'Set the price yourself', and a model question as before", async () => {
+    const env = { store: memoryStore() } as Env;
+    await filePriceQuestions(env, ["1", "2"], [
+      { itemId: "1", title: "TV stand", question: "No sales ... What price do you want for it?", reason: "no_sales" },
+      { itemId: "2", title: "Lights", question: "Which brand?", reason: "unidentified" },
+    ], NOW);
+    const open = await env.store.todos.list("open");
+    expect(open.map((t) => [t.code, t.title]).sort()).toEqual([
+      ["engine_question", "Answer the pricing engine's question"],
+      ["own_price", "Set the price yourself"],
+    ]);
+  });
+
+  it("reads a price from K's answer", () => {
+    expect(parsePrice("£65")).toBe(65);
+    expect(parsePrice("about 59.50 I think")).toBe(59.5);
+    expect(parsePrice("1,250")).toBe(1250);
+    expect(parsePrice("no idea")).toBeNull();
+    expect(parsePrice("0")).toBeNull();
+  });
+
+  it("treats K's own price as the engine's, so the normal price proposal accepts it and nothing else", async () => {
+    const env = { store: memoryStore() } as Env;
+    const own = ownPriceResult({ title: "Techlink Arena AA110B TV Stand", postage: 18 }, 65);
+    expect(own.decision).toMatchObject({ strategy: "own", price: 65, total: 83, options: [] });
+    await recordDecision(env, "1", own);
+    await expect(enginePriceCheck(env, "1", 65)).resolves.toMatch(/^own, recommended £65.00/);
+    await expect(enginePriceCheck(env, "1", 55)).rejects.toThrow(/isn't one of the engine's prices/);
+  });
+});
+
+describe("what K reads", () => {
+  it("gives no wait estimate past a year", () => {
+    expect(daysText(26630)).toBe("no reliable estimate (over a year at today's demand)");
+    expect(daysText(Infinity)).toMatch(/no reliable estimate/);
+    expect(daysText(12.4)).toBe("about 12 days");
+    expect(daysText(1)).toBe("about a day");
+  });
+
+  it("rounds the weighted count of competing listings", () => {
+    expect(listed(48.750000000000064)).toBe("49");
+    expect(listed(4.55)).toBe("4.5");
+    expect(listed(7)).toBe("7");
+    const m = marketState(spares(), [{ total: 22 }, { total: 30 }], { now: NOW });
+    expect(m.why).not.toMatch(/\d\.\d{3,}/);
+  });
+});
+
+describe("postage above the typical", () => {
+  it("prices as if the typical postage were charged, and says so", () => {
+    expect(pricingPostage(18, 6.38)).toBe(6.38);
+    expect(pricingPostage(4, 6.38)).toBe(4);
+    expect(pricingPostage(null, 6.38)).toBe(6.38);
+    expect(postageNote(18, 6.38)).toMatch(/Your postage \(£18\.00\) is above the typical £6\.38.*refund any overpaid postage and offer collection/);
+  });
+
+  it("keeps the item price where the market puts it, not cut to pay for cautious postage", () => {
+    const market = marketState(spares(), [{ total: 25 }], { now: NOW });
+    const asTypical = decide({ market, costs: { postage: pricingPostage(18, 6.38) } });
+    const asCharged = decide({ market, costs: { postage: 18 } });
+    expect(asTypical.price!).toBeGreaterThan(asCharged.price! + 8);
+  });
+});
+
+describe("no repeated proposals while changes are off", () => {
+  it("finds listings with a recent listing edit or price change, including dry runs K agreed to", async () => {
+    const env = { store: memoryStore() } as Env;
+    const p = (id: string, kind: string, item: string, status: string, ageDays: number) =>
+      seedProposal(env.store, { id, kind, item_id: item, status, created_at: NOW - ageDays * DAY, expires_at: NOW + DAY, dry_run: 1 });
+    await p("a", "revise", "maono", "agreed", 1);
+    await p("b", "revise", "dock", "rejected", 1);
+    await p("c", "revise", "lamp", "agreed", 9);
+    await p("d", "price", "dyson", "agreed", 1);
+    expect([...(await recentlyRevised(env, NOW))]).toEqual(["maono"]);
+    expect([...(await recentlyRevised(env, NOW, "price"))]).toEqual(["dyson"]);
+  });
+});

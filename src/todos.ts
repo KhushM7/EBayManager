@@ -5,8 +5,9 @@ import type { TodoInput } from "./store";
 
 // Inbox to-dos (docs/approvals.md, "To-dos"): everything that needs K but isn't an eBay change. The first-day
 // audit and the nightly run file them; each says what to do, first. Three kinds:
-// - answer: a question with the answer box in the Inbox (the pricing engine's question, measurements, a fault).
-//   The answer is saved as K's facts for the listing, which the engine and Claude's edits use.
+// - answer: only what K alone can know, with the answer box in the Inbox: what an item is when the engine
+//   can't tell, the price when nothing comparable has sold, a fault. Never something Claude can do itself
+//   (K, 2026-11-05): missing measurements are part of Claude's listing review, not a question.
 // - claude: one per listing, "let Claude improve this listing"; it runs the Claude listing review, which files
 //   ordinary approval labels.
 // - you: something only K can do on eBay or in the app (photos, Best Offer), closed with Done or Dismiss.
@@ -32,12 +33,11 @@ const WORDING: Record<string, Wording> = {
     detail: () => "Your answer is saved as a fact about this listing, then the engine prices it again.",
     fp: (f) => f.detail,
   },
-  measurements: {
+  own_price: {
     kind: "answer",
-    title: "Add the measurements",
-    question: () => "Measurements, for example: Width 110 cm, Height 44 cm, Weight 32 kg",
-    detail: (f) => `Missing: ${firstLine(f.detail)}. They're saved as facts, and Claude puts them in the item specifics on a label for you to approve.`,
-    fp: (f) => firstLine(f.detail),
+    title: "Set the price yourself",
+    question: (f) => f.detail,
+    detail: () => "Your answer becomes this listing's price. The engine won't change it (clear it on Listings), and if it isn't the current price you get a label to approve.",
   },
   fault: {
     kind: "answer",
@@ -70,7 +70,7 @@ const WORDING: Record<string, Wording> = {
 };
 
 /** Every check the audit files to-dos for: an audit run is responsible for all of them, on every listing. */
-export const AUDIT_TODO_CODES = ["claude_review", ...Object.keys(WORDING)];
+export const AUDIT_TODO_CODES = ["claude_review", ...Object.keys(WORDING), "measurements" /* now part of claude_review */];
 
 /** Turns a finding K must deal with into a to-do. */
 function fromFinding(f: Finding): TodoInput {
@@ -146,16 +146,36 @@ const OLD_TITLES: [RegExp, string][] = [
 export const oldCode = (title: string) => OLD_TITLES.find(([re]) => re.test(title))?.[1] ?? `other:${title}`;
 
 function withCodes<R extends Pick<AuditReport, "listings" | "findings">>(report: R): R {
-  const fix = (f: Finding): Finding => (f.code ? f : { ...f, code: oldCode(f.title) });
+  // Old reports asked K for missing measurements; Claude fills them now (from K's facts or published specs).
+  const fix = (f: Finding): Finding => {
+    const code = f.code ?? oldCode(f.title);
+    return { ...f, code, fix: code === "measurements" && f.fix === "you" ? "claude" : f.fix };
+  };
   return { ...report, findings: report.findings.map(fix), listings: report.listings.map((l) => ({ ...l, findings: l.findings.map(fix) })) };
 }
 
 /** The nightly price review's questions, for the listings it priced this run. */
-export async function filePriceQuestions(env: Env, priced: string[], asked: { itemId: string; title: string; question: string }[], now: number) {
+export async function filePriceQuestions(env: Env, priced: string[], asked: { itemId: string; title: string; question: string; reason?: string }[], now: number) {
   const todos = asked.map((a) =>
-    fromFinding({ area: "listing", code: "engine_question", severity: "medium", itemId: a.itemId, itemTitle: a.title, title: "Engine needs your answer", detail: a.question, fix: "you" }),
+    fromFinding({
+      area: "listing",
+      code: a.reason === "no_sales" ? "own_price" : "engine_question",
+      severity: "medium",
+      itemId: a.itemId,
+      itemTitle: a.title,
+      title: a.reason === "no_sales" ? "No sales to price from" : "Engine needs your answer",
+      detail: a.question,
+      fix: "you",
+    }),
   );
-  return env.store.todos.sync("nightly", { codes: ["engine_question"], itemIds: priced }, todos, now);
+  return env.store.todos.sync("nightly", { codes: ["engine_question", "own_price"], itemIds: priced }, todos, now);
+}
+
+/** A price in K's words ("£65", "65.50", "about 60 quid"): the first amount, or null. */
+export function parsePrice(text: string): number | null {
+  const m = text.replace(/,/g, "").match(/(\d+(?:\.\d{1,2})?)/);
+  const n = m ? Number(m[1]) : NaN;
+  return n > 0 && n < 100_000 ? Math.round(n * 100) / 100 : null;
 }
 
 const FLAG_ACTION: Record<string, string> = {

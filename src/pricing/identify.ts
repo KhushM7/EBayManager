@@ -23,6 +23,11 @@ export interface Identity {
   group: string;
   /** "unknown" when the listing doesn't say; never guessed. */
   condition: "new" | "used" | "parts" | "unknown";
+  /**
+   * For parts (spares or repair) only: "minor" when the sources name one fault with a simple, inexpensive fix
+   * and say the rest works; "major" for a serious or several faults; "unknown" when they don't say. Null otherwise.
+   */
+  fault?: "minor" | "major" | "unknown" | null;
   /** Facts that change the price, as found (model number, size, capacity, what's included, flaws). */
   keyFacts: string[];
   /** One for a single item; several for a bundle. */
@@ -47,7 +52,7 @@ export interface ListingFacts {
 }
 
 /** Bump when identification changes, so cached identities are redone. */
-export const IDENTITY_VERSION = 3;
+export const IDENTITY_VERSION = 4;
 
 const IDENTIFY_SYSTEM = `You identify an item for sale on eBay UK, so its market price can be found from real sold listings. Use every source: the title, the item specifics, the description, the photos (labels, model numbers on the item or box, what's included, visible wear or damage) and any facts from the seller, which are true and count as a source ("(from K)").
 
@@ -55,6 +60,7 @@ Return:
 - product: exactly what it is. Never guess a model, size, capacity or variant that no source shows.
 - group: a short category group, e.g. "headphones", "phone accessories", "lighting", "kitchen appliances", "toys".
 - condition: new, used, or parts (not working), only if a source says or the photos clearly show it (e.g. sealed box = new). Otherwise unknown.
+- fault: only for parts. "minor" when a source names exactly one fault with a simple, inexpensive fix (a split hose, a missing charger, a broken clip) AND says the rest works; "major" for a serious fault (motor, board, screen) or several; "unknown" when no source says what's wrong or whether the rest works. null when condition isn't parts.
 - keyFacts: up to 8 short facts that change the price, each with its source, e.g. "model SSG-4100GB (title)", "45 litres (specifics)", "remote is BN59-01199F (photo)", "box missing (description)".
 - components: one entry for a single item. For a bundle of different things (e.g. "keyboard + remote"), one entry per part a buyer would value, each identified as precisely as the sources allow, plus valued=false for throwaway extras (manuals, cables, boxes). Several of the same item ("Lot of 2 pairs") is ONE component whose name says the quantity. Accessories that come with the product as standard (in its own box, e.g. a blaster's clip and bipod, a phone's charger) are part of that product, not separate components: use several components only for separately sold products the seller has put together.
 - query for each: 2 to 6 search words: brand, model, variant and model numbers exactly as written, single digits kept ("Galaxy Buds 2 Pro" keeps "2"). Use a model number from the description or photos when the title lacks it. No condition words; no colours unless they change the price.
@@ -63,11 +69,12 @@ Return:
 const IDENTIFY_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["product", "group", "condition", "keyFacts", "components", "priceable", "question"],
+  required: ["product", "group", "condition", "fault", "keyFacts", "components", "priceable", "question"],
   properties: {
     product: { type: "string" },
     group: { type: "string" },
     condition: { type: "string", enum: ["new", "used", "parts", "unknown"] },
+    fault: { type: ["string", "null"], enum: ["minor", "major", "unknown", null] },
     keyFacts: { type: "array", items: { type: "string" } },
     components: {
       type: "array",
@@ -97,6 +104,7 @@ export function identifyByRules(title: string): Identity {
           ? "used"
           : "unknown",
     keyFacts: [],
+    fault: null,
     components: [{ name: title, query, valued: true }],
     priceable: enough,
     question: enough ? null : "Which brand and model is it?",
@@ -137,6 +145,7 @@ export async function identify(env: Env, listing: ListingFacts, api?: MessagesAp
   return {
     ...out,
     keyFacts: (out.keyFacts ?? []).slice(0, 8),
+    fault: out.condition === "parts" ? (out.fault ?? "unknown") : null,
     components: out.components.slice(0, 6).map((c) => ({ ...c, query: c.query.slice(0, 100) })),
     by: "claude",
   };

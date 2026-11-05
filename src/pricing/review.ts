@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 import { tools } from "../tools";
 import { priceListing } from "./engine";
+import { daysText } from "./model";
 
 // Nightly price review (docs/pricing-engine.md): the engine re-prices a few of K's listings each night, oldest
 // check first, and files a price proposal where the market supports a change. No Claude agent decides the
@@ -22,14 +23,20 @@ export const MIN_CONFIDENCE = 0.3;
 /** What a review priced, and the questions the engine asked: the nightly files those as Inbox to-dos. */
 export interface ReviewOut {
   priced: string[];
-  asked: { itemId: string; title: string; question: string }[];
+  asked: { itemId: string; title: string; question: string; reason?: "unidentified" | "no_sales" }[];
 }
 
 export async function reviewPrices(env: Env, now = Date.now(), opts: { all?: boolean; limit?: number; out?: ReviewOut } = {}): Promise<string> {
   // The latest snapshot set, minus listings with a pending price change (unless all) or one applied in the
   // last 7 days, oldest engine check first.
   const priceProposals = await env.store.proposals.listWhere([{ f: "kind", op: "=", v: "price" }]);
-  const held = new Set(priceProposals.filter((p) => !opts.all && (p.status === "pending" || p.status === "approved")).map((p) => p.item_id));
+  // A price change waiting, approved, or agreed as a dry run in the last week holds the listing (a dry run doesn't
+  // change eBay, so without this the review would propose the same change again the next night).
+  const held = new Set(
+    priceProposals
+      .filter((p) => !opts.all && (p.status === "pending" || p.status === "approved" || (p.status === "agreed" && p.created_at > now - 7 * DAY)))
+      .map((p) => p.item_id),
+  );
   const recentlyChanged = new Set(priceProposals.filter((p) => p.status === "applied" && (p.decided_at ?? 0) > now - 7 * DAY).map((p) => p.item_id));
   const lastCheck = new Map((await env.store.pricing.latestDecisions()).map((d) => [d.item_id, d.at]));
   const results = (await env.store.listings.latestSet())
@@ -46,9 +53,10 @@ export async function reviewPrices(env: Env, now = Date.now(), opts: { all?: boo
       const r = await priceListing(env, l.item_id);
       const d = r.decision;
       opts.out?.priced.push(l.item_id);
+      if (d.strategy === "own") continue; // K's own price: reported, never re-proposed
       if (d.strategy === "ask" || d.price == null) {
         asked++;
-        opts.out?.asked.push({ itemId: l.item_id, title: l.title, question: d.question ?? "Which brand and model is it?" });
+        opts.out?.asked.push({ itemId: l.item_id, title: l.title, question: d.question ?? "Which brand and model is it?", reason: d.reason });
         continue;
       }
       if (Math.abs(d.price - l.price) / l.price < MIN_CHANGE || d.confidence < MIN_CONFIDENCE) continue;
@@ -58,7 +66,7 @@ export async function reviewPrices(env: Env, now = Date.now(), opts: { all?: boo
         new_price: d.price,
         reason:
           `${d.strategy[0].toUpperCase()}${d.strategy.slice(1)}: ${d.why} ` +
-          `Options: £${o[0].price.toFixed(2)} (about ${o[0].daysToSell} days), £${o[1].price.toFixed(2)} (about ${o[1].daysToSell} days), £${o[2].price.toFixed(2)} (about ${o[2].daysToSell} days). Confidence ${Math.round(d.confidence * 100)}%.`,
+          `Options: ${o.map((x) => `£${x.price.toFixed(2)} (${daysText(x.daysToSell)})`).join(", ")}. Confidence ${Math.round(d.confidence * 100)}%.`,
       });
       proposed++;
     } catch (e) {

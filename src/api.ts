@@ -34,7 +34,9 @@ import { cleanSale } from "./salesreport";
 import { orderLines } from "./store";
 import { jobStatus, startJob } from "./background";
 import { latestReport } from "./firstday";
-import { fileAuditTodos } from "./todos";
+import { fileAuditTodos, parsePrice } from "./todos";
+import { priceListing } from "./pricing/engine";
+import { tools } from "./tools";
 import { getAnsweredQuestions, getSentMessages } from "./ebay/history";
 import { editStyle, getStyle, learnStyle, saveStyle } from "./style";
 import { reviewPromotions } from "./promotion";
@@ -245,12 +247,14 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
     if (floor != null && !(floor > 0 && floor < 100_000)) return json({ error: "Floor must be a price in pounds" }, 400);
     const notes = typeof b.notes === "string" ? b.notes.trim().slice(0, 2000) || null : null;
     await env.store.listings.setFloorAndNotes(itemSettings[1], floor, notes);
+    // K's own price is only cleared here (it's set from the Inbox, when nothing comparable has sold).
+    if (b.clearOwnPrice === true) await env.store.listings.setOwnPrice(itemSettings[1], null);
     return json({ ok: true, floorPrice: floor, notes });
   }
   if (itemSettings && method === "GET")
   {
     const s = await env.store.listings.getSettings(itemSettings[1]);
-    return json(s ? { floorPrice: s.floor_price, notes: s.notes } : { floorPrice: null, notes: null });
+    return json(s ? { floorPrice: s.floor_price, notes: s.notes, ownPrice: s.own_price } : { floorPrice: null, notes: null, ownPrice: null });
   }
 
   if (path === "/activity" && method === "GET") {
@@ -396,6 +400,26 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
       const { text } = await body(request);
       const answer = typeof text === "string" ? text.trim().slice(0, 1000) : "";
       if (!answer) return json({ error: "Write an answer" }, 400);
+      if (todo.code === "own_price") {
+        // Nothing comparable has sold: K's price becomes the listing's own price. If the listing isn't at it, the
+        // usual price proposal (floor, step and engine checks; K approves) puts it there.
+        const price = parsePrice(answer);
+        if (price == null) return json({ error: "Give a price, for example 65" }, 400);
+        const itemId = todo.item_id;
+        return run(async () => {
+          await env.store.listings.setOwnPrice(itemId, price);
+          await priceListing(env, itemId);
+          const current = (await env.store.listings.latest(itemId))?.price ?? null;
+          let note = `Saved: £${price.toFixed(2)} is this listing's price. The engine won't change it; clear it on Listings.`;
+          if (current != null && Math.abs(current - price) / current >= 0.01) {
+            const propose = tools.find((t) => t.name === "propose_price_change")!;
+            await propose.run(env, { item_id: itemId, new_price: price, reason: "Your own price, set in the Inbox: nothing comparable has sold to price it from." });
+            note += ` A label to change it from £${current.toFixed(2)} is waiting below.`;
+          }
+          await env.store.todos.close(id, "done", user.name, now, note);
+          return json({ ok: true, note });
+        });
+      }
       const cur = await env.store.listings.getSettings(todo.item_id);
       const notes = [cur?.notes, answer].filter(Boolean).join("\n").slice(0, 2000);
       await env.store.listings.setFloorAndNotes(todo.item_id, cur?.floor_price ?? null, notes);

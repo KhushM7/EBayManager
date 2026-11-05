@@ -258,14 +258,8 @@ export function auditListing(
       "measurements",
       "medium",
       "Measurements missing",
-      `${measured.join(", ")}. ${
-        !pub
-          ? "The published specifications haven't been looked up yet (it needs the Claude key)."
-          : !pub.exact
-            ? `They can't be looked up until the exact product is known: ${pub.note}`
-            : `Not published for the ${pub.product}, so they'd need measuring.`
-      } Add them as facts and Claude fills them in.`,
-      "you",
+      `eBay also asks for ${measured.join(", ")}. Claude fills them from your facts or the published specifications where it can, and says which it couldn't find (add those as facts on Listings).`,
+      "claude",
     );
   if (other.length >= 2)
     add("other_specifics", "low", `${other.length} other recommended item specifics missing`, `${other.join(", ")}. Claude fills the ones that apply and that the listing states; some may not apply to this item.`, "claude");
@@ -300,8 +294,9 @@ export function auditListing(
   // Price against the market (the engine's latest check).
   const d = ctx.pricing?.decision ?? null;
   if (!ctx.pricing) add("not_priced", "medium", "Not priced against the market", "The pricing engine hasn't checked this listing yet: see the prices step at the bottom of the report.", "none");
-  if (d && d.strategy === "ask") add("engine_question", "medium", "Engine needs your answer", d.question ?? "The engine couldn't identify this item exactly.", "you");
-  else if (d && d.price != null && input.current) {
+  if (d && d.strategy === "ask" && d.reason === "no_sales") add("own_price", "medium", "No sales to price from", d.question ?? "What price do you want for it?", "you");
+  else if (d && d.strategy === "ask") add("engine_question", "medium", "Engine needs your answer", d.question ?? "The engine couldn't identify this item exactly.", "you");
+  else if (d && d.strategy !== "own" && d.price != null && input.current) {
     const gap = (input.current - d.price) / d.price;
     if (Math.abs(gap) >= 0.05)
       add(

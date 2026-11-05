@@ -121,14 +121,16 @@ export function Facts({ itemId, hasFloor, onSignedOut }: { itemId: string; hasFl
   const [open, setOpen] = useState(false);
   const [notes, setNotes] = useState("");
   const [floor, setFloor] = useState("");
+  const [own, setOwn] = useState<number | null>(null);
+  const [clearOwn, setClearOwn] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const load = () =>
-    api<{ floorPrice: number | null; notes: string | null }>(`/items/${itemId}/settings`)
-      .then((s) => (setNotes(s.notes ?? ""), setFloor(s.floorPrice != null ? String(s.floorPrice) : ""), setOpen(true)))
+    api<{ floorPrice: number | null; notes: string | null; ownPrice: number | null }>(`/items/${itemId}/settings`)
+      .then((s) => (setNotes(s.notes ?? ""), setFloor(s.floorPrice != null ? String(s.floorPrice) : ""), setOwn(s.ownPrice), setClearOwn(false), setOpen(true)))
       .catch((e) => (e instanceof SignedOut ? onSignedOut() : setMsg(e.message)));
   const save = () =>
-    api(`/items/${itemId}/settings`, { body: { notes, floorPrice: floor.trim() === "" ? null : Number(floor) } })
-      .then(() => (setMsg("Saved. Claude uses these facts in listing edits and replies, marked as from you."), setOpen(false)))
+    api(`/items/${itemId}/settings`, { body: { notes, floorPrice: floor.trim() === "" ? null : Number(floor), clearOwnPrice: clearOwn } })
+      .then(() => (setMsg(clearOwn ? "Saved. The engine prices this listing again from the next check." : "Saved. Claude uses these facts in listing edits and replies, marked as from you."), setOpen(false)))
       .catch((e) => (e instanceof SignedOut ? onSignedOut() : setMsg(e.message)));
   return (
     <div class="wide" style={{ margin: "6px 0 0" }}>
@@ -146,6 +148,12 @@ export function Facts({ itemId, hasFloor, onSignedOut }: { itemId: string; hasFl
             Lowest price you'd accept (floor), £
             <input inputMode="decimal" value={floor} onInput={(e) => setFloor((e.target as HTMLInputElement).value)} />
           </label>
+          {own != null && (
+            <label class="choice">
+              <input type="checkbox" checked={clearOwn} onChange={() => setClearOwn(!clearOwn)} />
+              Your own price is £{own.toFixed(2)}, so the engine leaves it alone. Tick to let the engine price it again.
+            </label>
+          )}
           <div class="actions">
             <button class="btn btn-stamp" onClick={save}>
               Save
@@ -281,7 +289,7 @@ export function Report({ me, onSignedOut, onChanged, go }: ScreenProps) {
               </p>
               {l.pricing && (
                 <p class="wide small muted" style={{ margin: 0 }}>
-                  Market: {l.pricing.strategy === "ask" ? "the engine needs your answer (in the Inbox)" : `${l.pricing.strategy} at ${money(l.pricing.price)}`}
+                  Market: {l.pricing.strategy === "ask" ? "the engine needs your answer (in the Inbox)" : l.pricing.strategy === "own" ? `your own price, ${money(l.pricing.price)}` : `${l.pricing.strategy} at ${money(l.pricing.price)}`}
                 </p>
               )}
               {l.published && <Published p={l.published} />}

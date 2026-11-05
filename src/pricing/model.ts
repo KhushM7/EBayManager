@@ -177,11 +177,11 @@ export function marketState(salesIn: MarketSale[], active: ActiveListing[], opts
   } else if (dip != null && dip >= dipThreshold && (weeksOfSupply == null || weeksOfSupply > 2)) {
     regime = "race_to_bottom";
     why =
-      `Sales are clearing at ${gbp(mNow)}, ${Math.round(dip * 100)}% below the usual ${gbp(mLong)}, with ${supply} listed` +
+      `Sales are clearing at ${gbp(mNow)}, ${Math.round(dip * 100)}% below the usual ${gbp(mLong)}, with ${listed(supply)} listed` +
       (recoveryDays != null ? `; past dips recovered in about ${Math.round(recoveryDays / 7)} weeks.` : "; past dips haven't clearly recovered.");
   } else {
     why =
-      `Sales clear at ${gbp(mNow)} (usual ${gbp(mLong)}), ${supply} listed` +
+      `Sales clear at ${gbp(mNow)} (usual ${gbp(mLong)}), ${listed(supply)} listed` +
       (weeksOfSupply != null ? `, about ${weeksOfSupply.toFixed(1)} weeks of supply.` : ".");
   }
 
@@ -256,6 +256,13 @@ export function hazard(p: number, m: number, demandPerDay: number, supply: numbe
 }
 
 export const daysToSell = (h: number) => (h > 0 ? 1 / h : Infinity);
+
+/** A wait for K to read: estimates past a year mean the model has too little demand to go on, so none is given. */
+export const daysText = (d: number | null | undefined) =>
+  d == null || !Number.isFinite(d) || d > 365 ? "no reliable estimate (over a year at today's demand)" : d <= 1 ? "about a day" : `about ${Math.round(d)} days`;
+
+/** How many listings compete, for K: close matches count part of one, so it's rounded. */
+export const listed = (supply: number) => (Number.isInteger(supply) ? String(supply) : supply < 10 ? supply.toFixed(1) : String(Math.round(supply)));
 export const chanceWithin = (h: number, days: number) => 1 - Math.exp(-h * days);
 
 export interface Costs {
@@ -285,7 +292,8 @@ export function value(p: number, h: number, c: Costs): number {
   return (h * net(p, c) - hold) / (h + delta);
 }
 
-export type Strategy = "compete" | "hold" | "clear" | "ask";
+/** "own": K set the price (no sales to price from); the engine reports it and never changes it. */
+export type Strategy = "compete" | "hold" | "clear" | "ask" | "own";
 
 export interface PriceOption {
   /** Total the buyer pays. */
@@ -308,6 +316,8 @@ export interface Decision {
   /** 0 to 1. */
   confidence: number;
   question?: string;
+  /** Why it asks: it can't tell what the item is, or it knows but no sales of it or anything close exist. */
+  reason?: "unidentified" | "no_sales";
 }
 
 export interface DecideInput {
@@ -322,6 +332,12 @@ export interface DecideInput {
   maxStep?: number;
   /** Days the listing has already been up: long-listed items carry a staleness cost. */
   listedDays?: number;
+  /**
+   * Spares or repair with one known, simple fault and everything else stated working (Claude's reading of the
+   * listing). Such an item is better than the typical spares listing, whose faults are unknown, so it's priced
+   * at the middle of spares sales instead of the cheaper end (K, 2026-11-05).
+   */
+  minorFault?: boolean;
 }
 
 /** The longest wait the engine will advise holding for. */
@@ -385,7 +401,8 @@ export function decide(input: DecideInput): Decision {
       options: [],
       why: mk.why,
       confidence: 0,
-      question: "No sales of this item or close matches were found. Which exact model, size or variant is it?",
+      question: "No sales of this item or anything close were found, so it can't be priced from the market. What price do you want for it?",
+      reason: "no_sales",
     };
   }
 
@@ -440,10 +457,18 @@ export function decide(input: DecideInput): Decision {
     pick = best(mk.mNow, d, n, floorTotal, mk.p25 ?? mk.mNow);
   } else {
     strategy = "compete";
-    // Keep inside the cheaper half of current sales, so the listing is picked early, without harming value.
-    const from = Math.max(floorTotal, Math.min(mk.p25 ?? mk.mNow, mk.mNow));
-    const to = Math.max(from, (mk.p25 ?? mk.mNow) + 0.55 * ((mk.p75 ?? mk.mNow) - (mk.p25 ?? mk.mNow)));
-    pick = best(mk.mNow, d, n, from, to);
+    if (input.minorFault) {
+      // Better than the typical spares listing: from the middle of spares sales to halfway to the upper quartile.
+      const from = Math.max(floorTotal, mk.mNow);
+      const to = Math.max(from, mk.mNow + 0.5 * Math.max(0, (mk.p75 ?? mk.mNow) - mk.mNow));
+      pick = best(mk.mNow, d, n, from, to);
+      why += " One known fault with the rest working, so it's priced at the middle of spares sales, not the cheap end.";
+    } else {
+      // Keep inside the cheaper half of current sales, so the listing is picked early, without harming value.
+      const from = Math.max(floorTotal, Math.min(mk.p25 ?? mk.mNow, mk.mNow));
+      const to = Math.max(from, (mk.p25 ?? mk.mNow) + 0.55 * ((mk.p75 ?? mk.mNow) - (mk.p25 ?? mk.mNow)));
+      pick = best(mk.mNow, d, n, from, to);
+    }
   }
 
   // The price ending suits the strategy; never below the floor.

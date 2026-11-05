@@ -138,6 +138,8 @@ export interface ItemSettings {
   floor_price: number | null;
   collection_only: number;
   notes: string | null;
+  /** K's own price for a listing with no market to price from; the engine never changes it. */
+  own_price: number | null;
 }
 
 const minIso = (a: string | null | undefined, b: string | null | undefined) => (!a ? b ?? null : !b ? a : Date.parse(a) <= Date.parse(b) ? a : b);
@@ -205,11 +207,11 @@ export function listingsRepo(docs: DocStore) {
     },
     getSettings: async (itemId: string): Promise<ItemSettings | null> => {
       const d = await docs.get(L, "settings", itemId);
-      return d ? ({ collection_only: 0, notes: null, floor_price: null, ...strip(d) } as ItemSettings) : null;
+      return d ? ({ collection_only: 0, notes: null, floor_price: null, own_price: null, ...strip(d) } as ItemSettings) : null;
     },
     async settingsAll(): Promise<Map<string, ItemSettings>> {
       const rows = await docs.query<any>(L, { where: [{ f: "type", op: "=", v: "item_settings" }] });
-      return new Map(rows.map((d) => [d.item_id, { collection_only: 0, notes: null, floor_price: null, ...strip(d) } as ItemSettings]));
+      return new Map(rows.map((d) => [d.item_id, { collection_only: 0, notes: null, floor_price: null, own_price: null, ...strip(d) } as ItemSettings]));
     },
     /** K's floor and facts from the app: both replaced, collection-only kept. */
     async setFloorAndNotes(itemId: string, floor: number | null, notes: string | null) {
@@ -217,6 +219,13 @@ export function listingsRepo(docs: DocStore) {
         ...(cur ?? { id: "settings", pk: itemId, type: "item_settings", item_id: itemId, collection_only: 0 }),
         floor_price: floor,
         notes,
+      }));
+    },
+    /** K's own price, for a listing with no market to price from (null clears it). Other settings kept. */
+    async setOwnPrice(itemId: string, price: number | null) {
+      await mutate(docs, L, "settings", itemId, (cur) => ({
+        ...(cur ?? { id: "settings", pk: itemId, type: "item_settings", item_id: itemId, collection_only: 0, floor_price: null, notes: null }),
+        own_price: price,
       }));
     },
     /** The MCP/Claude tool: floor and notes only when given, collection-only always. */

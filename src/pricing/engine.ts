@@ -3,7 +3,7 @@ import type { MessagesApi } from "../claude";
 import { searchActiveComps, type Comp } from "../ebay/browse";
 import { getItem } from "../ebay/trading";
 import { itemNumber, poolSales, providerEnabled, searchSold, type Provider, type SoldSale } from "../solddata";
-import { identify, IDENTITY_VERSION, matchTitles, type Component, type Grade, type Identity } from "./identify";
+import { identify, identifyByRules, IDENTITY_VERSION, matchTitles, type Component, type Grade, type Identity } from "./identify";
 import {
   charmPrice,
   decide,
@@ -167,10 +167,12 @@ async function priceComponent(env: Env, identity: Identity, c: Component, input:
     active.map((a) => ({ total: r2(total(a.price, a.shipping) * a.g.factor), weight: weight(a.g) })),
     { now: marketAt },
   );
-  const postage = input.postage ?? typicalPostage;
+  const postage = pricingPostage(input.postage, typicalPostage);
   const costs: Costs = { postage };
   const single = identity.components.length === 1;
-  const decision = decide({ market, costs, params, floor: single ? input.floor : null, current: single ? input.current : null, listedDays: input.listedDays });
+  const minorFault = identity.condition === "parts" && identity.fault === "minor";
+  const decision = decide({ market, costs, params, floor: single ? input.floor : null, current: single ? input.current : null, listedDays: input.listedDays, minorFault });
+  if (single && input.postage != null && postage < input.postage) decision.why += postageNote(input.postage, postage);
 
   // Only exact matches teach the sale model which prices sell.
   if (!backtest) await recordSnapshot(env, c.query, identity.group, active.filter((a) => a.g.grade === "exact"), typicalPostage, market).catch(() => {});
@@ -222,6 +224,18 @@ async function recordSnapshot(env: Env, query: string, group: string, active: Co
   await env.store.pricing.writeMarket(key, at, { grp: group, market: market.mNow, share, items });
 }
 
+/**
+ * The postage the engine prices with. K sets postage on the high side for big items, offers collection, and
+ * refunds any overpaid postage (K, 2026-11-05), so a postage above the market's typical isn't held against
+ * the price: the engine prices as if the typical postage were charged.
+ */
+export function pricingPostage(kPostage: number | null | undefined, typical: number): number {
+  return kPostage == null ? typical : Math.min(kPostage, typical);
+}
+
+export const postageNote = (kPostage: number, typical: number) =>
+  ` Your postage (£${kPostage.toFixed(2)}) is above the typical £${typical.toFixed(2)} for this item; priced as if buyers paid the typical postage, since you refund any overpaid postage and offer collection.`;
+
 /** Adds up a bundle's parts: each part priced on its own market, postage charged once. */
 export function sumOfParts(parts: ComponentResult[], postage: number, floor?: number | null): Decision {
   // A part with no evidence at all doesn't block the price when the main part (listed first) is priced:
@@ -239,6 +253,7 @@ export function sumOfParts(parts: ComponentResult[], postage: number, floor?: nu
       why: ask ? `No reliable price for "${ask.name}". ${ask.market.why}` : "No part of this bundle could be priced.",
       confidence: 0,
       question: ask ? `What exactly is the "${ask.name}" (brand and model)?` : "What's in this bundle?",
+      reason: "unidentified",
     };
   // Each part's item price is its market total less that market's postage.
   const itemPrice = (p: ComponentResult, i: number) => Math.max(0, (p.decision.options[i]?.total ?? p.decision.total!) - p.typicalPostage);
@@ -267,7 +282,7 @@ export async function priceItem(env: Env, input: PriceInput, api?: MessagesApi):
   const identity = await cachedIdentity(env, input, api);
   const at = Date.now();
   if (!identity.priceable) {
-    const empty: Decision = { strategy: "ask", price: null, total: null, options: [], why: "The listing doesn't say exactly what the item is.", confidence: 0, question: identity.question ?? "Which brand and model is it?" };
+    const empty: Decision = { strategy: "ask", price: null, total: null, options: [], why: "The listing doesn't say exactly what the item is.", confidence: 0, question: identity.question ?? "Which brand and model is it?", reason: "unidentified" };
     return { at, identity, components: [], decision: empty, method: "single" };
   }
   const params = await paramsFor(env, identity.group);
@@ -277,7 +292,9 @@ export async function priceItem(env: Env, input: PriceInput, api?: MessagesApi):
     components.push(await priceComponent(env, identity, c, input, params, api));
   }
   const bundle = components.length > 1;
-  const decision = bundle ? sumOfParts(components, input.postage ?? Math.max(...components.map((c) => c.typicalPostage)), input.floor) : components[0].decision;
+  const typical = bundle ? Math.max(...components.map((c) => c.typicalPostage)) : 0;
+  const decision = bundle ? sumOfParts(components, pricingPostage(input.postage, typical), input.floor) : components[0].decision;
+  if (bundle && input.postage != null && pricingPostage(input.postage, typical) < input.postage) decision.why += postageNote(input.postage, typical);
   return { at, identity, components, decision, method: bundle ? "sum of parts" : "single" };
 }
 
@@ -337,10 +354,33 @@ export function inputFromItem(item: any): PriceInput {
   };
 }
 
+/** K's own price for a listing with no market to price from: the engine reports it and never moves it. */
+export function ownPriceResult(input: PriceInput, own: number): PriceResult {
+  return {
+    at: Date.now(),
+    identity: { ...identifyByRules(input.title), priceable: true, question: null },
+    components: [],
+    decision: {
+      strategy: "own",
+      price: own,
+      total: r2(own + (input.postage ?? 0)),
+      options: [],
+      why: "Your own price: there were no sales of this item or anything close to price it from. The engine won't change it; clear it on Listings to let it price again.",
+      confidence: 1,
+    },
+    method: "single",
+  };
+}
+
 /** Prices one of K's live listings (read-only eBay calls) and records the decision. */
 export async function priceListing(env: Env, itemId: string, api?: MessagesApi): Promise<PriceResult> {
   const input = inputFromItem(await getItem(env, itemId));
   const s = await env.store.listings.getSettings(itemId);
+  if (s?.own_price != null) {
+    const own = ownPriceResult(input, s.own_price);
+    await recordDecision(env, itemId, own);
+    return own;
+  }
   const r = await priceItem(env, { ...input, itemId, floor: s?.floor_price ?? null, factsFromK: s?.notes ?? null, excludeItemIds: [itemId] }, api);
   await recordDecision(env, itemId, r);
   return r;

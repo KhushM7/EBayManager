@@ -35,8 +35,7 @@ import { orderLines } from "./store";
 import { jobStatus, startJob } from "./background";
 import { latestReport } from "./firstday";
 import { fileAuditTodos, parsePrice } from "./todos";
-import { priceListing } from "./pricing/engine";
-import { tools } from "./tools";
+import { proposeEnginePrice, setOwnPrice } from "./pricing/actions";
 import { getAnsweredQuestions, getSentMessages } from "./ebay/history";
 import { editStyle, getStyle, learnStyle, saveStyle } from "./style";
 import { reviewPromotions } from "./promotion";
@@ -349,6 +348,17 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
     });
   }
 
+  // From a price check on Listings (owner): file the engine's price as a label, or set K's own price when
+  // nothing comparable has sold. Both go through the usual price proposal; nothing here writes to eBay.
+  if ((path === "/pricing/propose" || path === "/pricing/own") && method === "POST") {
+    if (!owner) return ownerOnly();
+    const { itemId, price } = await body(request);
+    if (typeof itemId !== "string" || !/^\d{6,20}$/.test(itemId)) return json({ error: "Bad item id" }, 400);
+    const p = typeof price === "number" ? price : parsePrice(String(price ?? ""));
+    if (p == null || !(p > 0 && p < 100_000)) return json({ error: "Give a price, for example 65" }, 400);
+    return run(async () => json({ ok: true, note: path === "/pricing/own" ? await setOwnPrice(env, itemId, p, "from a price check") : await proposeEnginePrice(env, itemId, p) }));
+  }
+
   if (path === "/pricing/latest" && method === "GET") {
     const rows = await env.store.pricing.latestDecisions();
     return json(rows.map((r) => ({ item_id: r.item_id, at: r.at, strategy: r.strategy, price: r.price, total: r.total, predicted_days: r.predicted_days, result: JSON.parse(r.result) })));
@@ -407,16 +417,8 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
         if (price == null) return json({ error: "Give a price, for example 65" }, 400);
         const itemId = todo.item_id;
         return run(async () => {
-          await env.store.listings.setOwnPrice(itemId, price);
-          await priceListing(env, itemId);
-          const current = (await env.store.listings.latest(itemId))?.price ?? null;
-          let note = `Saved: £${price.toFixed(2)} is this listing's price. The engine won't change it; clear it on Listings.`;
-          if (current != null && Math.abs(current - price) / current >= 0.01) {
-            const propose = tools.find((t) => t.name === "propose_price_change")!;
-            await propose.run(env, { item_id: itemId, new_price: price, reason: "Your own price, set in the Inbox: nothing comparable has sold to price it from." });
-            note += ` A label to change it from £${current.toFixed(2)} is waiting below.`;
-          }
-          await env.store.todos.close(id, "done", user.name, now, note);
+          await env.store.todos.close(id, "done", user.name, now);
+          const note = await setOwnPrice(env, itemId, price, "in the Inbox");
           return json({ ok: true, note });
         });
       }

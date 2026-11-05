@@ -20,6 +20,7 @@ interface Decision {
   why: string;
   confidence: number;
   question?: string;
+  reason?: "unidentified" | "no_sales";
 }
 
 interface Component {
@@ -145,12 +146,64 @@ export function PriceReport({ r }: { r: PriceResult }) {
   );
 }
 
-export function PriceCheck({ itemId, onSignedOut }: { itemId: string; onSignedOut: () => void }) {
+/** What K can do with a price check: file the engine's price as a label, or set an own price when nothing has sold. */
+function PriceActions({ itemId, current, d, onSignedOut, onChanged }: { itemId: string; current: number; d: Decision; onSignedOut: () => void; onChanged: () => void }) {
+  const [own, setOwn] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const act = async (path: string, price: number | string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setNote((await api<{ note: string }>(path, { body: { itemId, price } })).note);
+      onChanged();
+    } catch (e) {
+      if (e instanceof SignedOut) onSignedOut();
+      else setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (note) return <p class="wide result" role="status">{note}</p>;
+  const err = error && <p class="error">{error}</p>;
+  if (d.strategy === "ask" && d.reason === "no_sales")
+    return (
+      <div class="wide form">
+        <label>
+          Your price, £ (the engine keeps looking for a market each week)
+          <input inputMode="decimal" value={own} onInput={(e) => setOwn((e.target as HTMLInputElement).value)} />
+        </label>
+        <div class="actions">
+          <button class="btn btn-stamp" disabled={busy || !own.trim()} onClick={() => act("/pricing/own", own)}>
+            Set as your price
+          </button>
+        </div>
+        {err}
+      </div>
+    );
+  if (d.strategy === "ask") return <p class="wide small">Add what it is to its facts below (brand, model, size), then check again.</p>;
+  if (d.strategy === "own") return <p class="wide small">Your own price. Clear it in the facts below to let the engine price it now.</p>;
+  if (d.price == null) return null;
+  if (Math.abs(d.price - current) / current < 0.01) return <p class="wide small">The listing is already at the engine's price.</p>;
+  return (
+    <div class="wide actions">
+      <button class="btn btn-stamp" disabled={busy} onClick={() => act("/pricing/propose", d.price!)}>
+        Propose {money(d.price)} (was {money(current)})
+      </button>
+      <span class="small muted">A label goes to the Inbox for you to approve.</span>
+      {err}
+    </div>
+  );
+}
+
+export function PriceCheck({ itemId, current, onSignedOut, onChanged }: { itemId: string; current: number; onSignedOut: () => void; onChanged: () => void }) {
   const [state, setState] = useState<{ busy?: boolean; result?: PriceResult; error?: string }>({});
   const check = async () => {
     setState({ busy: true });
     try {
       setState({ result: await apiJob<PriceResult>("/pricing/check", { itemId }) });
+      onChanged();
     } catch (e) {
       if (e instanceof SignedOut) onSignedOut();
       else setState({ error: (e as Error).message });
@@ -163,6 +216,7 @@ export function PriceCheck({ itemId, onSignedOut }: { itemId: string; onSignedOu
       </button>
       {state.error && <p class="wide error">{state.error}</p>}
       {state.result && <PriceReport r={state.result} />}
+      {state.result && <PriceActions itemId={itemId} current={current} d={state.result.decision} onSignedOut={onSignedOut} onChanged={onChanged} />}
     </>
   );
 }

@@ -1,7 +1,7 @@
 import type { Env } from "./env";
 import { runFirstDayAudit } from "./firstday";
 import { auditListing } from "./jobs";
-import { priceListing } from "./pricing/engine";
+import { priceCheck } from "./pricing/actions";
 import { push } from "./notify";
 
 // Long tasks K starts from the app (docs/azure-migration.md): on Azure an HTTP response must come within
@@ -17,7 +17,7 @@ async function execute(env: Env, kind: JobKind, args: any): Promise<unknown> {
     case "firstday":
       return { report: await runFirstDayAudit(env, { relearnStyle: args?.relearnStyle === true }) };
     case "price_check":
-      return priceListing(env, String(args.itemId));
+      return priceCheck(env, String(args.itemId));
     case "listing_review": {
       const r = await auditListing(env, String(args.itemId));
       return { itemId: args.itemId, note: r.text, turns: r.turns, costUsd: r.costUsd, stopReason: r.stopReason };

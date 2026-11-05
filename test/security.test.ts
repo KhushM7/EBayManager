@@ -189,6 +189,10 @@ describe("people and roles", () => {
     const [todo] = await env.store.todos.list("open");
     expect((await api(`/todos/${todo.id}/answer`, { text: "Width 1 m" }, manager.cookie)).status).toBe(403);
     expect((await api(`/todos/${todo.id}/answer`, { text: "Width 1 m" }, owner.cookie)).status).toBe(200);
+    // Proposing a price or setting an own price from a price check: K only.
+    expect((await api("/pricing/propose", { itemId: "123456", price: 10 }, manager.cookie)).status).toBe(403);
+    expect((await api("/pricing/own", { itemId: "123456", price: 10 }, manager.cookie)).status).toBe(403);
+    expect((await api("/pricing/own", { itemId: "123456", price: "no idea" }, owner.cookie)).status).toBe(400);
   });
 
   it("records who decided a proposal", async () => {

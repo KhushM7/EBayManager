@@ -170,3 +170,21 @@ describe("a listing on K's own price isn't forgotten", () => {
     expect(await env.store.todos.list("open")).toHaveLength(0);
   });
 });
+
+describe("acting on a price check", () => {
+  it("files the engine's price as a label through the usual checks, and refuses any other price", async () => {
+    const { proposeEnginePrice } = await import("../src/pricing/actions");
+    const { seedSnapshot } = await import("./fixtures");
+    const env = { store: memoryStore(), EBAY_ENV: "production", WRITE_MODE: "off", SIGNING_KEY: "k", PUBLIC_URL: "https://x" } as Env;
+    await seedSnapshot(env.store, Date.now(), [{ item_id: "178245985136", title: "Dyson", price: 39.99 }]);
+    const engine: PriceResult = { at: Date.now(), identity: { product: "Dyson" } as any, components: [], method: "single", decision: { strategy: "compete", price: 35.99, total: 42.37, options: [{ total: 39, price: 32.99, daysToSell: 40, chance30: 0.5, keeps: 32.99, expectedValue: 30 }], why: "Sales clear at £33.00.", confidence: 0.5 } };
+    await recordDecision(env, "178245985136", engine);
+
+    expect(await proposeEnginePrice(env, "178245985136", 35.99)).toMatch(/A label to change it to £35\.99 is waiting/);
+    const [p] = await env.store.proposals.listWhere([{ f: "kind", op: "=", v: "price" }]);
+    expect(p).toMatchObject({ item_id: "178245985136", status: "pending", dry_run: 1 });
+    expect(JSON.parse(p.payload)).toMatchObject({ oldPrice: 39.99, newPrice: 35.99 });
+    await expect(proposeEnginePrice(env, "178245985136", 20)).rejects.toThrow(/isn't one of the engine's prices/);
+    expect(await proposeEnginePrice(env, "178245985136", 39.99)).toMatch(/already at £39\.99/);
+  });
+});

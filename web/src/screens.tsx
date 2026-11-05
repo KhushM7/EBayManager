@@ -375,7 +375,7 @@ export function Listings({ me, onSignedOut, onChanged }: ScreenProps) {
               {me.user.role === "owner" && (
                 <>
                   {" · "}
-                  <PriceCheck itemId={l.item_id} onSignedOut={onSignedOut} />
+                  <PriceCheck itemId={l.item_id} current={Number(l.price)} onSignedOut={onSignedOut} onChanged={onChanged} />
                 </>
               )}
             </div>

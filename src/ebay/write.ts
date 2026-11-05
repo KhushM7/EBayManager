@@ -1,7 +1,7 @@
 import type { Env } from "../env";
 import type { Proposal } from "../proposals";
 import { RETURNS } from "../rules";
-import { esc, tradingRequest } from "./trading";
+import { esc, tradingRequest, tradingUpload } from "./trading";
 import { seqId } from "../store/doc";
 
 // The write gate. This is the only module that may send an eBay write (enforced by test/safety.test.ts).
@@ -58,9 +58,13 @@ export function callFor(p: Pick<Proposal, "kind" | "item_id" | "payload">): Writ
     case "create_listing": {
       const pictures = (a.pictureUrls ?? []).map((u: string) => `<PictureURL>${esc(u)}</PictureURL>`).join("");
       // eBay rejects collection in person as the only flat-rate service; collection only = no postage, ship nowhere.
+      // Collection offered as well as postage is a second, free service.
+      const collect = a.collectionOffered
+        ? `<ShippingServiceOptions><ShippingServicePriority>2</ShippingServicePriority><ShippingService>UK_CollectInPerson</ShippingService><ShippingServiceCost currencyID="GBP">0.00</ShippingServiceCost></ShippingServiceOptions>`
+        : "";
       const shipping = a.collectionOnly
         ? `<ShipToLocations>None</ShipToLocations>`
-        : `<ShippingDetails><ShippingType>Flat</ShippingType><ShippingServiceOptions><ShippingServicePriority>1</ShippingServicePriority><ShippingService>UK_RoyalMailSecondClassStandard</ShippingService><ShippingServiceCost currencyID="GBP">${Number(a.shippingCost ?? 0).toFixed(2)}</ShippingServiceCost></ShippingServiceOptions></ShippingDetails>`;
+        : `<ShippingDetails><ShippingType>Flat</ShippingType><ShippingServiceOptions><ShippingServicePriority>1</ShippingServicePriority><ShippingService>UK_RoyalMailSecondClassStandard</ShippingService><ShippingServiceCost currencyID="GBP">${Number(a.shippingCost ?? 0).toFixed(2)}</ShippingServiceCost></ShippingServiceOptions>${collect}</ShippingDetails>`;
       return {
         call: "AddFixedPriceItem",
         xml: `<Item>
@@ -178,12 +182,52 @@ export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
   }
 
   try {
+    // A new listing from a draft: its photos go to eBay's picture service first (as uploaded bytes; they never
+    // get a public address), then the listing is built with eBay's picture addresses.
+    if (p.kind === "create_listing") {
+      const a = JSON.parse(p.payload);
+      if (Array.isArray(a.photoKeys) && a.photoKeys.length) {
+        const pictureUrls = await uploadPictures(env, p.id, a.photoKeys);
+        built = callFor({ ...p, payload: JSON.stringify({ ...a, pictureUrls }) });
+      }
+    }
     const res = await tradingRequest(env, built.call, built.xml);
     const summary = res.ItemID ? `${built.call} ok, item ${res.ItemID}` : `${built.call} ok`;
     await audit(env, p.id, built.call, built.xml, "applied", JSON.stringify(res));
+    if (p.kind === "create_listing" && res.ItemID) {
+      const a = JSON.parse(p.payload);
+      if (typeof a.draftId === "string")
+        await env.store.drafts.setStatus(a.draftId, "published", Date.now(), { item_id: String(res.ItemID), published_at: Date.now() }).catch(() => null);
+    }
     return summary;
   } catch (e) {
     await audit(env, p.id, built.call, built.xml, "failed", e instanceof Error ? e.message : String(e));
     throw e;
   }
+}
+
+/**
+ * Uploads a new listing's photos to eBay's picture service (UploadSiteHostedPictures, sent as the image bytes)
+ * and returns eBay's addresses for them, in order. Only called while applying an approved create_listing,
+ * after the gate's claim. Each upload is in the audit log.
+ */
+async function uploadPictures(env: Env, proposalId: string, keys: string[]): Promise<string[]> {
+  if (!env.photos) throw new Error("Photo storage isn't set up, so the listing's photos can't be sent to eBay");
+  const urls: string[] = [];
+  for (const [i, key] of keys.slice(0, 24).entries()) {
+    const bytes = await env.photos.get(key);
+    if (!bytes) throw new Error(`Photo ${i + 1} is missing from storage`);
+    const xml = `<PictureName>photo-${i + 1}</PictureName><PictureSet>Supersize</PictureSet>`;
+    try {
+      const res = await tradingUpload(env, "UploadSiteHostedPictures", xml, bytes, `photo-${i + 1}.jpg`);
+      const url = String(res?.SiteHostedPictureDetails?.FullURL ?? "");
+      if (!/^https:\/\//.test(url)) throw new Error("eBay returned no picture address");
+      urls.push(url);
+      await audit(env, proposalId, "UploadSiteHostedPictures", xml, "applied", url);
+    } catch (e) {
+      await audit(env, proposalId, "UploadSiteHostedPictures", xml, "failed", e instanceof Error ? e.message : String(e));
+      throw e;
+    }
+  }
+  return urls;
 }

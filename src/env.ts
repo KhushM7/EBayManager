@@ -42,6 +42,10 @@ export interface Env {
   /** Third-party sold-price data (optional): Trawl and CompsAPI keys. Search words only are sent. */
   TRAWL_API_KEY?: string;
   COMPSAPI_KEY?: string;
+  /** Parcel2Go API credentials for postage quotes on new listings (src/postage.ts); "true" uses their sandbox. */
+  PARCEL2GO_CLIENT_ID?: string;
+  PARCEL2GO_CLIENT_SECRET?: string;
+  PARCEL2GO_SANDBOX?: string;
   MCP_TOKEN: string;
   SIGNING_KEY: string;
   NTFY_TOPIC: string;

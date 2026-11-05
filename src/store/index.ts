@@ -41,4 +41,4 @@ export { orderLines } from "./data";
 export type { DecisionRow, ItemSettings, LatestRow, OrderDoc, PushRow, JobRow, UsageRow } from "./data";
 export type { ProposalRow, AuditRow } from "./proposals";
 export type { TodoInput, TodoRow, TodoScope, TodoKind, TodoStatus } from "./todos";
-export type { DraftRow, DraftPhoto, DraftStatus } from "./drafts";
+export type { DraftRow, DraftPhoto, DraftStatus, DraftReview, DraftFacts, DraftSpecific, DraftPatch } from "./drafts";

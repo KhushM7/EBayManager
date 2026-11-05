@@ -22,8 +22,8 @@ describe("write gate is the only path to eBay writes", () => {
     expect(filesMatching(WRITE_VERBS).sort()).toEqual(["src/ebay/allowlist.ts", "src/ebay/write.ts"]);
   });
 
-  it("only the Trading client and the write gate use tradingRequest", () => {
-    expect(filesMatching(/\btradingRequest\b/).sort()).toEqual(["src/ebay/trading.ts", "src/ebay/write.ts"]);
+  it("only the Trading client and the write gate use tradingRequest and tradingUpload", () => {
+    expect(filesMatching(/\btrading(Request|Upload)\b/).sort()).toEqual(["src/ebay/trading.ts", "src/ebay/write.ts"]);
   });
 
   it("network calls happen only in reviewed modules", () => {
@@ -35,6 +35,7 @@ describe("write gate is the only path to eBay writes", () => {
       "src/ebay/sell.ts",
       "src/ebay/trading.ts",
       "src/notify.ts",
+      "src/postage.ts",
       "src/push.ts",
       "src/solddata.ts",
     ]);

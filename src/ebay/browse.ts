@@ -68,6 +68,66 @@ export async function categoryAspects(env: Env, categoryId: string): Promise<{ n
   return toAspects(await res.json());
 }
 
+export interface CategoryOption {
+  id: string;
+  name: string;
+  /** Parent categories, top first, e.g. "Home, Furniture & DIY > Vacuum Cleaners". */
+  path: string;
+}
+
+/** eBay's suggested categories for a product description (Taxonomy, EBAY_GB tree 3), best first. Read-only. */
+export async function categorySuggestions(env: Env, q: string): Promise<CategoryOption[]> {
+  const u = new URL(`${ebayHosts(env).api}/commerce/taxonomy/v1/category_tree/3/get_category_suggestions`);
+  u.searchParams.set("q", q.slice(0, 350));
+  assertRest("GET", u.toString());
+  const res = await fetch(u, { headers: { Authorization: `Bearer ${await appToken(env)}` } });
+  if (!res.ok) throw new Error(`Category suggestions failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
+  return toCategoryOptions(await res.json());
+}
+
+export function toCategoryOptions(data: any): CategoryOption[] {
+  return (data?.categorySuggestions ?? []).slice(0, 8).map((s: any) => ({
+    id: String(s.category?.categoryId ?? ""),
+    name: String(s.category?.categoryName ?? ""),
+    path: [...(s.categoryTreeNodeAncestors ?? [])]
+      .reverse()
+      .map((a: any) => String(a.categoryName ?? ""))
+      .filter((n: string) => n && n !== "Root")
+      .join(" > "),
+  })).filter((c: CategoryOption) => c.id && c.name);
+}
+
+export interface AspectDetail {
+  name: string;
+  required: boolean;
+  /** eBay's suggested values (the first 40); with selectionOnly, the only values eBay accepts. */
+  values: string[];
+  selectionOnly: boolean;
+  multiple: boolean;
+}
+
+/** A category's required and recommended item specifics with their allowed values (Taxonomy). Read-only. */
+export async function categoryAspectDetails(env: Env, categoryId: string): Promise<AspectDetail[]> {
+  const u = new URL(`${ebayHosts(env).api}/commerce/taxonomy/v1/category_tree/3/get_item_aspects_for_category`);
+  u.searchParams.set("category_id", categoryId);
+  assertRest("GET", u.toString());
+  const res = await fetch(u, { headers: { Authorization: `Bearer ${await appToken(env)}` } });
+  if (!res.ok) throw new Error(`Taxonomy aspects failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
+  return toAspectDetails(await res.json());
+}
+
+export function toAspectDetails(data: any): AspectDetail[] {
+  return (data?.aspects ?? [])
+    .filter((a: any) => a.aspectConstraint?.aspectRequired || a.aspectConstraint?.aspectUsage === "RECOMMENDED")
+    .map((a: any) => ({
+      name: String(a.localizedAspectName),
+      required: a.aspectConstraint?.aspectRequired === true,
+      values: (a.aspectValues ?? []).slice(0, 40).map((v: any) => String(v.localizedValue)),
+      selectionOnly: a.aspectConstraint?.aspectMode === "SELECTION_ONLY",
+      multiple: a.aspectConstraint?.itemToAspectCardinality === "MULTI",
+    }));
+}
+
 export function toAspects(data: any): { name: string; required: boolean }[] {
   return (data?.aspects ?? [])
     .filter((a: any) => a.aspectConstraint?.aspectRequired || a.aspectConstraint?.aspectUsage === "RECOMMENDED")

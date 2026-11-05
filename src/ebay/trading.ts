@@ -43,6 +43,43 @@ export async function tradingRequest(env: Env, call: string, innerXml: string): 
   return parseTradingResponse(call, await res.text());
 }
 
+/**
+ * Sends a Trading verb with a file attached (multipart: the XML request, then the bytes), as eBay's picture
+ * upload needs. Only src/ebay/write.ts may call it (enforced by test), like tradingRequest.
+ */
+export async function tradingUpload(env: Env, call: string, innerXml: string, bytes: Uint8Array, filename: string): Promise<any> {
+  assertTrading(call, "any");
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<${call}Request xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ErrorLanguage>en_GB</ErrorLanguage>
+  <WarningLevel>High</WarningLevel>
+  ${innerXml}
+</${call}Request>`;
+  const boundary = `ebaymanager${crypto.randomUUID().replace(/-/g, "")}`;
+  const enc = new TextEncoder();
+  const head = enc.encode(
+    `--${boundary}\r\nContent-Disposition: form-data; name="XML Payload"\r\nContent-Type: text/xml;charset=utf-8\r\n\r\n${xml}\r\n` +
+      `--${boundary}\r\nContent-Disposition: form-data; name="dummy"; filename="${filename.replace(/[^\w.-]/g, "")}"\r\nContent-Type: image/jpeg\r\nContent-Transfer-Encoding: binary\r\n\r\n`,
+  );
+  const tail = enc.encode(`\r\n--${boundary}--\r\n`);
+  const body = new Uint8Array(head.length + bytes.length + tail.length);
+  body.set(head, 0);
+  body.set(bytes, head.length);
+  body.set(tail, head.length + bytes.length);
+  const res = await fetch(`${ebayHosts(env).api}/ws/api.dll`, {
+    method: "POST",
+    headers: {
+      "X-EBAY-API-CALL-NAME": call,
+      "X-EBAY-API-SITEID": env.EBAY_SITE_ID,
+      "X-EBAY-API-COMPATIBILITY-LEVEL": COMPAT_LEVEL,
+      "X-EBAY-API-IAF-TOKEN": await userToken(env),
+      "Content-Type": `multipart/form-data; boundary=${boundary}`,
+    },
+    body: body as BodyInit,
+  });
+  return parseTradingResponse(call, await res.text());
+}
+
 export function parseTradingResponse(call: string, xml: string): any {
   const doc = parser.parse(xml)[`${call}Response`];
   if (!doc) throw new Error(`Unexpected Trading response for ${call}: ${xml.slice(0, 300)}`);

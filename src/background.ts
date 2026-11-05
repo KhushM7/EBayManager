@@ -3,6 +3,7 @@ import { runFirstDayAudit } from "./firstday";
 import { auditListing } from "./jobs";
 import { priceCheck } from "./pricing/actions";
 import { push } from "./notify";
+import { composeDraft, priceDraft, reviewDraft } from "./newlisting";
 
 // Long tasks K starts from the app (docs/azure-migration.md): on Azure an HTTP response must come within
 // 230 seconds, so the first-day audit, a price check and Claude's listing review run as background jobs. The
@@ -10,7 +11,7 @@ import { push } from "./notify";
 // the app shows its progress. Where there is no queue (tests, local runs) the job runs inline and the
 // request answers with the result, exactly as before.
 
-export type JobKind = "firstday" | "price_check" | "listing_review";
+export type JobKind = "firstday" | "price_check" | "listing_review" | "draft_review" | "draft_compose" | "draft_price";
 
 async function execute(env: Env, kind: JobKind, args: any): Promise<unknown> {
   switch (kind) {
@@ -18,6 +19,13 @@ async function execute(env: Env, kind: JobKind, args: any): Promise<unknown> {
       return { report: await runFirstDayAudit(env, { relearnStyle: args?.relearnStyle === true }) };
     case "price_check":
       return priceCheck(env, String(args.itemId));
+    // Add Listing (src/newlisting.ts): each returns the updated draft.
+    case "draft_review":
+      return reviewDraft(env, String(args.draftId));
+    case "draft_compose":
+      return composeDraft(env, String(args.draftId));
+    case "draft_price":
+      return priceDraft(env, String(args.draftId));
     case "listing_review": {
       const r = await auditListing(env, String(args.itemId));
       return { itemId: args.itemId, note: r.text, turns: r.turns, costUsd: r.costUsd, stopReason: r.stopReason };
@@ -29,6 +37,9 @@ const TITLES: Record<JobKind, string> = {
   firstday: "First-day audit",
   price_check: "Price check",
   listing_review: "Claude's listing review",
+  draft_review: "Photo check",
+  draft_compose: "Listing draft",
+  draft_price: "Price for the new listing",
 };
 
 /**

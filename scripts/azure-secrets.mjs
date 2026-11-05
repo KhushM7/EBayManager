@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { parseEnv } from "node:util";
 import { az, envArg, outputs } from "./azure-common.mjs";
 
-const SECRETS = ["EBAY_APP_ID", "EBAY_CERT_ID", "EBAY_DEV_ID", "EBAY_RUNAME", "EBAY_COMPS_APP_ID", "EBAY_COMPS_CERT_ID", "DASHBOARD_KEY", "VAPID_KEY", "ANTHROPIC_API_KEY", "EBAY_DELETION_TOKEN", "TRAWL_API_KEY", "COMPSAPI_KEY", "MCP_TOKEN", "SIGNING_KEY", "NTFY_TOPIC"];
+const SECRETS = ["EBAY_APP_ID", "EBAY_CERT_ID", "EBAY_DEV_ID", "EBAY_RUNAME", "EBAY_COMPS_APP_ID", "EBAY_COMPS_CERT_ID", "DASHBOARD_KEY", "VAPID_KEY", "ANTHROPIC_API_KEY", "EBAY_DELETION_TOKEN", "TRAWL_API_KEY", "COMPSAPI_KEY", "PARCEL2GO_CLIENT_ID", "PARCEL2GO_CLIENT_SECRET", "MCP_TOKEN", "SIGNING_KEY", "NTFY_TOPIC"];
 
 const env = envArg();
 const file = env === "production" ? ".prod.vars" : ".dev.vars";

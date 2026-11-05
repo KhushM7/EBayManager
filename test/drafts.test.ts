@@ -107,7 +107,7 @@ describe("drafts API", () => {
     const [a, b] = two.photos.map((p: any) => p.id);
     const ordered = (await (await call(`/drafts/${d.id}/order`, { json: { order: [b, a] } })).json()) as any;
     expect(ordered.photos.map((p: any) => p.id)).toEqual([b, a]);
-    const removed = (await (await call(`/drafts/${d.id}/photos/${b}`, { json: {} })).json()) as any;
+    const removed = (await (await call(`/drafts/${d.id}/photos/${b}/remove`, { json: {} })).json()) as any;
     expect(removed.photos.map((p: any) => p.id)).toEqual([a]);
     expect(photos.keys()).toHaveLength(1);
   });
@@ -130,8 +130,8 @@ describe("drafts API", () => {
     expect(photos.keys().every((k) => k.startsWith(`drafts/${b.id}/`))).toBe(true);
     expect((await (await call("/drafts")).json()) as any[]).toHaveLength(1);
 
-    expect(await cleanUpDrafts(env, Date.now() + 10 * 86_400_000)).toBe("0 abandoned, 0 photos deleted");
-    expect(await cleanUpDrafts(env, Date.now() + 31 * 86_400_000)).toBe("1 abandoned, 1 photos deleted");
+    expect(await cleanUpDrafts(env, Date.now() + 10 * 86_400_000)).toBe("0 abandoned, 0 published cleared, 0 photos deleted");
+    expect(await cleanUpDrafts(env, Date.now() + 31 * 86_400_000)).toBe("1 abandoned, 0 published cleared, 1 photos deleted");
     expect(photos.keys()).toEqual([]);
   });
 

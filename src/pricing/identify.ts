@@ -125,7 +125,7 @@ const plain = (html: string) =>
 
 export async function identify(env: Env, listing: ListingFacts, api?: MessagesApi): Promise<Identity> {
   if (!env.ANTHROPIC_API_KEY && !api) return identifyByRules(listing.title);
-  const photos = (listing.photos ?? []).slice(0, 3);
+  const photos = (listing.photos ?? []).filter((u) => /^https:\/\//.test(u)).slice(0, 3);
   const prompt = [
     `Title: ${listing.title}`,
     listing.condition ? `Condition (seller's setting): ${listing.condition}` : "",

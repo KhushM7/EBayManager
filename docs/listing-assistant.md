@@ -61,3 +61,7 @@ Before the camera opens, the app shows a short checklist. It checks each photo a
 - **Publish:** eBay checks the listing first (`VerifyAddFixedPriceItem`), then it's a proposal K approves, and only then is it published.
 
 Photos are stored in Azure Blob Storage (Cloudflare R2 until the move on 2026-11-05; wired in with Phase 10) and uploaded to eBay when the listing is published.
+
+### The app's New listing flow
+
+Built (2026-11-06): the **New listing** wizard (`web/src/wizard.tsx`, at `/new`) runs on the drafts server (`/api/drafts`, `src/drafts.ts` and `src/newlisting.ts`). See [add-listing.md](add-listing.md) for the steps and [add-listing-handover.md](add-listing-handover.md) for its state. The placeholder `/api/listing-assistant/*` contract the wizard was first drawn against is gone.

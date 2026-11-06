@@ -1,7 +1,9 @@
+import { motion } from "framer-motion";
 import { useEffect, useState } from "preact/hooks";
 import { api, apiJob, SignedOut } from "./api";
 import { ago, money } from "./format";
 import type { ScreenProps } from "./screens";
+import { EASE_OUT, Icons, Ring, SPRING } from "./ui";
 
 // The first-day audit report (src/firstday.ts), K's facts box and K's reply style guide (src/style.ts).
 // Read-only on eBay. What needs doing is in the Inbox (to-dos and labels); this page is the summary and the
@@ -198,68 +200,115 @@ export function Report({ me, onSignedOut, onChanged, go }: ScreenProps) {
     }
   };
 
-  if (report === undefined) return error ? <p class="error">{error}</p> : <div class="page-head" aria-busy="true" />;
+  const intro = "A read-only check of the whole shop: every listing, your sales, ended listings, past replies and settings. Nothing changes on eBay.";
+  if (report === undefined)
+    return error ? (
+      <p class="error">{error}</p>
+    ) : (
+      <div class="card">
+        <div class="skeleton h-5 w-40" />
+        <div class="skeleton mt-4 h-24 w-full" />
+      </div>
+    );
 
   if (!report)
     return (
       <>
         <div class="page-head">
-          <h1 class="title-in">Audit</h1>
-          <p>
-            A read-only look at the whole account: every listing, your sold history, ended listings, your past replies and your settings.
-            Nothing changes on eBay; what needs doing goes to the Inbox.
-          </p>
+          <div>
+            <h1>Store Pulse</h1>
+            <p>{intro}</p>
+          </div>
         </div>
         {error && <p class="error">{error}</p>}
-        <p class="paper">
+        <div class="card flex flex-col items-start gap-3">
           {owner ? (
-            <button class="btn btn-stamp" disabled={running} onClick={run}>
-              {running ? "Reading the account (a minute or two)" : "Run the audit"}
-            </button>
+            <motion.button whileTap={{ scale: 0.95 }} class="btn btn-primary" disabled={running} onClick={run}>
+              <Icons.pulse size={16} /> {running ? "Reading your shop (a minute or two)" : "Check my shop"}
+            </motion.button>
           ) : (
-            "Not run yet. It runs on the first night after eBay is connected, or K can run it now."
+            <p>Not run yet. It runs on the first night after eBay is connected, or K can run it now.</p>
           )}
-        </p>
+        </div>
       </>
     );
 
   // What needs doing lives in the Inbox: to-dos for what only K can do, labels for changes already drafted.
   const toDo = report.findings.filter((f) => f.fix === "you").length + report.listings.filter((l) => l.findings.some((f) => f.fix === "claude")).length;
   const failed = Object.entries(report.steps).filter(([, v]) => v.startsWith("failed"));
+  const returns = report.settings.policies?.returns ?? [];
+  const checks: [string, boolean][] = [
+    ["Every part of your shop was read", failed.length === 0],
+    ["Every listing has 4 or more photos", report.listings.length > 0 && report.listings.every((l) => l.photos >= 4)],
+    ["Descriptions say more than the title", report.listings.length > 0 && report.listings.every((l) => l.descriptionChars >= 200)],
+    ["Returns accepted, buyer pays return postage", returns.length > 0 && returns.every((r) => r.accepted && r.buyerPaysReturnPostage !== false)],
+    ["Sales history on file", report.sold.count > 0],
+    ["Nothing waiting for you", toDo + report.proposals.length === 0],
+  ];
+  const passed = checks.filter(([, ok]) => ok).length;
 
   return (
     <>
       <div class="page-head">
-        <h1 class="title-in">Audit</h1>
-        <p>
-          Read {ago(report.at)}: {plural(report.listings.length, "listing")}, {plural(report.sold.count, "past sale")},{" "}
-          {plural(report.unsold.length, "ended listing")} and {plural(report.messages.replies, "past reply", "past replies")}. Nothing was changed on eBay.{" "}
-          {owner && (
-            <button class="btn-link" disabled={running} onClick={run}>
-              {running ? "Reading the account" : "Run again"}
-            </button>
-          )}
-        </p>
+        <div>
+          <h1>Store Pulse</h1>
+          <p>
+            Checked {ago(report.at)}: {plural(report.listings.length, "listing")}, {plural(report.sold.count, "past sale")}, {plural(report.unsold.length, "ended listing")} and{" "}
+            {plural(report.messages.replies, "past reply", "past replies")}.
+          </p>
+        </div>
+        {owner && (
+          <motion.button whileTap={{ scale: 0.95 }} class="btn btn-secondary" disabled={running} onClick={run}>
+            <Icons.refresh size={16} /> {running ? "Checking…" : "Check again"}
+          </motion.button>
+        )}
       </div>
       {error && <p class="error">{error}</p>}
 
-      <section class="paper audit-summary">
-        <p class="kind">{toDo || report.proposals.length ? "Next: the Inbox" : "Nothing to do"}</p>
-        <p>
-          {toDo || report.proposals.length
-            ? `It left ${[toDo && plural(toDo, "to-do"), report.proposals.length && `${plural(report.proposals.length, "label")} to approve`].filter(Boolean).join(" and ")}. Each one says what to do.`
-            : "Every listing, sale and setting checked out."}
-        </p>
-        {(toDo > 0 || report.proposals.length > 0) && (
-          <button class="btn btn-stamp" onClick={() => go("/")}>
-            Open the Inbox
-          </button>
-        )}
-        {failed.length > 0 && (
-          <p class="flag">
-            {plural(failed.length, "part")} couldn't be read: {failed.map(([k]) => k.replace(/_/g, " ")).join(", ")}. Run it again; details under "What the audit read".
-          </p>
-        )}
+      <section class="card grid items-center gap-6 md:grid-cols-[auto_minmax(0,1fr)]">
+        <div class="flex flex-col items-center gap-2 text-center">
+          <Ring value={passed / checks.length} size={148} stroke={12} color={passed === checks.length ? "var(--green)" : passed >= checks.length / 2 ? "var(--accent)" : "var(--yellow)"}>
+            <div>
+              <span class="block text-3xl font-bold tabular-nums">
+                {passed}/{checks.length}
+              </span>
+              <span class="text-xs text-muted">checks passed</span>
+            </div>
+          </Ring>
+        </div>
+        <div>
+          <ul class="m-0 grid gap-2.5 p-0">
+            {checks.map(([label, ok], i) => (
+              <motion.li key={label} class="flex list-none items-center gap-3" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 + i * 0.14, ease: EASE_OUT }}>
+                <motion.span
+                  class={`grid size-6 flex-none place-items-center rounded-full ${ok ? "bg-green text-[#04130d]" : "bg-yellow-soft text-yellow"}`}
+                  initial={{ scale: 0, rotate: -45 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  transition={{ ...SPRING, delay: 0.3 + i * 0.14 }}
+                  style={ok ? { boxShadow: "0 0 14px -2px var(--green)" } : undefined}
+                >
+                  {ok ? <Icons.check size={14} /> : <Icons.alert size={13} />}
+                </motion.span>
+                <span class={ok ? "" : "text-ink-2"}>{label}</span>
+              </motion.li>
+            ))}
+          </ul>
+          {(toDo > 0 || report.proposals.length > 0) && (
+            <div class="mt-5 flex flex-wrap items-center gap-3 border-t border-line pt-4">
+              <span class="text-sm text-muted">
+                It left {[toDo && plural(toDo, "suggestion"), report.proposals.length && `${plural(report.proposals.length, "change")} to approve`].filter(Boolean).join(" and ")}.
+              </span>
+              <motion.button whileTap={{ scale: 0.95 }} class="btn btn-primary" onClick={() => go("/")}>
+                Open the Inbox <Icons.arrowRight size={16} />
+              </motion.button>
+            </div>
+          )}
+          {failed.length > 0 && (
+            <p class="flag mt-3">
+              {plural(failed.length, "part")} couldn't be read: {failed.map(([k]) => k.replace(/_/g, " ")).join(", ")}.
+            </p>
+          )}
+        </div>
       </section>
 
       <details class="section fold">
@@ -415,7 +464,7 @@ export function Report({ me, onSignedOut, onChanged, go }: ScreenProps) {
 
       <details class="section fold">
         <summary>
-          <h2>What the audit read</h2>
+          <h2>What was checked</h2>
           <span class="small muted">{failed.length ? `${plural(failed.length, "part")} failed` : "every part read"}</span>
         </summary>
         <ul class="paper small">
@@ -510,7 +559,7 @@ export function StyleCard({ owner, onSignedOut }: { owner: boolean; onSignedOut:
           agreements, everything kept on eBay.
         </p>
         {style === undefined && <p aria-busy="true" />}
-        {style === null && <p>No guide yet. It's learned when the audit runs.</p>}
+        {style === null && <p>No guide yet. It's learned when Store Pulse runs.</p>}
         {style && !draft && (
           <>
             <dl class="figures">

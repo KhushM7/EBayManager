@@ -1,6 +1,8 @@
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "preact/hooks";
 import { api, SignedOut, type Me } from "./api";
 import { ago } from "./format";
+import { EASE_OUT, Icons, item, list } from "./ui";
 
 // Inbox to-dos (src/todos.ts): what needs one of you but isn't an eBay change. Each leads with what to do.
 // Answers are saved as K's facts; "Let Claude draft" runs the listing review, whose changes come back as
@@ -23,10 +25,10 @@ export interface Todo {
   note: string | null;
 }
 
-const KIND: Record<Todo["kind"], [string, string]> = {
-  answer: ["state-decide", "Needs your answer"],
-  claude: ["state-info", "Claude can do this"],
-  you: ["state-held", "For you to do"],
+const KIND: Record<Todo["kind"], [string, string, (p: { size?: number }) => any]> = {
+  answer: ["text-red bg-red-soft", "Needs your answer", Icons.message],
+  claude: ["text-accent bg-accent-soft", "Claude can handle this", Icons.sparkles],
+  you: ["text-yellow bg-yellow-soft", "For you to do", Icons.check],
 };
 
 function Detail({ text }: { text: string }) {
@@ -46,7 +48,6 @@ function TodoLabel({ t, i, owner, onDone, onSignedOut }: { t: Todo; i: number; o
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [cls, word] = KIND[t.kind];
 
   const act = async (action: "done" | "dismiss" | "answer" | "claude", body: object = {}) => {
     setBusy(true);
@@ -64,61 +65,63 @@ function TodoLabel({ t, i, owner, onDone, onSignedOut }: { t: Todo; i: number; o
   };
 
   const canAnswer = t.kind === "answer" && owner;
+  const [tone, word, Icon] = KIND[t.kind];
   return (
-    <li class="label paper" style={{ "--i": Math.min(i, 10) }}>
-      <div class="label-body">
-        <p class={`state ${cls}`}>{word}</p>
-        <h3 class="kind todo-title">{t.title}</h3>
-        {t.item_title && <p class="item-title">{t.item_title}</p>}
+    <motion.li layout variants={item} exit={{ opacity: 0, x: 40, transition: { duration: 0.25 } }} class="card glow-hover list-none">
+      <div class="flex items-start gap-3">
+        <span class={`grid size-10 flex-none place-items-center rounded-xl ${tone}`}>
+          <Icon size={18} />
+        </span>
+        <div class="min-w-0 flex-1">
+          <p class="text-xs font-semibold text-muted">{word}</p>
+          <h3 class="mt-0.5 text-[15px] leading-snug">{t.title}</h3>
+          {t.item_title && <p class="mt-0.5 truncate text-sm text-muted">{t.item_title}</p>}
+        </div>
+      </div>
+      <div class="mt-3 text-[15px] text-ink-2">
         {t.question && <p class="quote">{t.question}</p>}
         <Detail text={t.detail} />
-        {canAnswer && !result && (
-          <div class="form">
-            <label>
-              Your answer
-              <textarea rows={2} value={answer} onInput={(e) => setAnswer((e.target as HTMLTextAreaElement).value)} />
-            </label>
-          </div>
-        )}
-        {t.kind === "answer" && !owner && <p class="small muted">K answers this: answers are saved as K's facts about the item.</p>}
-        {error && <p class="error">{error}</p>}
-        <p class="small muted">
-          {t.source === "nightly" ? "From the nightly check" : "From the audit"}, {ago(t.created_at)}
-          {t.item_id ? ` · item ${t.item_id}` : ""}
-        </p>
       </div>
-      <div class="label-stub">
+      {canAnswer && !result && (
+        <label class="mt-3 grid gap-1.5 text-sm font-semibold text-ink-2">
+          Your answer
+          <textarea rows={2} value={answer} onInput={(e) => setAnswer((e.target as HTMLTextAreaElement).value)} />
+        </label>
+      )}
+      {t.kind === "answer" && !owner && <p class="mt-2 text-sm text-muted">K answers this: answers are saved as K's facts about the item.</p>}
+      {error && <p class="error mt-3">{error}</p>}
+      <AnimatePresence mode="wait">
         {result ? (
-          <p class="result" role="status">
+          <motion.p key="r" class="result mt-4" role="status" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE_OUT }}>
             {result}
-          </p>
+          </motion.p>
         ) : (
-          <>
+          <motion.div key="a" class="mt-4 flex flex-wrap items-center gap-2" exit={{ opacity: 0 }}>
             {canAnswer && (
-              <button class="btn btn-stamp" disabled={busy || !answer.trim()} onClick={() => act("answer", { text: answer })}>
+              <motion.button whileTap={{ scale: 0.95 }} class="btn btn-primary" disabled={busy || !answer.trim()} onClick={() => act("answer", { text: answer })}>
                 Save answer
-              </button>
+              </motion.button>
             )}
             {t.kind === "claude" && (
-              <>
-                <button class="btn btn-stamp" disabled={busy} onClick={() => act("claude")}>
-                  {busy ? "Starting" : "Let Claude draft"}
-                </button>
-                <p class="small">About 5 to 10 cents. You approve each change.</p>
-              </>
+              <motion.button whileTap={{ scale: 0.95 }} class="btn btn-primary" disabled={busy} onClick={() => act("claude")}>
+                <Icons.sparkles size={16} /> {busy ? "Starting" : "Let Claude draft it"}
+              </motion.button>
             )}
             {t.kind === "you" && (
-              <button class="btn btn-stamp" disabled={busy} onClick={() => act("done")}>
-                Done
-              </button>
+              <motion.button whileTap={{ scale: 0.95 }} class="btn btn-approve" disabled={busy} onClick={() => act("done")}>
+                <Icons.check size={16} /> Done
+              </motion.button>
             )}
-            <button class="btn btn-text" disabled={busy} onClick={() => act("dismiss")}>
+            <motion.button whileTap={{ scale: 0.95 }} class="btn btn-text" disabled={busy} onClick={() => act("dismiss")}>
               Dismiss
-            </button>
-          </>
+            </motion.button>
+            <span class="ml-auto text-xs text-muted">
+              {t.source === "nightly" ? "Nightly check" : "Store Pulse"} · {ago(t.created_at)}
+            </span>
+          </motion.div>
         )}
-      </div>
-    </li>
+      </AnimatePresence>
+    </motion.li>
   );
 }
 
@@ -134,13 +137,17 @@ export function Todos({ me, onSignedOut, onCount, onChanged }: { me: Me; onSigne
   }, []);
   if (!rows?.length) return null;
   return (
-    <section class="section" aria-label="To do">
-      <h2>To do</h2>
-      <ol class="labels">
-        {rows.map((t, i) => (
-          <TodoLabel key={t.id} t={t} i={i} owner={me.user.role === "owner"} onDone={() => (load(), onChanged())} onSignedOut={onSignedOut} />
-        ))}
-      </ol>
+    <section aria-label="Suggestions">
+      <h2 class="inbox-sub flex items-center gap-2">
+        <Icons.sparkles size={18} class="text-accent" /> Your assistant suggests
+      </h2>
+      <motion.ol class="m-0 grid gap-3 p-0" variants={list} initial="hidden" animate="show">
+        <AnimatePresence initial={false}>
+          {rows.map((t, i) => (
+            <TodoLabel key={t.id} t={t} i={i} owner={me.user.role === "owner"} onDone={() => (load(), onChanged())} onSignedOut={onSignedOut} />
+          ))}
+        </AnimatePresence>
+      </motion.ol>
     </section>
   );
 }

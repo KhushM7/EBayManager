@@ -38,7 +38,7 @@ Nothing runs continuously. The app runs only when a request, a push decision, a 
 
 ## Stack
 
-- **Frontend:** Vite + Preact + TypeScript in `web/`, built to `web/dist` and bundled into the Function App, which serves it with the SPA fallback and security headers on every response. Plain CSS, mobile first.
+- **Frontend:** Vite + Preact + TypeScript in `web/`, built to `web/dist` and bundled into the Function App, which serves it with the SPA fallback and security headers on every response. Tailwind v4 and Framer Motion (through `preact/compat`), mobile first. Look and motion: [design-system.md](design-system.md).
 - **Charts:** small hand-rolled SVG components, or uPlot if the time series grow large.
 - **API:** JSON routes under `/api/*` in `src/api.ts`, called by the dashboard.
 - **Push:** Web Push with one `VAPID_KEY` secret (a P-256 private JWK; the public key is derived from it). Encryption (RFC 8291) and VAPID (RFC 8292) are written on Web Crypto in `src/push.ts`, with no library, and tested by decrypting a message as a browser would. Subscriptions are stored in the data store (`kv` container); gone ones are removed.
@@ -58,14 +58,15 @@ Nothing runs continuously. The app runs only when a request, a push decision, a 
 | Screen | Shows | Actions |
 | --- | --- | --- |
 | **Inbox** (home) | To-dos first (answers, then Claude drafts, then things to do yourself; see [approvals.md](approvals.md#to-dos-2026-11-05-ks-choice)), then pending proposals, newest first. Each label shows old → new values, the reason and guardrail flags | Answer, let Claude draft, done or dismiss; approve, reject, batch approve |
-| **Audit** | A one-paragraph summary of the last first-day audit and how many to-dos and labels it left, with folded sections: listings, sold history, ended listings, settings and what it read (failed parts flagged) | Run again (owner), open the Inbox |
+| **Store Pulse** (was Audit, `/pulse`) | A ring of passed checks and a one-line summary of the last first-day audit and how many to-dos and labels it left, with folded sections: listings, sold history, ended listings, settings and what it read (failed parts flagged) | Run again (owner), open the Inbox |
 | **Listings** | Every active listing with price, days listed, watchers, floor and pending labels | Review with Claude, price check, K's facts and floor (owner) |
 | **Listing detail** | Price, views and watchers over time from snapshots, comps, proposal history, K's floor price and notes | Edit floor and notes (stored in the app only) |
-| **Metrics** | See below | Pick a date range |
+| **Insights** (`/metrics`) | See below, as a bento grid with store health | Run the nightly check now, open Store Pulse |
+| **New listing** (`/new`) | A five-step wizard: photos graded in the browser, facts, Claude's description, price, review | Send for approval (a `create_listing` proposal) |
 | **Activity** | The audit log: every eBay write, refusal and failure | Filter by outcome |
-| **Settings** | Environment and write mode (read-only display), Pause all writes, push devices, test push, people, sold data, the reply style guide, Claude spend, auto-apply toggles (later) | Toggle pause, manage devices, edit the style guide (owner) |
+| **Settings** | Notifications and devices, passkeys, people, sold data, the reply style guide; **Advanced** holds Pause all writes, Claude spend, connection status, test push and approvals recorded while read-only | Toggle pause, manage devices, edit the style guide (owner) |
 
-A coloured banner is always shown at the top of every screen: **SANDBOX** (amber), **PRODUCTION · READ-ONLY** (blue), or none in full production. Push titles carry the same prefix, for example `[SANDBOX] Price: 24.99 → 22.50`.
+A glowing pill is pinned to the top centre of every screen: **Sandbox · test account** (amber), **Live account · read-only** (blue), or none in full production (2026-11-05; it replaced the full-width banner). Push titles carry the same prefix, for example `[SANDBOX] Price: 24.99 → 22.50`.
 
 ## Metrics
 

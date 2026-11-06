@@ -1,6 +1,7 @@
 // Dev-only stand-in for the Worker's /api, so the screens can be built and screenshotted without an account.
 // Used by `MOCK=1 npm run dev:web`. Never bundled into the app.
 import type { Plugin } from "vite";
+import { draftsMock } from "./mock-drafts";
 
 const now = Date.now();
 const h = 3_600_000;
@@ -91,27 +92,20 @@ export function mockApi(): Plugin {
         if (!req.url?.startsWith("/api/")) return next();
         const url = new URL(req.url, "http://x");
         let body: any = {};
+        let raw = Buffer.alloc(0);
         if (req.method === "POST") {
           const chunks: Buffer[] = [];
           for await (const c of req) chunks.push(c as Buffer);
-          try { body = JSON.parse(Buffer.concat(chunks).toString() || "{}"); } catch {}
+          raw = Buffer.concat(chunks);
+          try { body = JSON.parse(raw.toString() || "{}"); } catch {}
         }
         const send = (d: unknown, status = 200) => { res.statusCode = status; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(d)); };
         const p = url.pathname.slice(4);
         if (process.env.MOCK === "signedout" && p !== "/login") return send({ error: "Sign in" }, 401);
         if (p === "/me") return send(me);
+        // New listing: the real drafts server with stand-ins (mock-drafts.ts); its labels join the sample Inbox.
+        if (process.env.MOCK !== "signedout" && (await draftsMock(server, req, res, raw, { proposals }))) return;
         if (p === "/login") return body.key === "demo" ? send({ ok: true }) : send({ error: "Wrong key" }, 401);
-        if (p === "/proposals") return send(proposals.filter((x) => x.status === (url.searchParams.get("status") ?? "pending")));
-        if (p === "/proposals/decide") {
-          const results = (body.ids as string[]).map((id) => {
-            const x = proposals.find((y) => y.id === id)!;
-            x.status = body.decision === "approve" ? "applied" : "rejected";
-            x.decided_at = Date.now();
-            x.result = body.decision === "approve" ? "ReviseFixedPriceItem ok" : "Rejected";
-            return { id, result: x.result };
-          });
-          return send({ results });
-        }
         if (p === "/todos") return send(todos.filter((x) => x.status === (url.searchParams.get("status") ?? "open")));
         const todoAction = p.match(/^\/todos\/(todo:[\w-]+)\/(done|dismiss|answer|claude)$/);
         if (todoAction) {
@@ -151,6 +145,7 @@ export function mockApi(): Plugin {
         if (p === "/usage") return send({ today: { usd: 0.04, calls: 6 }, month: { usd: 0.61, calls: 88 }, byJob: [{ job: "audit", calls: 40, usd: 0.52 }, { job: "triage", calls: 48, usd: 0.09 }], dailyBudgetUsd: 1, apiKeySet: false });
         if (p === "/audit") { await new Promise((r) => setTimeout(r, 600)); return send({ error: "ANTHROPIC_API_KEY is not set on this Worker yet." }, 503); }
         if (p === "/settings/writes") { me.writesPaused = Boolean(body.paused); (me as any).writesBlocked = me.writesPaused ? "Writes are paused" : null; return send({ writesPaused: me.writesPaused }); }
+        if (p === "/solddata") return send({ providers: [{ provider: "trawl", enabled: true, used: 26, cap: 250 }, { provider: "compsapi", enabled: true, used: 27, cap: 100 }], primary: "trawl", lastEval: null });
         return send({ ok: true });
       });
     },

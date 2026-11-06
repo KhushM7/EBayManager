@@ -24,7 +24,26 @@ import {
   submitDraft,
 } from "../src/newlisting";
 import { decide } from "../src/proposals";
-import { cheapestSimpleDelivery, simpleDeliveryCarrier } from "../src/postage";
+import { cheapestSimpleDelivery, readQuote, simpleDeliveryCarrier } from "../src/postage";
+
+/** Four quotes from a real Parcel2Go reply (live, 2026-11-06, a 1 kg box 25×20×10 cm), trimmed to the fields read. */
+const PARCEL2GO_QUOTES = [{"Service":{"CourierName":"DPD","Name":"DPD Drop Off","Slug":"dpd","CollectionType":"Shop","IsPrinterRequired":false},"TotalPrice":7.94,"TotalPriceExVat":6.62,"EstimatedDeliveryDate":"2026-11-10T00:00:00","CurrencyCode":"GBP"},{"Service":{"CourierName":"InPost","Name":"InPost Shop to Home","Slug":"collect-plus-drop-off-service-72hr","CollectionType":"Shop","IsPrinterRequired":false},"TotalPrice":2.64,"TotalPriceExVat":2.2,"EstimatedDeliveryDate":"2026-11-12T00:00:00","CurrencyCode":"GBP"},{"Service":{"CourierName":"DPD","Name":"DPD Collection","Slug":"dpd-collection","CollectionType":"Collection","IsPrinterRequired":true},"TotalPrice":11.99,"TotalPriceExVat":9.99,"EstimatedDeliveryDate":"2026-11-11T00:00:00","CurrencyCode":"GBP"},{"Service":{"CourierName":"Royal Mail","Name":"Royal Mail 48 Tracked Small","Slug":"royalmail-int_2606","CollectionType":"Shop","IsPrinterRequired":false},"TotalPrice":3.75,"TotalPriceExVat":3.13,"EstimatedDeliveryDate":"2026-11-10T00:00:00","CurrencyCode":"GBP"}];
+
+describe("reading Parcel2Go's quotes", () => {
+  it("reads a real reply and keeps eBay's Simple Delivery carriers, cheapest first", () => {
+    const quotes = PARCEL2GO_QUOTES.map(readQuote).filter((q) => q != null);
+    expect(quotes).toHaveLength(4);
+    expect(cheapestSimpleDelivery(quotes)).toEqual([
+      { carrier: "InPost", service: "InPost Shop to Home", price: 2.64 },
+      { carrier: "Royal Mail", service: "Royal Mail 48 Tracked Small", price: 3.75 },
+    ]);
+  });
+  it("skips what it can't read, and other currencies", () => {
+    expect(readQuote({})).toBeNull();
+    expect(readQuote({ Service: { CourierName: "Evri", Name: "x" }, TotalPrice: "n/a" })).toBeNull();
+    expect(readQuote({ ...PARCEL2GO_QUOTES[1], CurrencyCode: "EUR" })).toBeNull();
+  });
+});
 
 // Add Listing, steps L2 to L5 (docs/add-listing.md), with Claude and eBay stood in for.
 
@@ -314,4 +333,54 @@ describe("a new listing, end to end", () => {
     // Recorded as a dry run, so the draft can go back to editing.
     expect((await reopenDraft(env, d.id)).status).toBe("open");
   });
+
+  // eBay Sandbox's picture service answers every upload with error 10007 (eBay's API status page, 2025).
+  for (const ebayEnv of ["sandbox", "production"] as const)
+    it(`when eBay's picture service fails with error 10007 on ${ebayEnv}, ${ebayEnv === "sandbox" ? "lists without photos and says so" : "never lists"}`, async () => {
+      const calls: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_u: string, init?: RequestInit) => {
+          const call = String((init?.headers as any)?.["X-EBAY-API-CALL-NAME"] ?? "rest");
+          calls.push(call);
+          const reply =
+            call === "UploadSiteHostedPictures"
+              ? "<Ack>Failure</Ack><Errors><ShortMessage>Internal error to the application.</ShortMessage><LongMessage>Internal error to the application.</LongMessage><ErrorCode>10007</ErrorCode></Errors>"
+              : call === "AddFixedPriceItem"
+                ? "<Ack>Success</Ack><ItemID>110500000001</ItemID>"
+                : "<Ack>Success</Ack>";
+          return new Response(`<?xml version="1.0"?><${call}Response>${reply}</${call}Response>`);
+        }),
+      );
+      const photos = memoryPhotoStore();
+      const env = { store: memoryStore(), photos, EBAY_ENV: ebayEnv, WRITE_MODE: "approval", EBAY_SITE_ID: "3", SIGNING_KEY: "k", PUBLIC_URL: "https://test.example" } as unknown as Env;
+      await withEbayTokens(env.store);
+      const d = await env.store.drafts.create("K", Date.now());
+      await photos.put("k", jpeg(2400, 1800), "image/jpeg");
+      await env.store.drafts.addPhoto(d.id, { id: "p", key: "k", width: 2400, height: 1800, bytes: 1, issues: [], hash: null, added_at: 1 }, 24, 1);
+      await env.store.drafts.patch(
+        d.id,
+        {
+          review: cleanReview({ product: "x" }, 1, 1),
+          facts: cleanFacts({ condition: "used" }, null),
+          category: { id: "1", name: "Thing", path: "" },
+          aspects: [],
+          listing: { title: "Thing", description: "Used.", specifics: [], dropped: [], at: 1, editedByK: false },
+          price: { value: 10, kind: "own", floor: null, bestOffer: true },
+          postage: { cost: 3, carrier: null, service: null, source: "you", collectionOffered: false, collectionOnly: false, postcode: "SW1A 1AA" },
+        },
+        1,
+      );
+      const { draft } = await submitDraft(env, d.id);
+      const result = await decide(env, draft.proposal_id!, "approve", "K");
+      if (ebayEnv === "sandbox") {
+        expect(result).toBe("AddFixedPriceItem ok, item 110500000001 (without photos: eBay Sandbox's picture service is down)");
+        expect(calls.filter((c) => c !== "GetMyeBaySelling" && c !== "rest")).toEqual(["VerifyAddFixedPriceItem", "UploadSiteHostedPictures", "AddFixedPriceItem"]);
+        expect((await env.store.drafts.get(d.id))!.status).toBe("published");
+      } else {
+        expect(result).toMatch(/Internal error to the application/);
+        expect(calls).not.toContain("AddFixedPriceItem");
+        expect((await env.store.drafts.get(d.id))!.status).toBe("submitted");
+      }
+    });
 });

@@ -10,12 +10,13 @@ import type { Env } from "./env";
 // Length, Width, Height }] } and a Bearer token; the reply has a "Quotes" list. Live base www.parcel2go.com,
 // sandbox base sandbox.parcel2go.com, with separate credentials.
 //
-// Not stated in those pages: the fields of each quote (carrier, service, price), and the units (assumed kg
-// and cm, as everywhere else in UK parcels). So reading a quote is switched off (QUOTE_FORMAT_CONFIRMED) until
-// it's checked against Parcel2Go's sandbox with K's credentials; until then the draft asks K for the postage.
+// Each quote's fields were checked against real live replies on 2026-11-06 (scripts/parcel2go-quote.mjs, 34 to
+// 41 quotes a parcel in about 3 s): Service.CourierName ("Royal Mail", "Evri Drop-off", "InPost"), Service.Name
+// ("Royal Mail 48 Tracked Small"), TotalPrice (pounds, VAT included, what K would pay), CurrencyCode "GBP".
+// K's credentials are live ones (the sandbox API refuses them), and quoting is free and books nothing.
 
-/** Set to true once readQuote() is checked against a real Parcel2Go sandbox reply. */
-export const QUOTE_FORMAT_CONFIRMED = false;
+/** readQuote() is checked against a real Parcel2Go reply (2026-11-06). */
+export const QUOTE_FORMAT_CONFIRMED = true;
 
 /** The carriers eBay uses for Simple Delivery (K, 2026-11-05). */
 export const SIMPLE_DELIVERY_CARRIERS = ["Evri", "Royal Mail", "DHL", "InPost"] as const;
@@ -64,9 +65,14 @@ export function cheapestSimpleDelivery(quotes: Quote[]): Quote[] {
     .slice(0, 6);
 }
 
-/** One quote from Parcel2Go's reply. Its field names aren't in the docs read so far (see the top of the file). */
-function readQuote(_raw: unknown): Quote | null {
-  return null;
+/** One quote from Parcel2Go's reply: the courier, the service and the total price in pounds, VAT included. */
+export function readQuote(raw: any): Quote | null {
+  const carrier = typeof raw?.Service?.CourierName === "string" ? raw.Service.CourierName.trim().slice(0, 40) : "";
+  const service = typeof raw?.Service?.Name === "string" ? raw.Service.Name.trim().slice(0, 80) : "";
+  const price = Number(raw?.TotalPrice);
+  if (!carrier || !service || !(price > 0 && price < 1000)) return null;
+  if (raw?.CurrencyCode && raw.CurrencyCode !== "GBP") return null;
+  return { carrier, service, price: Math.round(price * 100) / 100 };
 }
 
 /** Live quotes for a parcel sent within the UK, Simple Delivery carriers only, cheapest first. */

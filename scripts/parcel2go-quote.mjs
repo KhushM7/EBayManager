@@ -3,6 +3,7 @@
 // src/postage.ts reads it (QUOTE_FORMAT_CONFIRMED). Read-only: quoting books nothing and costs nothing.
 //
 //   node scripts/parcel2go-quote.mjs            (sandbox.parcel2go.com when PARCEL2GO_SANDBOX=true, else live)
+//   node scripts/parcel2go-quote.mjs --live     (live, whatever the flag says: quoting is free and books nothing)
 //
 // Needs in .dev.vars (gitignored): PARCEL2GO_CLIENT_ID, PARCEL2GO_CLIENT_SECRET, PARCEL2GO_SANDBOX=true.
 // The full reply is saved to .parcel2go-sample.json (gitignored). Secrets and the token are never printed.
@@ -15,7 +16,7 @@ if (!id || !secret) {
   console.error("Add PARCEL2GO_CLIENT_ID and PARCEL2GO_CLIENT_SECRET (and PARCEL2GO_SANDBOX=true) to .dev.vars first.");
   process.exit(1);
 }
-const base = vars.PARCEL2GO_SANDBOX === "true" ? "https://sandbox.parcel2go.com" : "https://www.parcel2go.com";
+const base = vars.PARCEL2GO_SANDBOX === "true" && !process.argv.includes("--live") ? "https://sandbox.parcel2go.com" : "https://www.parcel2go.com";
 console.log(`Parcel2Go: ${base}`);
 
 // The same carriers the app keeps (src/postage.ts, SIMPLE_DELIVERY_CARRIERS).

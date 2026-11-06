@@ -184,15 +184,17 @@ export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
   try {
     // A new listing from a draft: its photos go to eBay's picture service first (as uploaded bytes; they never
     // get a public address), then the listing is built with eBay's picture addresses.
+    let note = "";
     if (p.kind === "create_listing") {
       const a = JSON.parse(p.payload);
       if (Array.isArray(a.photoKeys) && a.photoKeys.length) {
-        const pictureUrls = await uploadPictures(env, p.id, a.photoKeys);
-        built = callFor({ ...p, payload: JSON.stringify({ ...a, pictureUrls }) });
+        const pictures = await uploadPictures(env, p.id, a.photoKeys);
+        if (pictures.sandboxDown) note = " (without photos: eBay Sandbox's picture service is down)";
+        built = callFor({ ...p, payload: JSON.stringify({ ...a, pictureUrls: pictures.urls }) });
       }
     }
     const res = await tradingRequest(env, built.call, built.xml);
-    const summary = res.ItemID ? `${built.call} ok, item ${res.ItemID}` : `${built.call} ok`;
+    const summary = (res.ItemID ? `${built.call} ok, item ${res.ItemID}` : `${built.call} ok`) + note;
     await audit(env, p.id, built.call, built.xml, "applied", JSON.stringify(res));
     if (p.kind === "create_listing" && res.ItemID) {
       const a = JSON.parse(p.payload);
@@ -211,7 +213,7 @@ export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
  * and returns eBay's addresses for them, in order. Only called while applying an approved create_listing,
  * after the gate's claim. Each upload is in the audit log.
  */
-async function uploadPictures(env: Env, proposalId: string, keys: string[]): Promise<string[]> {
+async function uploadPictures(env: Env, proposalId: string, keys: string[]): Promise<{ urls: string[]; sandboxDown?: boolean }> {
   if (!env.photos) throw new Error("Photo storage isn't set up, so the listing's photos can't be sent to eBay");
   const urls: string[] = [];
   for (const [i, key] of keys.slice(0, 24).entries()) {
@@ -225,9 +227,15 @@ async function uploadPictures(env: Env, proposalId: string, keys: string[]): Pro
       urls.push(url);
       await audit(env, proposalId, "UploadSiteHostedPictures", xml, "applied", url);
     } catch (e) {
-      await audit(env, proposalId, "UploadSiteHostedPictures", xml, "failed", e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      await audit(env, proposalId, "UploadSiteHostedPictures", xml, "failed", msg);
+      // eBay Sandbox's picture service has been down since 2025 (eBay's API status page: "The
+      // UploadSiteHostedPictures API call in the Sandbox environment is not working"), answering every upload with
+      // error 10007. On Sandbox only, the first photo failing that way lists the item without photos, so the rest
+      // of publishing can still be tested. Production always stops: a listing never goes live without its photos.
+      if (env.EBAY_ENV === "sandbox" && i === 0 && /Internal error to the application/i.test(msg)) return { urls: [], sandboxDown: true };
       throw e;
     }
   }
-  return urls;
+  return { urls };
 }

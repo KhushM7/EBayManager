@@ -77,6 +77,10 @@ Still only met stand-ins after all that, so they're what K's test is for:
 4. **The postage service code** sent to eBay is Royal Mail 2nd Class whatever carrier is picked (see "Left to build").
 5. On production, eBay's check needs the full-permission sign-in (go-live section I), so a real draft can only be submitted on production after going live.
 
+## eBay Sandbox's picture service is down (2026-11-06)
+
+K's first Sandbox approval failed at the first photo: `UploadSiteHostedPictures` answered "Internal error to the application" (error 10007). eBay's API status page lists the Sandbox picture service as not working (unresolved since 2025), and developers report the same call working on production. So on **Sandbox only**, a first photo failing that way now lists the item without photos and says so in the result; the rest of publishing (specifics, postage, collection, the audit log) can be checked. On production a failed photo always stops the listing (both tested). The photo upload itself is first truly tested with the first real listing after going live (go-live I5), which K checks on eBay anyway. A failed label shows under the Inbox's **Refused** tab, and its draft can be reopened with "Edit it again".
+
 ## What K needs to test by hand
 
 Two short sessions; everything else is scripted above or already recorded in [go-live-tests.md](go-live-tests.md).
@@ -97,7 +101,7 @@ Tell Claude anything that reads badly and any photo wrongly flagged or missed, s
 
 | Item | Needs | Notes |
 | --- | --- | --- |
-| **Reading Parcel2Go quotes** | K's Parcel2Go **sandbox** API credentials in `.dev.vars` (see [parcel2go-api.md](parcel2go-api.md)), then live ones | Claude runs `node scripts/parcel2go-quote.mjs` (saves a real reply to `.parcel2go-sample.json`), judges the service, writes `readQuote`, sets `QUOTE_FORMAT_CONFIRMED = true`, tests it. Credentials go in `.dev.vars` / `.prod.vars` as `PARCEL2GO_CLIENT_ID`, `PARCEL2GO_CLIENT_SECRET` (and `PARCEL2GO_SANDBOX=true` for the sandbox), uploaded with `scripts/azure-secrets.mjs`. The Key Vault references are already in Bicep, so each environment's infrastructure must be redeployed once (`scripts/azure-infra.mjs`) to add the app settings |
+| ~~Reading Parcel2Go quotes~~ | Done 2026-11-06 | K's credentials are **live** ones (the sandbox API refuses them; quoting on live is free and books nothing). `scripts/parcel2go-quote.mjs --live`: 34 to 41 quotes a parcel in about 3 s; cheapest Simple Delivery carriers for a 1 kg box: InPost £2.64, Evri £2.71, Royal Mail 48 Tracked £3.75. `readQuote` is tested on that real reply and switched on. Verdict: keep Parcel2Go; no simpler API needed. Prices are what K pays booking through Parcel2Go, a guide to what to charge. To reach the apps: `node scripts/azure-secrets.mjs sandbox` (K: Claude was not permitted), and `.prod.vars` plus `azure-secrets.mjs production` for production. No infrastructure change is needed: the Key Vault references are already deployed |
 | **eBay service code from the chosen carrier** | Nothing from K | Map the chosen carrier (Evri, Royal Mail, DHL, InPost) to eBay's UK shipping service codes, instead of always Royal Mail 2nd Class. Check the codes against eBay (`GeteBayDetails` is a read call) on Sandbox |
 | **"Your best past photos" reference** | Nothing | The plan's checklist mentions a thumbnail of K's best past photos as the background reference; not built |
 | **Straighten** | Nothing | Allowed in the tidy-up list, not implemented (crop, exposure, white balance and background are) |

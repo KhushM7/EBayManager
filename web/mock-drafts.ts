@@ -131,7 +131,12 @@ function standIns(realFetch: typeof fetch): typeof fetch {
         results: prices.map((p, i) => ({ title: "Sony WH-1000XM4 Wireless Noise Cancelling Headphones Black", sale_price: p, shipping_price: 0, condition: "Used", date_sold: new Date(Date.now() - (i * 6 + 2) * day).toISOString().slice(0, 10), buying_format: "Fixed price", item_link: `https://www.ebay.co.uk/itm/${2_000 + i}` })),
       });
     }
-    if (u.includes("parcel2go.com")) return Response.json({ error: "stand-in" }, { status: 503 });
+    if (u.includes("parcel2go.com/auth/")) return Response.json({ access_token: "p2g", expires_in: 7200, token_type: "Bearer" });
+    if (u.includes("parcel2go.com/api/quotes")) {
+      // The shape of a real live reply (2026-11-06), a few services.
+      const q = (CourierName: string, Name: string, TotalPrice: number) => ({ Service: { CourierName, Name, CollectionType: "Shop", IsPrinterRequired: false }, TotalPrice, CurrencyCode: "GBP" });
+      return Response.json({ Quotes: [q("DPD", "DPD Drop Off", 7.94), q("InPost", "InPost Shop to Home", 2.64), q("Evri Drop-off", "Evri ParcelShop (API)", 2.71), q("Royal Mail", "Royal Mail 48 Tracked Small", 3.75), q("DHL eCommerce UK", "DHL eCommerce UK - Drop Off", 4.4)] });
+    }
     return realFetch(input, init);
   };
 }
@@ -158,6 +163,8 @@ async function load(server: ViteDevServer): Promise<Real> {
     PUBLIC_URL: "http://localhost:5173",
     ANTHROPIC_API_KEY: "mock",
     TRAWL_API_KEY: "mock",
+    PARCEL2GO_CLIENT_ID: "mock",
+    PARCEL2GO_CLIENT_SECRET: "mock",
   };
   return { env, handleDrafts: drafts.handleDrafts, decide: proposals.decide };
 }

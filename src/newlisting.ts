@@ -250,7 +250,7 @@ export function sourcedSpecifics(
 
 export const COMPOSE_SYSTEM = `You write an eBay UK listing for K from facts only. You're given what the photos show (each fact with its photo number), K's own facts, published specifications (each with its source page), the item specifics eBay wants for the category (with eBay's values), and K's tone.
 
-- title: at most 80 characters. Brand, model, the key spec buyers search (size, capacity, colour where it matters), and the condition words that matter (e.g. "Spares or Repair", "Boxed"). No capitals for shouting, no "L@@K", no punctuation clutter.
+- title: at most 80 characters. Brand, model, the key spec buyers search (size, capacity, colour where it matters), and the condition words that matter (e.g. "Spares or Repair", "Boxed"). No capitals for shouting, no "L@@K", no punctuation clutter. Shorter is fine: never repeat a word or add filler to reach 80, and end on a complete phrase.
 - description: plain text, short paragraphs separated by a blank line. Start with the condition in K's words, then what it is, what's included, measurements or specs (from the published specs only), and every flaw plainly. If collection is offered, say collection is welcome. No greeting, no sign-off, no price talk, no promises not in the facts (no "fully tested" unless K said so).
 - specifics: only names from the list given. Each value must come from one source, named: "photo" with the photo number as ref, "you" (K's facts) with ref "you", or "spec" with the source page URL as ref. Use eBay's values where given. Leave out anything without a source: the code removes unsourced values anyway.
 

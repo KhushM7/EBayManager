@@ -10,7 +10,7 @@ What was built for Add Listing, how it was merged with the redesigned frontend, 
 | `azure-migration` | The move to Azure (M0–M7), Inbox to-dos, pricing revision 3, the identification fix, go-live progress, the Add Listing plan | Production runs this branch's code (whatever K last deployed) |
 | `add-listing` | Add Listing L1 to L5 (server, and a plain `/sell` screen), on top of `azure-migration` | Merged into `merge-redesign` |
 | `claude/frontend-redesign` | The redesigned dashboard and its New listing wizard on sample data | Merged into `merge-redesign` |
-| **`merge-redesign`** | **Both, with the redesign's wizard running on the real drafts server** | Tests pass. Deployed to Sandbox, then to be merged into `azure-migration` |
+| **`merge-redesign`** | **Both, with the redesign's wizard running on the real drafts server** | Tests pass. Deployed to Sandbox on 2026-11-06; checks pass. To be merged into `azure-migration` |
 
 ## How the two branches were merged (2026-11-06)
 
@@ -67,7 +67,7 @@ Every step is tested with stand-ins for Claude, eBay and Azure storage (the full
 | Typecheck, 276 tests, both builds, `npm audit` | `npm run typecheck && npm test`, `build:web`, `build:azure` | Pass (2026-11-06) |
 | Every step of the wizard against the real server code | `MOCK=1`, driven in headless Chrome at phone (390 px) and desktop (1440 px) widths: photos (a good shot uploads at once; a dark, blurry one and a repeat are held), Claude's check, facts, listing, price, postage, send, the label in the Inbox, approve (item listed), reject then "Edit it again", the tidy-up and switching back | Pass. Two bugs found and fixed: quick successive edits on the postage and facts forms could undo each other, and the "what is it" box had been left out |
 | Every other screen still loads | The same, on Inbox, Listings, Insights, Store Pulse, Activity, Settings, and the old `/audit` and `/sell` links | Pass |
-| **The real services on Sandbox** | `node scripts/sandbox-listing-check.mjs` after deploying: photo upload to Azure Blob storage and back without metadata, Claude's real photo check and listing text, eBay's real category suggestions and specifics, the pricing engine with real sold data, eBay's real `VerifyAddFixedPriceItem`, the label in the Inbox. With `--approve`: `UploadSiteHostedPictures` and `AddFixedPriceItem` on eBay Sandbox, and the audit log | See "Sandbox results" below |
+| **The real services on Sandbox** | `node scripts/sandbox-listing-check.mjs` after deploying: photo upload to Azure Blob storage and back without metadata, Claude's real photo check and listing text, eBay's real category suggestions and specifics, the pricing engine with real sold data, eBay's real `VerifyAddFixedPriceItem`, the label in the Inbox. With `--approve`: `UploadSiteHostedPictures` and `AddFixedPriceItem` on eBay Sandbox, and the audit log | **Pass, 2026-11-06** (without `--approve`): Blob storage, Claude (named the item exactly from the label photo), Taxonomy (Headphones, 16 specifics), the engine (£86.49 from real sold data), `VerifyAddFixedPriceItem`, the label. It found one problem, now fixed: Claude padded titles to 80 characters ("…Over-Ear Used Headphones On"); the prompt now says shorter is fine. The deployed screens load at phone width with no console or security-policy errors |
 
 Still only met stand-ins after all that, so they're what K's test is for:
 
@@ -109,7 +109,7 @@ In order. **(K)** is K, **(C)** is Claude.
 1. **(K)** If not done since the fix on 2026-11-05: deploy `azure-migration` to production (the identification fix `ede0bc4`) and re-run Settings → Sold data. The engine column should say "matched by Claude" and be back near 12.4% off. Tell Claude the result.
 2. ~~(K) Decide the Sell screen~~: the redesign's wizard (K, 2026-11-06).
 3. ~~(C) Merge~~: done on `merge-redesign` (above).
-4. **(C)** Deploy `merge-redesign` to Sandbox (K allowed it once both branches were read and nothing lost, 2026-11-06), run `check-production.mjs sandbox` and `sandbox-listing-check.mjs`, fix what fails.
+4. ~~(C) Deploy to Sandbox and run the checks~~: done 2026-11-06, all pass. Approving the test label (`--approve`: the first real `UploadSiteHostedPictures`) waits for K's go-ahead, or happens in K's phone session.
 5. **(K)** The 15-minute Sandbox session above. **(C)** tunes the photo thresholds and wording from it.
 6. **(K)** Parcel2Go sandbox credentials in `.dev.vars` → **(C)** runs the probe, reports whether Parcel2Go is worth keeping, finishes quote reading, then the eBay service code mapping. Live credentials later.
 7. **(C)** Merge `merge-redesign` into `azure-migration` (a fast-forward). **(K)** opens the pull request from `azure-migration` to `main` and merges it: https://github.com/KhushM7/EBayManager/compare/main...azure-migration

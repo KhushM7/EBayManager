@@ -81,6 +81,15 @@ Still only met stand-ins after all that, so they're what K's test is for:
 
 K's first Sandbox approval failed at the first photo: `UploadSiteHostedPictures` answered "Internal error to the application" (error 10007). eBay's API status page lists the Sandbox picture service as not working (unresolved since 2025), and developers report the same call working on production. So on **Sandbox only**, a first photo failing that way now lists the item without photos and says so in the result; the rest of publishing (specifics, postage, collection, the audit log) can be checked. On production a failed photo always stops the listing (both tested). The photo upload itself is first truly tested with the first real listing after going live (go-live I5), which K checks on eBay anyway. A failed label shows under the Inbox's **Refused** tab, and its draft can be reopened with "Edit it again".
 
+## From K's first real item (an air fryer, 2026-11-06)
+
+| K found | Cause | Fixed |
+| --- | --- | --- |
+| The photo check suggested removing film and powering on an opened, unused item | It looked at the photos before knowing the condition | The condition is chosen first (new, **opened, never used** (eBay 1500), used, for parts) and given to Claude, which never suggests unpacking, plugging in or testing a new or unused item |
+| Title cut mid-word ("…Black Opened Ne") | Clipped by code at 80 characters | Claude is told to count; a long title is cut at a whole word (`fitTitle`) |
+| Description lacked the product's published details | The research's web search ran out of uses (4, and with dynamic filtering every lookup counts) | 10 searches plus opening pages (the manual), features recorded as well as sizes, and the names it's sold under. It found the **SHFD 1400 C1** behind Lidl's 438124, with 15 sourced specs |
+| "No sales found", though many are listed | Searched with Lidl's item number, which sellers don't use; then a used sale was taken for an exact match, adjusted the wrong way | Other names and broader searches when the first finds under 5 sales; each sale's condition shown to the matcher; the adjustment direction spelled out. Priced at £21.99 from two new sales (£28.12, £37.73) and one used (£12.79 adjusted up) |
+
 ## What K needs to test by hand
 
 Two short sessions; everything else is scripted above or already recorded in [go-live-tests.md](go-live-tests.md).

@@ -14,6 +14,11 @@ export interface Component {
   query: string;
   /** True if this part carries resale value on its own (not a manual, cable or box). */
   valued: boolean;
+  /**
+   * Other searches for the same product, broader or under other names, used when the main query finds too few
+   * sales (2026-11-06: a Lidl air fryer known on its box only by item number 438124, which sellers never use).
+   */
+  alternates?: string[];
 }
 
 export interface Identity {
@@ -51,10 +56,12 @@ export interface ListingFacts {
   photos?: string[];
   /** What K has told the app about this item (Inbox answers, facts on the Listings screen): true, and a source. */
   factsFromK?: string | null;
+  /** Other names the product is sold under, from published sources (src/specs.ts), such as a model code. */
+  aliases?: string[];
 }
 
 /** Bump when identification changes, so cached identities are redone. */
-export const IDENTITY_VERSION = 4;
+export const IDENTITY_VERSION = 8;
 
 const IDENTIFY_SYSTEM = `You identify an item for sale on eBay UK, so its market price can be found from real sold listings. Use every source: the title, the item specifics, the description, the photos (labels, model numbers on the item or box, what's included, visible wear or damage) and any facts from the seller, which are true and count as a source ("(from K)").
 
@@ -66,6 +73,7 @@ Return:
 - keyFacts: up to 8 short facts that change the price, each with its source, e.g. "model SSG-4100GB (title)", "45 litres (specifics)", "remote is BN59-01199F (photo)", "box missing (description)".
 - components: one entry for a single item. For a bundle of different things (e.g. "keyboard + remote"), one entry per part a buyer would value, each identified as precisely as the sources allow, plus valued=false for throwaway extras (manuals, cables, boxes). Several of the same item ("Lot of 2 pairs") is ONE component whose name says the quantity. Accessories that come with the product as standard (in its own box, e.g. a blaster's clip and bipod, a phone's charger) are part of that product, not separate components: use several components only for separately sold products the seller has put together.
 - query for each: 2 to 6 search words: brand, model, variant and model numbers exactly as written, single digits kept ("Galaxy Buds 2 Pro" keeps "2"). Use a model number from the description or photos when the title lacks it. No condition words; no colours unless they change the price.
+- alternates for each: up to 3 other searches for the same product, the way other sellers title it, each 2 to 5 words: the manufacturer's model code or model name when the item is known by a retailer's item or catalogue number (Lidl, Aldi and Argos numbers are rarely in eBay titles), any other names the product is sold under, and brand + product type + the one spec that defines it (for example "Silvercrest air fryer 2.4L"). They're searched only when the main query finds too few sales, and every result is still checked against this exact product.
 - priceable: false only if no source says what the product is precisely enough to find the same thing. Then question is one short question for the seller naming what's missing.`;
 
 const IDENTIFY_SCHEMA = {
@@ -83,8 +91,8 @@ const IDENTIFY_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["name", "query", "valued"],
-        properties: { name: { type: "string" }, query: { type: "string" }, valued: { type: "boolean" } },
+        required: ["name", "query", "valued", "alternates"],
+        properties: { name: { type: "string" }, query: { type: "string" }, valued: { type: "boolean" }, alternates: { type: "array", items: { type: "string" } } },
       },
     },
     priceable: { type: "boolean" },
@@ -135,6 +143,7 @@ export async function identify(env: Env, listing: ListingFacts, api?: MessagesAp
     listing.description ? `Description:\n${plain(listing.description).slice(0, 4000)}` : "No description available.",
     photos.length ? `The ${photos.length} photos above are the seller's listing photos.` : "No photos available.",
     listing.factsFromK ? `Facts from the seller (K), true:\n${listing.factsFromK.slice(0, 2000)}` : "",
+    listing.aliases?.length ? `Other names this product is sold under (from published sources): ${listing.aliases.join("; ")}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -156,7 +165,11 @@ export async function identify(env: Env, listing: ListingFacts, api?: MessagesAp
     ...out,
     keyFacts: (out.keyFacts ?? []).slice(0, 8),
     fault: out.condition === "parts" && (out.fault === "minor" || out.fault === "major") ? out.fault : out.condition === "parts" ? "unknown" : null,
-    components: out.components.slice(0, 6).map((c) => ({ ...c, query: c.query.slice(0, 100) })),
+    components: out.components.slice(0, 6).map((c) => ({
+      ...c,
+      query: c.query.slice(0, 100),
+      alternates: otherSearches(c.query, listing.aliases ?? [], c.alternates ?? []),
+    })),
     by: "claude",
   };
 }
@@ -171,8 +184,8 @@ export interface Grade {
 
 const MATCH_SYSTEM = `You grade eBay UK listings as comparables for an item being priced, like a valuer choosing comparable sales.
 
-- exact: the same product, model and variant, the same quantity, the same main contents, the same condition group. factor 1.
-- close: the same product line with a difference you can value, e.g. a different capacity or size, a missing or extra accessory, a different colour that affects price, a lot of 2 vs 1, new vs used. Give factor = the price of the seller's item divided by the price of this comparable (e.g. comparable is a pair, seller's is one item: about 0.5; comparable is new, seller's is used: about 0.7). Only between 0.3 and 2.
+- exact: the same product, model and variant, the same quantity, the same main contents, the same condition group. factor 1. A listing's "[condition: ...]" is what eBay or the sales data says; trust it over the title. New, new other, and opened but never used are one group; used is another; for parts is another. A title without a model counts as the same product when its brand, product type and the specs that define it (capacity, power, size) all match the item's known facts and nothing in it differs; shops' own brands (Silvercrest, Ambiano, Cooks Professional) are usually listed that way.
+- close: the same product line with a difference you can value, e.g. a different capacity or size, a missing or extra accessory, a different colour that affects price, a lot of 2 vs 1, new vs used. Give factor = the price of the seller's item divided by the price of this comparable (e.g. comparable is a pair, seller's is one item: about 0.5; comparable is new, seller's is used: about 0.7; comparable is used, seller's is new or unused: about 1.4; comparable is for parts, seller's works: about 2). The factor is always the seller's item over the comparable, so a comparable worth less than the seller's item has a factor above 1. Only between 0.3 and 2.
 - anything else (accessories for it, cases, parts, replacements, other products, other models of very different value): leave it out.
 
 When the seller's item is only roughly known, grade generously as close rather than exact. Return the numbers of exact matches in "exact", and close ones with their factor in "close"; leave everything else out.`;
@@ -258,4 +271,23 @@ export async function matchTitles(
   if (!answered) return { matches: rules(), by: "rules" };
   const seen = new Set<number>();
   return { matches: out.filter((g) => !seen.has(g.i) && seen.add(g.i)).sort((a, b) => a.i - b.i), by: "claude" };
+}
+
+/**
+ * The other searches for a component, at most 4: the published names (model codes) and Claude's broader searches
+ * taken in turn, so a run of model names that find nothing can't crowd out "brand + type + spec" (2026-11-06: an
+ * air fryer's model names found one used sale; "Silvercrest air fryer 2.4L" found the new ones). Searches need
+ * every word, so long product names (more than 5 words) are left out, and so are single words.
+ */
+export function otherSearches(query: string, aliases: string[], alternates: string[]): string[] {
+  const usable = (a: string) => {
+    const n = a.split(/\s+/).length;
+    return n >= 2 && n <= 5;
+  };
+  const a = aliases.map((x) => String(x).trim()).filter(usable);
+  const b = alternates.map((x) => String(x).trim()).filter(usable);
+  const mixed: string[] = [];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) mixed.push(...[a[i], b[i]].filter((x): x is string => Boolean(x)));
+  const seen = new Set([query.toLowerCase()]);
+  return mixed.filter((x) => !seen.has(x.toLowerCase()) && seen.add(x.toLowerCase())).map((x) => x.slice(0, 100)).slice(0, 4);
 }

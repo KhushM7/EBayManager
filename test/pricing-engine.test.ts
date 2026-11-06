@@ -8,6 +8,7 @@ import { identify, identifyByRules, matchTitles } from "../src/pricing/identify"
 import { priceItem, recordDecision, sumOfParts } from "../src/pricing/engine";
 import { learnParams } from "../src/pricing/learn";
 import { evaluateCombine, evaluateSplit, suggestBundles } from "../src/pricing/bundles";
+import { otherSearches } from "../src/pricing/identify";
 
 const DAY = 86_400_000;
 
@@ -201,6 +202,73 @@ describe("thin markets", () => {
     expect(r.decision.strategy).not.toBe("ask");
     expect(r.decision.price).toBeGreaterThan(20);
     expect(r.decision.confidence).toBeLessThan(0.3);
+  });
+});
+
+describe("other names for the same product", () => {
+  it("takes model names and broader searches in turn, without long names, single words or repeats", () => {
+    expect(otherSearches("SilverCrest air fryer 438124", ["SilverCrest SHFD 1400 C1 Digital Air Fryer Black", "SHFD 1400 C1", "SHFD 1400", "438124", "IAN 438124"], ["Silvercrest air fryer 2.4L", "Silvercrest digital air fryer", "shfd 1400"]))
+      .toEqual(["SHFD 1400 C1", "Silvercrest air fryer 2.4L", "SHFD 1400", "Silvercrest digital air fryer"]);
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  // 2026-11-06: a Lidl air fryer known on its box only by item number 438124 found no sales at all, while
+  // sellers list it as the "SHFD 1400" or a "2.4L digital air fryer".
+  it("searches the product's other names when the main query finds too few sales, and says so", async () => {
+    const now = Date.now();
+    const queries: string[] = [];
+    const item = (title: string, p: number, daysAgo: number, id: string) => ({ title, price: p, native_price: p, native_currency: "GBP", last_sold: new Date(now - daysAgo * DAY).toISOString(), url: `https://www.ebay.co.uk/itm/${id}` });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const u = new URL(String(url));
+        if (!u.hostname.includes("compsapi")) return new Response("no", { status: 500 });
+        const q = u.searchParams.get("q") ?? "";
+        queries.push(q);
+        return Response.json({ items: /SHFD 1400/i.test(q) ? [1, 2, 3, 4, 5, 6].map((k) => ({ ...item(`Silvercrest SHFD 1400 C1 Digital Air Fryer 2.4L`, 30 + k, 3 * k, `30000000000${k}`), condition: k === 6 ? "Used" : "New" })) : [] });
+      }),
+    );
+    const { api, calls } = fakeClaude((system, prompt) =>
+      system.includes("identify")
+        ? { product: "SilverCrest digital air fryer 438124", group: "kitchen appliances", condition: "new", fault: "none", keyFacts: [], priceable: true, question: null, components: [{ name: "Air fryer", query: "SilverCrest air fryer 438124", valued: true, alternates: ["Silvercrest air fryer 2.4L"] }] }
+        : { exact: prompt.split("\n").filter((l) => /^\d+\. Silvercrest SHFD/.test(l)).map((l) => Number(l.split(".")[0])), close: [] },
+    );
+    const r = await priceItem(
+      { store: memoryStore(), EBAY_ENV: "sandbox", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" } as Env,
+      { title: "SilverCrest Digital Air Fryer 438124", condition: "New", postage: 0, aliases: ["Silvercrest SHFD 1400 C1"] },
+      api,
+    );
+    // The published alias goes to identify, and is searched first after the main query.
+    expect(calls[0].prompt).toContain("Silvercrest SHFD 1400 C1");
+    expect(queries.slice(0, 2)).toEqual(["SilverCrest air fryer 438124", "Silvercrest SHFD 1400 C1"]);
+    expect(r.components[0].matched.sold).toBe(6);
+    expect(r.decision.strategy).not.toBe("ask");
+    expect(r.components[0].errors.join(" ")).toMatch(/also searched: "Silvercrest SHFD 1400 C1"/);
+    // The matcher sees each sale's reported condition, so a used sale can't pass for a new item's exact match.
+    const matchPrompt = calls.find((x) => !x.system.includes("identify"))!.prompt;
+    expect(matchPrompt).toContain("Silvercrest SHFD 1400 C1 Digital Air Fryer 2.4L [condition: Used]");
+    expect(matchPrompt).toContain("[condition: New]");
+  });
+
+  it("doesn't search further when the main query finds enough", async () => {
+    const queries: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const u = new URL(String(url));
+        if (!u.hostname.includes("compsapi")) return new Response("no", { status: 500 });
+        queries.push(u.searchParams.get("q") ?? "");
+        return Response.json({ items: [1, 2, 3, 4, 5, 6].map((k) => ({ title: "Thing 1", price: 10, native_price: 10, native_currency: "GBP", last_sold: new Date().toISOString(), url: `https://www.ebay.co.uk/itm/40000000000${k}` })) });
+      }),
+    );
+    const { api } = fakeClaude((system) =>
+      system.includes("identify")
+        ? { product: "Thing 1", group: "toys", condition: "used", fault: "none", keyFacts: [], priceable: true, question: null, components: [{ name: "Thing 1", query: "thing 1", valued: true, alternates: ["thing one toy"] }] }
+        : { exact: [1, 2, 3, 4, 5, 6], close: [] },
+    );
+    await priceItem({ store: memoryStore(), EBAY_ENV: "sandbox", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" } as Env, { title: "Thing 1", postage: 0 }, api);
+    expect(queries).toEqual(["thing 1"]);
   });
 });
 

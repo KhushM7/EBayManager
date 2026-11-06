@@ -46,7 +46,7 @@ export interface DraftReview {
 
 /** K's own facts (always "from you"). Condition is always K's, never assumed. */
 export interface DraftFacts {
-  condition: "new" | "used" | "parts" | null;
+  condition: "new" | "opened" | "used" | "parts" | null;
   works: string | null;
   marks: string | null;
   included: string | null;
@@ -76,7 +76,7 @@ export interface DraftRow {
   review?: DraftReview | null;
   facts?: DraftFacts | null;
   /** Published specifications for the exact product (src/specs.ts), each with its source page. */
-  specs?: { product: string | null; exact: boolean; note: string; specs: { name: string; value: string; source: string; sourceTitle: string }[] } | null;
+  specs?: { product: string | null; exact: boolean; note: string; specs: { name: string; value: string; source: string; sourceTitle: string }[]; aliases?: string[] } | null;
   categories?: { id: string; name: string; path: string }[];
   category?: { id: string; name: string; path: string } | null;
   aspects?: { name: string; required: boolean; values: string[]; selectionOnly: boolean; multiple: boolean }[];

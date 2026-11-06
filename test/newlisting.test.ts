@@ -6,6 +6,7 @@ import type { MessagesApi } from "../src/claude";
 import { memoryPhotoStore } from "../src/photos";
 import { withEbayTokens } from "./fixtures";
 import {
+  fitTitle,
   choosePrice,
   cleanFacts,
   cleanReview,
@@ -28,6 +29,16 @@ import { cheapestSimpleDelivery, readQuote, simpleDeliveryCarrier } from "../src
 
 /** Four quotes from a real Parcel2Go reply (live, 2026-11-06, a 1 kg box 25×20×10 cm), trimmed to the fields read. */
 const PARCEL2GO_QUOTES = [{"Service":{"CourierName":"DPD","Name":"DPD Drop Off","Slug":"dpd","CollectionType":"Shop","IsPrinterRequired":false},"TotalPrice":7.94,"TotalPriceExVat":6.62,"EstimatedDeliveryDate":"2026-11-10T00:00:00","CurrencyCode":"GBP"},{"Service":{"CourierName":"InPost","Name":"InPost Shop to Home","Slug":"collect-plus-drop-off-service-72hr","CollectionType":"Shop","IsPrinterRequired":false},"TotalPrice":2.64,"TotalPriceExVat":2.2,"EstimatedDeliveryDate":"2026-11-12T00:00:00","CurrencyCode":"GBP"},{"Service":{"CourierName":"DPD","Name":"DPD Collection","Slug":"dpd-collection","CollectionType":"Collection","IsPrinterRequired":true},"TotalPrice":11.99,"TotalPriceExVat":9.99,"EstimatedDeliveryDate":"2026-11-11T00:00:00","CurrencyCode":"GBP"},{"Service":{"CourierName":"Royal Mail","Name":"Royal Mail 48 Tracked Small","Slug":"royalmail-int_2606","CollectionType":"Shop","IsPrinterRequired":false},"TotalPrice":3.75,"TotalPriceExVat":3.13,"EstimatedDeliveryDate":"2026-11-10T00:00:00","CurrencyCode":"GBP"}];
+
+describe("fitting a title to 80 characters", () => {
+  it("leaves a title that fits, and cuts a long one at a whole word, never mid-word", () => {
+    expect(fitTitle("Sony WH-1000XM4 Headphones")).toBe("Sony WH-1000XM4 Headphones");
+    const t = fitTitle("SilverCrest Kitchen Tools Digital Air Fryer 2.4L 1400W 8 Presets Black Opened Never Used");
+    expect(t).toBe("SilverCrest Kitchen Tools Digital Air Fryer 2.4L 1400W 8 Presets Black Opened");
+    expect(t.length).toBeLessThanOrEqual(80);
+    expect(fitTitle("A".repeat(70) + " Black and White Edition")).toBe("A".repeat(70) + " Black");
+  });
+});
 
 describe("reading Parcel2Go's quotes", () => {
   it("reads a real reply and keeps eBay's Simple Delivery carriers, cheapest first", () => {
@@ -153,12 +164,12 @@ function jpeg(w: number, h: number): Uint8Array {
 
 /** Claude stand-in: answers each job by its system prompt; records what it was shown. */
 function fakeClaude() {
-  const seen: { system: string; images: number }[] = [];
+  const seen: { system: string; images: number; prompt: string }[] = [];
   const api: MessagesApi = {
     async create(params: any) {
       const system = params.system[0].text as string;
       const content = params.messages[0].content;
-      seen.push({ system, images: Array.isArray(content) ? content.filter((b: any) => b.type === "image").length : 0 });
+      seen.push({ system, images: Array.isArray(content) ? content.filter((b: any) => b.type === "image").length : 0, prompt: Array.isArray(content) ? content.filter((b: any) => b.type === "text").map((b: any) => b.text).join(" ") : String(content) });
       const answer =
         system === REVIEW_SYSTEM
           ? {
@@ -245,14 +256,17 @@ describe("a new listing, end to end", () => {
     }
     expect(missingSteps((await env.store.drafts.get(d0.id))!)[0]).toBe("Check the photos.");
 
-    // L2: Claude sees both photos as image data; eBay suggests the category; the question for K.
+    // L2: the condition comes first (it changes what the photo check may suggest), then Claude sees both photos
+    // as image data; eBay suggests the category; the question for K.
+    await expect(reviewDraft(env, d0.id, api)).rejects.toThrow(/condition/);
+    await saveFacts(env, d0.id, { condition: "parts" });
     const reviewed = await reviewDraft(env, d0.id, api);
+    expect(seen[0].prompt).toContain("Condition (from K): For parts or not working");
     expect(seen[0]).toMatchObject({ system: REVIEW_SYSTEM, images: 2 });
     expect(reviewed.review).toMatchObject({ brand: "Dyson", questions: [{ id: "works" }], missingShots: [{ shot: "The rating plate underneath" }] });
     expect(reviewed.category).toEqual({ id: "20614", name: "Vacuum Cleaners", path: "Home, Furniture & DIY > Vacuum Cleaners & Parts" });
     expect(reviewed.aspects?.map((a) => a.name)).toContain("Brand");
 
-    await expect(composeDraft(env, d0.id, api)).rejects.toThrow(/condition/);
     await saveFacts(env, d0.id, { condition: "parts", works: "Motor runs, the hose is split", answers: { works: "Yes, it runs" } });
 
     // L3: the listing text; the unsourced colour is dropped.

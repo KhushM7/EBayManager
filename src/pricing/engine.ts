@@ -39,6 +39,8 @@ export interface PriceInput {
   floor?: number | null;
   /** K's facts about the item (src/pricing/identify.ts), e.g. an answer to the engine's question. */
   factsFromK?: string | null;
+  /** Other names the product is sold under, from published sources (a new listing's spec lookup). */
+  aliases?: string[];
   current?: number | null;
   /** eBay item numbers left out of the evidence (K's own listing or sale). */
   excludeItemIds?: string[];
@@ -85,6 +87,9 @@ export async function paramsFor(env: Env, group: string): Promise<SaleParams> {
   return row ? { tau: row.tau, alpha: row.alpha } : DEFAULT_PARAMS;
 }
 
+/** Sales found under a component's main query below which its other searches are tried too. */
+export const ENOUGH_SALES = 5;
+
 /** How much a close (adjusted) comparable counts against an exact one. */
 export const CLOSE_WEIGHT = 0.35;
 
@@ -92,7 +97,7 @@ async function cachedIdentity(env: Env, input: PriceInput, api?: MessagesApi): P
   // Redone when the listing's title, condition, description or first photo changes, or K's facts do (added
   // only when there are some, so identities cached before facts existed still hit).
   const facts = input.factsFromK?.trim();
-  const key = `v${IDENTITY_VERSION}|${input.title}|${input.condition ?? ""}|${(input.description ?? "").length}|${input.photos?.[0] ?? ""}${facts ? `|k:${facts}` : ""}`;
+  const key = `v${IDENTITY_VERSION}|${input.title}|${input.condition ?? ""}|${(input.description ?? "").length}|${input.photos?.[0] ?? ""}${facts ? `|k:${facts}` : ""}${input.aliases?.length ? `|a:${input.aliases.join(";")}` : ""}`;
   const hit = await env.store.pricing.getIdentity(key);
   if (hit) return JSON.parse(hit);
   const id = await identify(env, input, api);
@@ -120,7 +125,24 @@ async function priceComponent(env: Env, identity: Identity, c: Component, input:
   const exclude = new Set(input.excludeItemIds ?? []);
   const asOf = input.asOf ?? Date.now();
   const backtest = input.asOf != null && Date.now() - input.asOf > 14 * DAY;
-  const gathered = (await gatherSold(env, c.query, input.days ?? 730, errors)).filter((s) => !exclude.has(itemNumber(s.url) ?? ""));
+  let gathered = (await gatherSold(env, c.query, input.days ?? 730, errors)).filter((s) => !exclude.has(itemNumber(s.url) ?? ""));
+  // Too few sales under the main query: the same product under its other names, or more broadly (identify.ts,
+  // alternates). Each search counts against the providers' monthly caps and is cached for 30 days; the
+  // matching pass below still grades every title against this exact product, so a broad search can't price it
+  // from different things.
+  const searched = [c.query];
+  const words = (q: string) => q.toLowerCase().split(/s+/).filter(Boolean);
+  const empty: string[][] = gathered.length ? [] : [words(c.query)];
+  for (const q of c.alternates ?? []) {
+    if (gathered.length >= ENOUGH_SALES) break;
+    // Searches need every word: one that adds words to a search that found nothing can't find anything either.
+    if (empty.some((e) => e.every((w) => words(q).includes(w)))) continue;
+    searched.push(q);
+    const more = (await gatherSold(env, q, input.days ?? 730, errors)).filter((s) => !exclude.has(itemNumber(s.url) ?? ""));
+    if (!more.length) empty.push(words(q));
+    gathered = poolSales(gathered, more);
+  }
+  if (searched.length > 1) errors.push(`Few sales under "${c.query}", so also searched: ${searched.slice(1).map((q) => `"${q}"`).join(", ")}.`);
   let soldAll = gathered.filter((s) => !s.dateSold || Date.parse(s.dateSold) <= asOf);
   let marketAt = asOf;
   // Backtest only: providers return the latest few hundred sales, so for a popular item nothing may predate
@@ -135,13 +157,21 @@ async function priceComponent(env: Env, identity: Identity, c: Component, input:
   }
   let activeAll: Comp[] = [];
   if (!backtest) try {
-    activeAll = (await searchActiveComps(env, c.query, { limit: 100 })).comps.filter((a) => !exclude.has(a.itemId.split("|")[1] ?? a.itemId));
+    activeAll = (await searchActiveComps(env, searched.at(-1)!, { limit: 100 })).comps.filter((a) => !exclude.has(a.itemId.split("|")[1] ?? a.itemId));
+    if (searched.length > 1 && activeAll.length < ENOUGH_SALES) {
+      const more = (await searchActiveComps(env, c.query, { limit: 100 })).comps.filter((a) => !exclude.has(a.itemId.split("|")[1] ?? a.itemId));
+      const seen = new Set(activeAll.map((a) => a.itemId));
+      activeAll = [...activeAll, ...more.filter((a) => !seen.has(a.itemId))];
+    }
   } catch (e) {
     errors.push(`eBay active listings: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   // One matching pass over sold and active titles together.
-  const titles = [...soldAll.map((s) => s.title), ...activeAll.map((a) => a.title)];
+  // Each title with the condition the provider or eBay reports, so a used sale isn't taken for a new item's
+  // exact match (2026-11-06: one used sale graded exact priced an unused air fryer at £11 against new sales at £28 to £40).
+  const withCondition = (t: string, cond: string | null | undefined) => (cond && cond.trim() ? `${t} [condition: ${cond.trim().slice(0, 30)}]` : t);
+  const titles = [...soldAll.map((s) => withCondition(s.title, s.condition)), ...activeAll.map((a) => withCondition(a.title, a.condition))];
   const { matches, by } = await matchTitles(env, identity, c, titles, input.title, api);
   const grades = new Map(matches.map((g) => [g.i, g]));
   // Best Offer sales whose accepted price isn't known would overstate the market, so they're left out.

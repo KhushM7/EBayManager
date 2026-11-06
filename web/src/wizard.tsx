@@ -45,7 +45,7 @@ interface Review {
   questions: { id: string; question: string; why: string }[];
 }
 interface Facts {
-  condition: "new" | "used" | "parts" | null;
+  condition: "new" | "opened" | "used" | "parts" | null;
   works: string | null;
   marks: string | null;
   included: string | null;
@@ -70,7 +70,7 @@ interface Draft {
   missing: string[];
   review?: Review | null;
   facts?: Facts | null;
-  specs?: { product: string | null; specs: { name: string; value: string; source: string; sourceTitle: string }[] } | null;
+  specs?: { product: string | null; note?: string; aliases?: string[]; specs: { name: string; value: string; source: string; sourceTitle: string }[] } | null;
   categories?: { id: string; name: string; path: string }[];
   category?: { id: string; name: string; path: string } | null;
   aspects?: Aspect[];
@@ -104,7 +104,8 @@ const ISSUE_WORD: Record<string, string> = {
 };
 const EDIT_WORD: Record<string, string> = { white_balance: "white balance", exposure: "exposure", background: "background to white", crop: "cropped" };
 const CONDITIONS = [
-  ["new", "New", "Sealed or never used"],
+  ["new", "New", "Sealed, never opened"],
+  ["opened", "Opened, never used", "The box has been opened, the item hasn't been used"],
   ["used", "Used", "Works, with the wear you describe below"],
   ["parts", "For parts or not working", "Doesn't work fully, sold as it is"],
 ] as const;
@@ -536,7 +537,22 @@ function Wizard({ id, onSignedOut, onChanged, go }: ScreenProps & { id: string }
                 onError={fail}
               />
             )}
-            {s.id === "facts" && <FactsStep draft={draft} open={open} busy={busy} facts={facts} setFacts={setFacts} onReview={() => run("review", () => job("/review"))} />}
+            {s.id === "facts" && (
+              <FactsStep
+                draft={draft}
+                open={open}
+                busy={busy}
+                facts={facts}
+                setFacts={setFacts}
+                onReview={() =>
+                  run("review", async () => {
+                    // The condition first: it changes what the photo check may suggest (never unpacking a new item).
+                    if (!draft.facts || !sameFacts(facts, draft.facts)) await post("/facts", facts);
+                    return job("/review");
+                  })
+                }
+              />
+            )}
             {s.id === "describe" && (
               <ListingStep
                 draft={draft}
@@ -908,6 +924,8 @@ function ReviewSummary({ draft }: { draft: Draft }) {
           ))}
         </ul>
       </details>
+      {draft.specs && draft.specs.specs.length === 0 && draft.specs.note && <p class="text-sm text-muted">Published specs: {draft.specs.note}</p>}
+      {draft.specs?.aliases && draft.specs.aliases.length > 0 && <p class="text-sm text-muted">Also sold as: {draft.specs.aliases.join(", ")}</p>}
       {draft.specs && draft.specs.specs.length > 0 && (
         <details class="text-sm">
           <summary class="cursor-pointer">
@@ -938,12 +956,43 @@ function FactsStep({ draft, open, busy, facts: f, setFacts: setAll, onReview }: 
       <textarea rows={2} disabled={!open} placeholder={placeholder} value={(f[k] as string) ?? ""} onInput={(e) => setFacts({ [k]: e.currentTarget.value })} />
     </Field>
   );
+  const unused = f.condition === "new" || f.condition === "opened";
+  const conditionPicker = (
+            <fieldset class="m-0 grid gap-2 border-0 p-0">
+              <legend class="mb-2 text-sm font-semibold text-ink-2">Condition first (yours to decide)</legend>
+              {CONDITIONS.map(([v, label, hint]) => (
+                <motion.label
+                  key={v}
+                  whileTap={{ scale: 0.98 }}
+                  class={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 transition-colors ${f.condition === v ? "border-accent bg-accent-soft" : "border-line bg-surface hover:border-line-strong"}`}
+                >
+                  <input type="radio" name="condition" class="sr-only" disabled={!open} checked={f.condition === v} onChange={() => setFacts({ condition: v })} />
+                  <span class={`grid size-5 flex-none place-items-center rounded-full border-2 ${f.condition === v ? "border-accent" : "border-line-strong"}`}>
+                    {f.condition === v && <motion.span layoutId="cond-dot" class="size-2.5 rounded-full bg-accent" transition={SPRING} />}
+                  </span>
+                  <span>
+                    <span class="block font-semibold">{label}</span>
+                    <span class="text-sm text-muted">{hint}</span>
+                  </span>
+                </motion.label>
+              ))}
+              {r && r.condition !== "unknown" && <p class="text-sm text-muted">From the photos it looks {r.condition === "parts" ? "faulty or incomplete" : r.condition}. You decide.</p>}
+            </fieldset>
+  );
   return (
     <div class="grid gap-5">
+      {conditionPicker}
       {busy === "review" ? (
         <Working label="Claude is looking at the photos (up to a minute)" lines={4} />
       ) : !r ? (
-        open && <StartCard title="Check the photos with Claude" sub={`What the item is, and what's missing, from your ${plural(draft.photos.length, "photo")}. About 3 to 6p.`} onClick={onReview} disabled={busy !== null} />
+        open && (
+          <StartCard
+            title="Check the photos with Claude"
+            sub={f.condition ? `What the item is, and what's missing, from your ${plural(draft.photos.length, "photo")}. About 3 to 6p.` : "Choose the condition above first: it changes what Claude suggests."}
+            onClick={onReview}
+            disabled={busy !== null || !f.condition}
+          />
+        )
       ) : (
         open && (
           <button class="btn-link inline-flex w-fit items-center gap-1 text-sm" disabled={busy !== null} onClick={onReview}>
@@ -953,28 +1002,8 @@ function FactsStep({ draft, open, busy, facts: f, setFacts: setAll, onReview }: 
       )}
       {r && (
         <>
-          <fieldset class="m-0 grid gap-2 border-0 p-0">
-            <legend class="mb-2 text-sm font-semibold text-ink-2">Condition (yours to decide)</legend>
-            {CONDITIONS.map(([v, label, hint]) => (
-              <motion.label
-                key={v}
-                whileTap={{ scale: 0.98 }}
-                class={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 transition-colors ${f.condition === v ? "border-accent bg-accent-soft" : "border-line bg-surface hover:border-line-strong"}`}
-              >
-                <input type="radio" name="condition" class="sr-only" disabled={!open} checked={f.condition === v} onChange={() => setFacts({ condition: v })} />
-                <span class={`grid size-5 flex-none place-items-center rounded-full border-2 ${f.condition === v ? "border-accent" : "border-line-strong"}`}>
-                  {f.condition === v && <motion.span layoutId="cond-dot" class="size-2.5 rounded-full bg-accent" transition={SPRING} />}
-                </span>
-                <span>
-                  <span class="block font-semibold">{label}</span>
-                  <span class="text-sm text-muted">{hint}</span>
-                </span>
-              </motion.label>
-            ))}
-            {r.condition !== "unknown" && <p class="text-sm text-muted">From the photos it looks {r.condition === "parts" ? "faulty or incomplete" : r.condition}. You decide.</p>}
-          </fieldset>
-          {text("works", "Does it work? What did you test?")}
-          {text("marks", "Marks, scratches or wear", "Be honest: it saves returns. Leave blank if there are none.")}
+          {!unused && text("works", "Does it work? What did you test?")}
+          {text("marks", unused ? "Damage to the box or packaging" : "Marks, scratches or wear", "Be honest: it saves returns. Leave blank if there are none.")}
           {text("included", "What's included")}
           {text("missing", "Anything missing")}
           {r.questions.length > 0 && (

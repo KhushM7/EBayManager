@@ -67,6 +67,7 @@ try {
   const img = Buffer.from(await call(d.photos[0].url.replace(/^\/api/, "")));
   check("a photo is served back as a JPEG with no metadata", img[0] === 0xff && img[1] === 0xd8 && !img.includes(Buffer.from("Exif")), `${img.length} bytes`);
 
+  d = await call(`/drafts/${d.id}/facts`, { condition: "used" }); // the condition comes before the photo check
   d = await job(`/drafts/${d.id}/review`);
   check("Claude's photo check", Boolean(d.review?.product), `${d.review?.product}; exact: ${d.review?.exact}; ${d.review?.questions?.length ?? 0} questions; shots to add: ${d.review?.missingShots?.map((s) => s.shot).join(", ")}`);
   check("eBay suggested categories (Taxonomy)", (d.categories ?? []).length > 0, d.categories?.slice(0, 3).map((c) => c.name).join(" / "));

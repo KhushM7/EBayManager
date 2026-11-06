@@ -22,8 +22,10 @@ import { parcelQuotes } from "./postage";
 // - submit: eBay's check (VerifyAddFixedPriceItem), then a create_listing proposal. Publishing happens only
 //   when one of the three approves it, through the write gate, which uploads the photos and lists the item.
 
-export const CONDITION_IDS = { new: 1000, used: 3000, parts: 7000 } as const;
-const CONDITION_WORDS = { new: "New", used: "Used", parts: "For parts or not working" } as const;
+export const CONDITION_IDS = { new: 1000, opened: 1500, used: 3000, parts: 7000 } as const;
+const CONDITION_WORDS = { new: "New", opened: "Opened, never used", used: "Used", parts: "For parts or not working" } as const;
+/** The condition words the pricing engine compares sales by: an opened, unused item sells as new. */
+const PRICING_CONDITION = { new: "New", opened: "New (opened, never used)", used: "Used", parts: "For parts or not working" } as const;
 
 const clip = (s: unknown, n: number) => String(s ?? "").trim().slice(0, n);
 
@@ -50,6 +52,7 @@ export const REVIEW_SYSTEM = `You help a UK eBay seller (K) list an item from ph
 - visibleFacts: facts read from the photos, each with the photo number: text on labels and rating plates, model and serial numbers, colours, what's in shot (accessories, cables, box, manuals).
 - flaws: every visible mark, scratch, dent, stain, crack or missing part, with the photo number. Don't soften them.
 - missingShots: the shots a buyer of this kind of item expects that aren't here, each with why: e.g. the label or model plate, the back, the underside, each accessory, close-ups of the flaws, the box on all sides, the size tag for clothes. Skip ones already covered.
+- K gives the condition before you look. When it's new or opened but never used, the item must stay as it is: never suggest removing film, tape, seals or wrapping, taking parts out of their packaging, plugging it in, powering it on or testing it. Suggest only shots of it as it is: the box on all sides, seals, labels and barcodes, and what's inside as packed. Don't ask whether it works; ask instead whether anything is missing and, for opened items, whether it was ever used.
 - photoNotes: problems with specific photos (cluttered background, too dark, cropped, glare), with the photo number.
 - questions: only what K alone can know and the photos can't show. Always ask, if not already answered by K: does it fully work (and what was tested), anything missing, and anything not visible such as smells, smoke, pets, or faults that don't show. Ask which variant it is only when that changes the price and nothing shows it (say where the label usually is). Never ask what the photos show, what a published spec sheet would say (dimensions, weight), or about price. Each question has a short id like "works" or "variant".
 
@@ -101,6 +104,7 @@ export function cleanReview(out: any, photos: number, at: number): DraftReview {
 export async function reviewDraft(env: Env, id: string, api?: MessagesApi): Promise<DraftRow> {
   const d = await env.store.drafts.get(id);
   if (!d || d.status !== "open") throw new Error("Draft not found, or already submitted.");
+  if (!d.facts?.condition) throw new Error("Say what condition it's in first: it changes what the photo check suggests.");
   const images = await photoData(env, d);
   const out = await completeOnce<any>(
     env,
@@ -108,7 +112,7 @@ export async function reviewDraft(env: Env, id: string, api?: MessagesApi): Prom
       job: `listing:review:${id}`,
       model: MODELS.audit,
       system: REVIEW_SYSTEM,
-      prompt: `K's words for it: ${d.title ? `"${d.title}"` : "none yet"}.\nThere are ${images.length} photos above, numbered 1 to ${images.length} in order.`,
+      prompt: `K's words for it: ${d.title ? `"${d.title}"` : "none yet"}.\nCondition (from K): ${CONDITION_WORDS[d.facts!.condition!]}.\nThere are ${images.length} photos above, numbered 1 to ${images.length} in order.`,
       schema: REVIEW_SCHEMA,
       images,
       effort: "medium",
@@ -127,9 +131,21 @@ export async function reviewDraft(env: Env, id: string, api?: MessagesApi): Prom
   let specs: DraftRow["specs"] = null;
   if (review.exact) {
     const found = await lookupSpecs(env, { ItemID: id, Title: review.product, Description: review.visibleFacts.map((f) => f.fact).join(". ") }, aspects.map((a) => a.name), api).catch(() => null);
-    if (found) specs = { product: found.product, exact: found.exact, note: found.note, specs: found.specs };
+    if (found) specs = { product: found.product, exact: found.exact, note: found.note, specs: found.specs, aliases: found.aliases ?? [] };
   }
   return (await env.store.drafts.patch(id, { review, categories, category, aspects, specs }, Date.now()))!;
+}
+
+/**
+ * A title within eBay's 80 characters. Claude is told the limit, but when it runs over, the title is cut at the
+ * last whole word, dropping a trailing joining word or symbol, never mid-word ("…Black Opened Ne").
+ */
+export function fitTitle(raw: unknown, max = 80): string {
+  const t = String(raw ?? "").replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  let cut = t.slice(0, max + 1);
+  cut = cut.slice(0, cut.lastIndexOf(" ")).trim();
+  return cut.replace(/(\s+(and|with|for|or|in|of|the|a|&|\+|-|,|\/))+$/i, "").replace(/[,\-/&+]+$/, "").trim();
 }
 
 // ---------------------------------------------------------------- L2: K's facts
@@ -142,7 +158,7 @@ export function cleanFacts(b: any, review: DraftReview | null | undefined): Draf
     if (a) answers[q.id] = a;
   }
   return {
-    condition: ["new", "used", "parts"].includes(b?.condition) ? b.condition : null,
+    condition: ["new", "opened", "used", "parts"].includes(b?.condition) ? b.condition : null,
     works: t(b?.works),
     marks: t(b?.marks),
     included: t(b?.included),
@@ -250,8 +266,8 @@ export function sourcedSpecifics(
 
 export const COMPOSE_SYSTEM = `You write an eBay UK listing for K from facts only. You're given what the photos show (each fact with its photo number), K's own facts, published specifications (each with its source page), the item specifics eBay wants for the category (with eBay's values), and K's tone.
 
-- title: at most 80 characters. Brand, model, the key spec buyers search (size, capacity, colour where it matters), and the condition words that matter (e.g. "Spares or Repair", "Boxed"). No capitals for shouting, no "L@@K", no punctuation clutter. Shorter is fine: never repeat a word or add filler to reach 80, and end on a complete phrase.
-- description: plain text, short paragraphs separated by a blank line. Start with the condition in K's words, then what it is, what's included, measurements or specs (from the published specs only), and every flaw plainly. If collection is offered, say collection is welcome. No greeting, no sign-off, no price talk, no promises not in the facts (no "fully tested" unless K said so).
+- title: at most 80 characters, counting spaces (count them; a longer title is cut at a whole word). Brand, model, the key spec buyers search (size, capacity, colour where it matters), and the condition words that matter (e.g. "Spares or Repair", "Boxed"). No capitals for shouting, no "L@@K", no punctuation clutter. Shorter is fine: never repeat a word or add filler to reach 80, and end on a complete phrase.
+- description: plain text, short paragraphs separated by a blank line. Start with the condition in K's words, then what it is, what's included, the published specifications and features a buyer would want (capacity, power, settings, programs, dimensions, weight: from the published specs only, as published), and every flaw plainly. If collection is offered, say collection is welcome. No greeting, no sign-off, no price talk, no promises not in the facts (no "fully tested" unless K said so).
 - specifics: only names from the list given. Each value must come from one source, named: "photo" with the photo number as ref, "you" (K's facts) with ref "you", or "spec" with the source page URL as ref. Use eBay's values where given. Leave out anything without a source: the code removes unsourced values anyway.
 
 Never add a fact that isn't in the inputs.`;
@@ -304,7 +320,7 @@ export async function composeDraft(env: Env, id: string, api?: MessagesApi): Pro
   );
   if (!out) throw new Error("Claude couldn't write the listing this time. Try again.");
   const { kept, dropped } = sourcedSpecifics(out.specifics ?? [], { aspects: d.aspects ?? [], visibleFacts: d.review.visibleFacts, flaws: d.review.flaws, fromK, specs });
-  const listing = { title: clip(out.title, 80), description: clip(out.description, 6000), specifics: kept, dropped, at: Date.now(), editedByK: false };
+  const listing = { title: fitTitle(out.title), description: clip(out.description, 6000), specifics: kept, dropped, at: Date.now(), editedByK: false };
   return (await env.store.drafts.patch(id, { listing }, Date.now()))!;
 }
 
@@ -313,7 +329,7 @@ export async function editListing(env: Env, id: string, b: any): Promise<DraftRo
   const d = await env.store.drafts.get(id);
   if (!d?.listing) throw new Error("Write the listing first.");
   const l = { ...d.listing, editedByK: true };
-  if (typeof b.title === "string") l.title = clip(b.title, 80);
+  if (typeof b.title === "string") l.title = fitTitle(b.title);
   if (typeof b.description === "string") l.description = clip(b.description, 6000);
   if (typeof b.removeSpecific === "string") l.specifics = l.specifics.filter((s) => s.name !== b.removeSpecific);
   if (b.addSpecific && typeof b.addSpecific.name === "string") {
@@ -350,12 +366,14 @@ export async function priceDraft(env: Env, id: string, api?: MessagesApi): Promi
     env,
     {
       title: d.listing?.title || d.review.product,
-      condition: CONDITION_WORDS[d.facts.condition],
+      condition: PRICING_CONDITION[d.facts.condition],
       specifics,
       description: d.listing?.description ?? null,
       postage: d.postage?.collectionOnly ? null : (d.postage?.cost ?? null),
       floor: d.price?.floor ?? null,
       factsFromK: factsText(d.facts, d.review),
+      // The names the spec lookup found the product sold under (e.g. a model code behind a retailer's number).
+      aliases: [...(d.specs?.product ? [d.specs.product] : []), ...(d.specs?.aliases ?? [])],
       excludeItemIds: [],
     },
     api,

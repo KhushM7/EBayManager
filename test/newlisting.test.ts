@@ -381,7 +381,8 @@ describe("a new listing, end to end", () => {
           aspects: [],
           listing: { title: "Thing", description: "Used.", specifics: [], dropped: [], at: 1, editedByK: false },
           price: { value: 10, kind: "own", floor: null, bestOffer: true },
-          postage: { cost: 3, carrier: null, service: null, source: "you", collectionOffered: false, collectionOnly: false, postcode: "SW1A 1AA" },
+          postage: { cost: 3, carrier: null, service: null, source: "you", collectionOffered: false, collectionOnly: false, postcode: "SW1A 1AA", mode: "simple_delivery", size: "medium_parcel_10kg", sizeBy: "app" },
+          parcel: { lengthCm: 42, widthCm: 33, heightCm: 30, weightKg: 4.4 },
         },
         1,
       );
@@ -391,6 +392,11 @@ describe("a new listing, end to end", () => {
         expect(result).toBe("AddFixedPriceItem ok, item 110500000001 (without photos: eBay Sandbox's picture service is down)");
         expect(calls.filter((c) => c !== "GetMyeBaySelling" && c !== "rest")).toEqual(["VerifyAddFixedPriceItem", "UploadSiteHostedPictures", "AddFixedPriceItem"]);
         expect((await env.store.drafts.get(d.id))!.status).toBe("published");
+        // Once live, K is told to switch it to Simple Delivery at the chosen size (the API can't).
+        const [todo] = await env.store.todos.list("open");
+        expect(todo).toMatchObject({ kind: "you", item_id: "110500000001", title: "Switch postage to Simple Delivery: Medium parcel, up to 10 kg" });
+        expect(todo.detail).toMatch(/Choose Medium parcel \(61 x 46 x 46 cm\), then Up to 10 kg/);
+        expect(todo.detail).toMatch(/42 x 33 x 30 cm, 4.4 kg/);
       } else {
         expect(result).toMatch(/Internal error to the application/);
         expect(calls).not.toContain("AddFixedPriceItem");

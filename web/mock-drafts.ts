@@ -22,7 +22,7 @@ interface Real {
 let real: Promise<Real> | null = null;
 
 /** The photo check's and the listing writer's system prompts (src/newlisting.ts), to tell the jobs apart. */
-const prompts = { review: "", compose: "" };
+const prompts = { review: "", compose: "", parcel: "" };
 
 /** Claude's answers, chosen by the job's system prompt (the same shapes the tests use). */
 function claudeAnswer(system: string, images: number): unknown {
@@ -43,6 +43,8 @@ function claudeAnswer(system: string, images: number): unknown {
       photoNotes: images >= 2 ? [{ photo: 2, note: "A little dark: the scuff is hard to see." }] : [],
       questions: [{ id: "battery", question: "How long does the battery last on a full charge?", why: "Battery wear is the first thing buyers ask about" }],
     };
+  if (prompts.parcel && system.includes(prompts.parcel))
+    return { item: { lengthCm: 22, widthCm: 19, heightCm: 8, weightKg: 0.25, source: "spec" }, packed: { lengthCm: 26, widthCm: 22, heightCm: 12, weightKg: 0.9 }, packaging: "In its carry case, inside a small shipping box with 2 cm of padding", confidence: "high", missing: [] };
   if (prompts.compose && system.includes(prompts.compose))
     return {
       title: "Sony WH-1000XM4 Wireless Noise Cancelling Headphones Black",
@@ -147,7 +149,9 @@ async function load(server: ViteDevServer): Promise<Real> {
   const [{ memoryStore }, { memoryPhotoStore }, drafts, proposals, newlisting] = await Promise.all([mod("src/store/index.ts"), mod("src/photos.ts"), mod("src/drafts.ts"), mod("src/proposals.ts"), mod("src/newlisting.ts")]);
   prompts.review = newlisting.REVIEW_SYSTEM;
   prompts.compose = newlisting.COMPOSE_SYSTEM;
+  prompts.parcel = newlisting.PARCEL_SYSTEM;
   const store = memoryStore();
+  await store.kv.set("seller_postcode", "SW1A 1AA");
   await store.kv.saveEbayTokens({ access_token: "t", access_expires_at: Date.now() + 24 * H, refresh_token: "r", refresh_expires_at: Date.now() + 24 * H, scopes: "full" });
   const env = {
     store,

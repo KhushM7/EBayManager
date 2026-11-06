@@ -127,7 +127,7 @@ export async function handleDrafts(env: Env, request: Request, url: URL, path: s
   }
 
   const b = await readJson(request);
-  const job = async (kind: "draft_review" | "draft_compose" | "draft_price") => {
+  const job = async (kind: "draft_review" | "draft_compose" | "draft_price" | "draft_postage") => {
     if (draft.status !== "open") return json({ error: "This draft has been submitted and can't be changed." }, 409);
     const j = await startJob(env, kind, { draftId: id }, user.name);
     return json(j.status === "queued" ? j : view(j.result as DraftRow));
@@ -166,6 +166,8 @@ export async function handleDrafts(env: Env, request: Request, url: URL, path: s
         return json(view(await savePostage(env, id, b)));
       case "quotes":
         return json(view(await quotePostage(env, id, b)));
+      case "postage-plan":
+        return await job("draft_postage");
       case "submit": {
         const out = await submitDraft(env, id);
         return json({ ...view(out.draft), note: out.note });

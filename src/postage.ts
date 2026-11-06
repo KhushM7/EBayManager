@@ -75,8 +75,16 @@ export function readQuote(raw: any): Quote | null {
   return { carrier, service, price: Math.round(price * 100) / 100 };
 }
 
-/** Live quotes for a parcel sent within the UK, Simple Delivery carriers only, cheapest first. */
-export async function parcelQuotes(env: Env, p: { lengthCm: number; widthCm: number; heightCm: number; weightKg: number }, valueGbp: number): Promise<Quote[]> {
+/** Every courier, cheapest first: for a parcel too big or heavy for Simple Delivery (DPD, Parcelforce, UPS...). */
+export function cheapestAnyCourier(quotes: Quote[]): Quote[] {
+  return quotes.filter((q) => Number.isFinite(q.price) && q.price > 0).sort((a, b) => a.price - b.price).slice(0, 6);
+}
+
+/**
+ * Live quotes for a parcel sent within the UK, cheapest first: eBay's Simple Delivery carriers only, or (anyCourier)
+ * every courier, for parcels Simple Delivery can't take.
+ */
+export async function parcelQuotes(env: Env, p: Parcel, valueGbp: number, opts: { anyCourier?: boolean } = {}): Promise<Quote[]> {
   if (!env.PARCEL2GO_CLIENT_ID || !env.PARCEL2GO_CLIENT_SECRET) throw new Error("Postage quotes aren't set up yet (Parcel2Go credentials). Type the postage for now.");
   if (!QUOTE_FORMAT_CONFIRMED) throw new Error("Postage quotes are waiting for Parcel2Go's quote format to be checked on their sandbox. Type the postage for now.");
   const res = await fetch(`${base(env)}/api/quotes`, {
@@ -91,5 +99,66 @@ export async function parcelQuotes(env: Env, p: { lengthCm: number; widthCm: num
   if (!res.ok) throw new Error(`Parcel2Go quote failed (${res.status})`);
   const data: any = await res.json();
   const quotes = (Array.isArray(data?.Quotes) ? data.Quotes : []).map(readQuote).filter((q: Quote | null): q is Quote => q != null);
-  return cheapestSimpleDelivery(quotes);
+  return opts.anyCourier ? cheapestAnyCourier(quotes) : cheapestSimpleDelivery(quotes);
 }
+
+// ---------------------------------------------------------------- Simple Delivery parcel sizes
+//
+// The sizes eBay UK offers a seller choosing "Buyer pays postage" (Simple Delivery), exactly as eBay's listing
+// form showed them to K on 2026-11-06 (K's screenshot, an air fryer: eBay recommended Medium parcel, up to 10 kg).
+// eBay's help page lists only carrier limits, not these choices. Simple Delivery can't be set through eBay's API
+// (eBay developer support), so K switches a listing to it in Seller Hub after it's published, choosing this size;
+// the app files that as an Inbox to-do. Picking a size too small costs K the difference plus a £1 fee at the post
+// office, so the choice errs larger: the parcel must fit every side, and its weight stays 5% under the band.
+
+export interface Parcel {
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  weightKg: number;
+}
+
+export interface ParcelSize {
+  code: string;
+  /** eBay's group, as on its form. */
+  group: "Large letter" | "Small parcel" | "Medium parcel";
+  /** The option, as on eBay's form. */
+  label: string;
+  maxCm: [number, number, number];
+  maxKg: number;
+}
+
+export const PARCEL_SIZES: ParcelSize[] = [
+  { code: "large_letter_1kg", group: "Large letter", label: "Up to 1 kg large letter", maxCm: [35, 25, 2.5], maxKg: 1 },
+  { code: "small_parcel_1kg", group: "Small parcel", label: "Up to 1 kg", maxCm: [45, 35, 16], maxKg: 1 },
+  { code: "small_parcel_2kg", group: "Small parcel", label: "Up to 2 kg", maxCm: [45, 35, 16], maxKg: 2 },
+  { code: "medium_parcel_1kg", group: "Medium parcel", label: "Up to 1 kg", maxCm: [61, 46, 46], maxKg: 1 },
+  { code: "medium_parcel_2kg", group: "Medium parcel", label: "Up to 2 kg", maxCm: [61, 46, 46], maxKg: 2 },
+  { code: "medium_parcel_10kg", group: "Medium parcel", label: "Up to 10 kg", maxCm: [61, 46, 46], maxKg: 10 },
+  { code: "medium_parcel_20kg", group: "Medium parcel", label: "Up to 20 kg", maxCm: [61, 46, 46], maxKg: 20 },
+];
+
+/** Simple Delivery takes items priced up to this (eBay help, 2026-11-06); dearer items need their own postage. */
+export const SIMPLE_DELIVERY_MAX_PRICE = 750;
+/** The weight is kept this far under a band's limit, for scales and tape. */
+export const WEIGHT_MARGIN = 0.05;
+
+export const sizeName = (z: ParcelSize) => `${z.group}, ${z.label.replace(" large letter", "").toLowerCase()}`;
+
+/** Whether the parcel fits a size: each side, longest against longest, and its weight with the margin. */
+export function fitsSize(p: Parcel, z: ParcelSize): boolean {
+  const sides = [p.lengthCm, p.widthCm, p.heightCm].sort((a, b) => b - a);
+  const max = [...z.maxCm].sort((a, b) => b - a);
+  return sides.every((x, i) => x <= max[i]) && p.weightKg * (1 + WEIGHT_MARGIN) <= z.maxKg;
+}
+
+/**
+ * The size to choose on eBay's form: the first that fits, in eBay's order (smallest first). Null when nothing
+ * fits (bigger than a medium parcel, or over 20 kg): then it needs a courier and its own postage price.
+ */
+export function recommendSize(p: Parcel): ParcelSize | null {
+  return PARCEL_SIZES.find((z) => fitsSize(p, z)) ?? null;
+}
+
+export const sizeByCode = (code: string | null | undefined) => PARCEL_SIZES.find((z) => z.code === code) ?? null;
+

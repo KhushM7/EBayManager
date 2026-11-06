@@ -7,7 +7,7 @@ import { lookupSpecs } from "./specs";
 import { priceItem } from "./pricing/engine";
 import { proposeAndNotify } from "./proposals";
 import { getStyle } from "./style";
-import { parcelQuotes } from "./postage";
+import { parcelQuotes, recommendSize, sizeByCode, sizeName, SIMPLE_DELIVERY_MAX_PRICE, type Parcel } from "./postage";
 
 // Add Listing, steps L2 to L5 (docs/add-listing.md). From a draft's photos to a `create_listing` label:
 // - review: Claude (Sonnet) looks at the photos (sent as image data; they never get a public address), says
@@ -440,8 +440,19 @@ export async function savePostage(env: Env, id: string, b: any): Promise<DraftRo
     collectionOffered: collectionOnly || b.collectionOffered === true,
     collectionOnly,
     postcode,
+    ...postageChoice(b, parcel, d.price?.value ?? d.pricing?.price ?? null),
   };
   return (await env.store.drafts.patch(id, { postage, parcel }, Date.now()))!;
+}
+
+/** The mode and size saved with postage: K's size from eBay's list when chosen, else the one the parcel fits. */
+function postageChoice(b: any, parcel: Parcel | null, price: number | null) {
+  const chosen = sizeByCode(b?.size);
+  if (b?.mode === "courier") return { mode: "courier" as const, size: null, sizeBy: "you" as const };
+  if (chosen) return { mode: "simple_delivery" as const, size: chosen.code, sizeBy: "you" as const };
+  if (!parcel) return { mode: undefined, size: null, sizeBy: undefined };
+  const { size, mode } = postageMode(parcel, price);
+  return { mode, size: size?.code ?? null, sizeBy: "app" as const };
 }
 
 /** Live quotes for the parcel from Parcel2Go, eBay's Simple Delivery carriers only, cheapest first. */
@@ -452,11 +463,152 @@ export async function quotePostage(env: Env, id: string, b: any): Promise<DraftR
   if (!Object.values(parcel).every((v) => v > 0 && v < 1000)) throw new Error("Give the parcel's length, width and height in cm and its weight in kg.");
   let quotes: NonNullable<DraftRow["quotes"]>;
   try {
-    quotes = { at: Date.now(), quotes: await parcelQuotes(env, parcel, d.price?.value ?? d.pricing?.price ?? 20) };
+    quotes = { at: Date.now(), quotes: await parcelQuotes(env, parcel, d.price?.value ?? d.pricing?.price ?? 20, { anyCourier: postageMode(parcel, d.price?.value ?? null).mode === "courier" }) };
   } catch (e) {
     quotes = { at: Date.now(), quotes: [], error: e instanceof Error ? e.message : String(e) };
   }
   return (await env.store.drafts.patch(id, { parcel, quotes }, Date.now()))!;
+}
+
+// ---------------------------------------------------------------- L4: the packed parcel and its postage
+
+export const PARCEL_SYSTEM = `You work out the parcel a UK eBay seller (K) will post an item in, so the right postage size is chosen. Choosing too small a size costs K the difference at the post office, so never underestimate; choosing far too large overcharges the buyer.
+
+You're given what the item is, its published specifications (each with its source), what the photos show, K's facts (what's included, whether it has its original box) and its condition.
+
+Return:
+- item: the item's own size and weight. Take each figure from the published specs where given (source "spec"); otherwise estimate it from what the item is and the photos (source "estimate"); null if you can't sensibly estimate it ("unknown").
+- packed: the parcel as posted, in cm and kg: length, width, height and weight. Build it up: the item (folded or in its working position, whichever is smaller to post), in its original box if K has it or the photos show one (a retail box is usually 2 to 4 cm bigger than the item each way), plus every accessory included, inside a shipping box or bag with padding: about 2 to 3 cm each side for boxed items, 1 cm for soft items in a bag, none for a flat item in a large-letter envelope. Packaging weighs about 0.1 kg for a bag, 0.3 kg for a small box, 0.6 to 1 kg for a large box. Round every size up to a whole cm and the weight up to the next 0.1 kg.
+- packaging: one plain sentence saying how it's packed, e.g. "In its original box, inside a shipping box with 3 cm of padding".
+- confidence: high when the item's size and weight are published; medium when estimated from a well-known product; low when you can't tell its size from anything given.
+- missing: when confidence is low, the one or two measurements only K can give (e.g. "the box's length, width and height"). Otherwise empty.`;
+
+const PARCEL_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["item", "packed", "packaging", "confidence", "missing"],
+  properties: {
+    item: {
+      type: "object",
+      additionalProperties: false,
+      required: ["lengthCm", "widthCm", "heightCm", "weightKg", "source"],
+      properties: {
+        lengthCm: { type: ["number", "null"] },
+        widthCm: { type: ["number", "null"] },
+        heightCm: { type: ["number", "null"] },
+        weightKg: { type: ["number", "null"] },
+        source: { type: "string", enum: ["spec", "estimate", "unknown"] },
+      },
+    },
+    packed: {
+      type: "object",
+      additionalProperties: false,
+      required: ["lengthCm", "widthCm", "heightCm", "weightKg"],
+      properties: { lengthCm: { type: "number" }, widthCm: { type: "number" }, heightCm: { type: "number" }, weightKg: { type: "number" } },
+    },
+    packaging: { type: "string" },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
+    missing: { type: "array", items: { type: "string" } },
+  },
+} as const;
+
+/** A parcel with every side rounded up to a whole cm and the weight up to 0.1 kg, or null if any figure isn't usable. */
+export function roundedParcel(p: any): Parcel | null {
+  const cm = (v: unknown) => (Number(v) > 0 && Number(v) < 500 ? Math.ceil(Number(v)) : NaN);
+  const out = { lengthCm: cm(p?.lengthCm), widthCm: cm(p?.widthCm), heightCm: cm(p?.heightCm), weightKg: Number(p?.weightKg) > 0 && Number(p?.weightKg) < 200 ? Math.ceil(Number(p.weightKg) * 10) / 10 : NaN };
+  return Object.values(out).every(Number.isFinite) ? out : null;
+}
+
+/** How it's posted: Simple Delivery at the size that fits (priced up to £750), or a courier. */
+export function postageMode(parcel: Parcel, price: number | null | undefined) {
+  const size = recommendSize(parcel);
+  return { size, mode: size && (price ?? 0) <= SIMPLE_DELIVERY_MAX_PRICE ? ("simple_delivery" as const) : ("courier" as const) };
+}
+
+/**
+ * Step L4, postage, done for K: the packed parcel worked out from the specs, the photos and K's facts (Sonnet,
+ * about 1 to 2p), the Simple Delivery size it fits (or a courier when it fits none), live quotes for it, and the
+ * postage filled in from the cheapest quote with K's remembered postcode. K checks it, changes the size or the
+ * measurements if needed, and moves on. When the size can't be worked out, K is asked for the measurements.
+ */
+export async function planPostage(env: Env, id: string, api?: MessagesApi): Promise<DraftRow> {
+  const d = await env.store.drafts.get(id);
+  if (!d || d.status !== "open") throw new Error("Draft not found, or already submitted.");
+  if (!d.review) throw new Error("Check the photos first.");
+  const specs = d.specs?.specs ?? [];
+  const prompt = [
+    `Item: ${d.specs?.product ?? d.review.product}`,
+    `Condition: ${d.facts?.condition ? CONDITION_WORDS[d.facts.condition] : "not given"}`,
+    `Published specifications:\n${specs.map((x) => `- ${x.name}: ${x.value}`).join("\n") || "- none found"}`,
+    `What the photos show:\n${d.review.visibleFacts.map((x) => `- ${x.fact} (photo ${x.photo})`).join("\n") || "- nothing readable"}`,
+    `K's facts:\n${factsText(d.facts, d.review) || "- none yet"}`,
+    d.category ? `Category: ${d.category.path ? `${d.category.path} > ` : ""}${d.category.name}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const out = await completeOnce<any>(env, { job: `listing:parcel:${id}`, model: MODELS.audit, system: PARCEL_SYSTEM, prompt, schema: PARCEL_SCHEMA, effort: "medium", maxTokens: 4000 }, api);
+  if (!out) throw new Error("Claude couldn't work out the parcel this time. Give its measurements below.");
+  const parcel = roundedParcel(out.packed);
+  const num = (v: unknown) => (Number(v) > 0 ? Math.round(Number(v) * 10) / 10 : null);
+  const parcelPlan: NonNullable<DraftRow["parcelPlan"]> = {
+    at: Date.now(),
+    item: { lengthCm: num(out.item?.lengthCm), widthCm: num(out.item?.widthCm), heightCm: num(out.item?.heightCm), weightKg: num(out.item?.weightKg), source: ["spec", "estimate", "unknown"].includes(out.item?.source) ? out.item.source : "unknown" },
+    packaging: clip(out.packaging, 200),
+    confidence: ["high", "medium", "low"].includes(out.confidence) ? out.confidence : "low",
+    missing: (Array.isArray(out.missing) ? out.missing : []).map((m: unknown) => clip(m, 120)).filter(Boolean).slice(0, 3),
+    by: "claude",
+  };
+  if (!parcel) return (await env.store.drafts.patch(id, { parcelPlan: { ...parcelPlan, confidence: "low" } }, Date.now()))!;
+
+  const price = d.price?.value ?? d.pricing?.price ?? null;
+  const { size, mode } = postageMode(parcel, price);
+  let quotes: NonNullable<DraftRow["quotes"]>;
+  try {
+    quotes = { at: Date.now(), quotes: await parcelQuotes(env, parcel, price ?? 20, { anyCourier: mode === "courier" }) };
+  } catch (e) {
+    quotes = { at: Date.now(), quotes: [], error: e instanceof Error ? e.message : String(e) };
+  }
+  // Filled in when the size is reliable and there's a price to charge and a postcode to send from; K checks it.
+  const postcode = d.postage?.postcode || (await env.store.kv.get("seller_postcode")) || "";
+  const cheapest = quotes.quotes[0];
+  const postage: DraftRow["postage"] =
+    parcelPlan.confidence !== "low" && cheapest && postcode
+      ? {
+          cost: Math.ceil(cheapest.price * 2) / 2,
+          carrier: cheapest.carrier,
+          service: cheapest.service,
+          source: "parcel2go",
+          collectionOffered: d.postage?.collectionOffered ?? false,
+          collectionOnly: false,
+          postcode,
+          mode,
+          size: size?.code ?? null,
+          sizeBy: "app",
+        }
+      : (d.postage ?? null);
+  return (await env.store.drafts.patch(id, { parcel, parcelPlan, quotes, postage }, Date.now()))!;
+}
+
+/** The Inbox to-do for after the listing goes live: switch it to Simple Delivery at the chosen size, in Seller Hub. */
+export function simpleDeliveryTodo(d: DraftRow) {
+  const size = sizeByCode(d.postage?.size);
+  if (!size || d.postage?.mode !== "simple_delivery" || d.postage.collectionOnly) return null;
+  const p = d.parcel;
+  return {
+    code: "simple_delivery",
+    title: `Switch postage to Simple Delivery: ${sizeName(size)}`,
+    detail: [
+      `eBay's API can't set Simple Delivery, so this listing went live with \u00a3${d.postage.cost.toFixed(2)} postage. To use eBay's labels instead:`,
+      `1. In Seller Hub, open the listing and choose Edit (Revise).`,
+      `2. Under Postage, choose Buyer pays postage.`,
+      `3. Choose ${size.group} (${size.maxCm.join(" x ")} cm), then ${size.label}.`,
+      `4. If eBay recommends a different size, use eBay's: a recommended size is protected from extra charges.`,
+      `5. Save, then tap Done here.`,
+      p ? `The packed parcel: ${p.lengthCm} x ${p.widthCm} x ${p.heightCm} cm, ${p.weightKg} kg.` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
 }
 
 // ---------------------------------------------------------------- L5: submit
@@ -491,6 +643,8 @@ export function listingPayload(d: DraftRow) {
     pictureUrls: [] as string[],
     itemSpecifics: Object.fromEntries(d.listing!.specifics.map((s) => [s.name, s.values])),
     bestOffer: d.price!.bestOffer,
+    // What K does in Seller Hub once it's live (switch to Simple Delivery at this size), filed as an Inbox to-do.
+    afterPublish: simpleDeliveryTodo(d),
   };
 }
 

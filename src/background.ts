@@ -3,7 +3,7 @@ import { runFirstDayAudit } from "./firstday";
 import { auditListing } from "./jobs";
 import { priceCheck } from "./pricing/actions";
 import { push } from "./notify";
-import { composeDraft, priceDraft, reviewDraft } from "./newlisting";
+import { composeDraft, planPostage, priceDraft, reviewDraft } from "./newlisting";
 
 // Long tasks K starts from the app (docs/azure-migration.md): on Azure an HTTP response must come within
 // 230 seconds, so the first-day audit, a price check and Claude's listing review run as background jobs. The
@@ -11,7 +11,7 @@ import { composeDraft, priceDraft, reviewDraft } from "./newlisting";
 // the app shows its progress. Where there is no queue (tests, local runs) the job runs inline and the
 // request answers with the result, exactly as before.
 
-export type JobKind = "firstday" | "price_check" | "listing_review" | "draft_review" | "draft_compose" | "draft_price";
+export type JobKind = "firstday" | "price_check" | "listing_review" | "draft_review" | "draft_compose" | "draft_price" | "draft_postage";
 
 async function execute(env: Env, kind: JobKind, args: any): Promise<unknown> {
   switch (kind) {
@@ -26,6 +26,8 @@ async function execute(env: Env, kind: JobKind, args: any): Promise<unknown> {
       return composeDraft(env, String(args.draftId));
     case "draft_price":
       return priceDraft(env, String(args.draftId));
+    case "draft_postage":
+      return planPostage(env, String(args.draftId));
     case "listing_review": {
       const r = await auditListing(env, String(args.itemId));
       return { itemId: args.itemId, note: r.text, turns: r.turns, costUsd: r.costUsd, stopReason: r.stopReason };
@@ -40,6 +42,7 @@ const TITLES: Record<JobKind, string> = {
   draft_review: "Photo check",
   draft_compose: "Listing draft",
   draft_price: "Price for the new listing",
+  draft_postage: "Postage for the new listing",
 };
 
 /**

@@ -200,6 +200,12 @@ export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
       const a = JSON.parse(p.payload);
       if (typeof a.draftId === "string")
         await env.store.drafts.setStatus(a.draftId, "published", Date.now(), { item_id: String(res.ItemID), published_at: Date.now() }).catch(() => null);
+      // What K does next in Seller Hub (Simple Delivery can't be set through the API): an Inbox to-do, not a write.
+      const t = a.afterPublish;
+      if (t && typeof t.code === "string" && typeof t.title === "string")
+        await env.store.todos
+          .sync("listing", { codes: [t.code], itemIds: [String(res.ItemID)] }, [{ code: t.code, kind: "you", itemId: String(res.ItemID), itemTitle: String(a.title ?? ""), title: String(t.title), detail: String(t.detail ?? ""), fingerprint: String(t.title) }], Date.now())
+          .catch(() => null);
     }
     return summary;
   } catch (e) {

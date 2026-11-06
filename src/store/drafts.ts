@@ -87,7 +87,31 @@ export interface DraftRow {
   price?: { value: number; kind: "engine" | "own"; floor: number | null; bestOffer: boolean } | null;
   parcel?: { lengthCm: number; widthCm: number; heightCm: number; weightKg: number } | null;
   quotes?: { at: number; quotes: { carrier: string; service: string; price: number }[]; error?: string } | null;
-  postage?: { cost: number; carrier: string | null; service: string | null; source: "parcel2go" | "you"; collectionOffered: boolean; collectionOnly: boolean; postcode: string } | null;
+  postage?: {
+    cost: number;
+    carrier: string | null;
+    service: string | null;
+    source: "parcel2go" | "you";
+    collectionOffered: boolean;
+    collectionOnly: boolean;
+    postcode: string;
+    /** Simple Delivery (K switches to it in Seller Hub, at size) or a courier at the cost above. */
+    mode?: "simple_delivery" | "courier";
+    /** The Simple Delivery size code (src/postage.ts, PARCEL_SIZES), and who chose it. */
+    size?: string | null;
+    sizeBy?: "app" | "you";
+  } | null;
+  /** How the packed parcel was worked out (src/newlisting.ts, planPostage). */
+  parcelPlan?: {
+    at: number;
+    /** The item itself, where known, and where each figure came from. */
+    item: { lengthCm: number | null; widthCm: number | null; heightCm: number | null; weightKg: number | null; source: "spec" | "estimate" | "unknown" };
+    packaging: string;
+    confidence: "high" | "medium" | "low";
+    /** What only K can say, when the size can't be worked out reliably. */
+    missing: string[];
+    by: "claude" | "you";
+  } | null;
   proposal_id?: string | null;
   submitted_at?: number | null;
   item_id?: string | null;

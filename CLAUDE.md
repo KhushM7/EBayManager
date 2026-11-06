@@ -43,6 +43,7 @@ Design docs: [roadmap](docs/roadmap.md), [design system](docs/design-system.md),
 
 - **One Sell screen**: the redesign's New listing wizard, on the real drafts server; `add-listing` and `claude/frontend-redesign` merged on `merge-redesign` ([handover](docs/add-listing-handover.md)). One set of photo checks (`web/src/photocheck.ts`).
 - **Claude may deploy to Sandbox** (`node scripts/azure-deploy.mjs sandbox`) and run `scripts/sandbox-listing-check.mjs` there. Production stays K's.
+- **Postage** (K, 2026-11-06): the app works out the packed parcel and the Simple Delivery size from eBay's list, fills in postage from Parcel2Go, and after publishing files a to-do for K to switch the listing to Simple Delivery in Seller Hub (the API can't). Parcels too big for it, or items over £750, go by courier at a Parcel2Go quote.
 - **Parcel2Go** is on trial for postage quotes ([parcel2go-api.md](docs/parcel2go-api.md), `scripts/parcel2go-quote.mjs`); kept only if its sandbox replies are good.
 
 ## Rules that are enforced in code, never in prompts

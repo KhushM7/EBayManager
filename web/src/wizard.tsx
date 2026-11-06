@@ -78,8 +78,9 @@ interface Draft {
   pricing?: { strategy: string; price: number | null; total: number | null; why: string; confidence: number; question?: string; reason?: string; options: { price: number; daysToSell: number }[] } | null;
   price?: { value: number; kind: "engine" | "own"; floor: number | null; bestOffer: boolean } | null;
   parcel?: { lengthCm: number; widthCm: number; heightCm: number; weightKg: number } | null;
-  quotes?: { quotes: { carrier: string; service: string; price: number }[]; error?: string } | null;
-  postage?: { cost: number; carrier: string | null; service: string | null; collectionOffered: boolean; collectionOnly: boolean; postcode: string } | null;
+  quotes?: { at?: number; quotes: { carrier: string; service: string; price: number }[]; error?: string } | null;
+  postage?: { cost: number; carrier: string | null; service: string | null; collectionOffered: boolean; collectionOnly: boolean; postcode: string; mode?: "simple_delivery" | "courier"; size?: string | null; sizeBy?: "app" | "you" } | null;
+  parcelPlan?: { at: number; item: { lengthCm: number | null; widthCm: number | null; heightCm: number | null; weightKg: number | null; source: "spec" | "estimate" | "unknown" }; packaging: string; confidence: "high" | "medium" | "low"; missing: string[]; by: "claude" | "you" } | null;
   proposal_id?: string | null;
   item_id?: string | null;
 }
@@ -564,7 +565,7 @@ function Wizard({ id, onSignedOut, onChanged, go }: ScreenProps & { id: string }
               />
             )}
             {s.id === "price" && <PriceStep draft={draft} open={open} busy={busy} onCheck={() => run("price-check", () => job("/price-check"))} onChoose={(b) => run("price", () => post("/price", b), "Price set")} />}
-            {s.id === "postage" && <PostageStep draft={draft} open={open} busy={busy} form={postage} setForm={setPostage} onQuote={(p) => run("quotes", () => post("/quotes", p))} />}
+            {s.id === "postage" && <PostageStep draft={draft} open={open} busy={busy} form={postage} setForm={setPostage} onQuote={(p) => run("quotes", () => post("/quotes", p))} onPlan={() => run("postage-plan", () => job("/postage-plan"))} />}
             {s.id === "review" && (
               <ReviewStep
                 draft={draft}
@@ -1231,6 +1232,21 @@ function PriceStep({ draft, open, busy, onCheck, onChoose }: { draft: Draft; ope
 
 // ---- Step 5: postage ----
 
+/** eBay's Simple Delivery sizes, as eBay's listing form shows them (src/postage.ts holds the same list and decides). */
+const PARCEL_SIZES = [
+  { code: "large_letter_1kg", group: "Large letter", label: "Up to 1 kg", dims: "35 x 25 x 2.5 cm" },
+  { code: "small_parcel_1kg", group: "Small parcel", label: "Up to 1 kg", dims: "45 x 35 x 16 cm" },
+  { code: "small_parcel_2kg", group: "Small parcel", label: "Up to 2 kg", dims: "45 x 35 x 16 cm" },
+  { code: "medium_parcel_1kg", group: "Medium parcel", label: "Up to 1 kg", dims: "61 x 46 x 46 cm" },
+  { code: "medium_parcel_2kg", group: "Medium parcel", label: "Up to 2 kg", dims: "61 x 46 x 46 cm" },
+  { code: "medium_parcel_10kg", group: "Medium parcel", label: "Up to 10 kg", dims: "61 x 46 x 46 cm" },
+  { code: "medium_parcel_20kg", group: "Medium parcel", label: "Up to 20 kg", dims: "61 x 46 x 46 cm" },
+] as const;
+const sizeText = (code: string | null | undefined) => {
+  const z = PARCEL_SIZES.find((x) => x.code === code);
+  return z ? `${z.group}, ${z.label.toLowerCase()}` : null;
+};
+
 interface PostageForm {
   postcode: string;
   lengthCm: string;
@@ -1241,6 +1257,10 @@ interface PostageForm {
   carrier: { carrier: string; service: string } | null;
   collect: boolean;
   only: boolean;
+  /** A Simple Delivery size code, "courier", or "" to let the app work it out from the parcel. */
+  size: string;
+  /** True once K picks the size from the list; then it's saved as K's choice. */
+  sizeMine: boolean;
 }
 const postageForm = (d: Draft): PostageForm => ({
   postcode: d.postage?.postcode ?? "",
@@ -1252,6 +1272,8 @@ const postageForm = (d: Draft): PostageForm => ({
   carrier: d.postage?.carrier ? { carrier: d.postage.carrier, service: d.postage.service ?? "" } : null,
   collect: d.postage?.collectionOffered ?? false,
   only: d.postage?.collectionOnly ?? false,
+  size: d.postage?.mode === "courier" ? "courier" : (d.postage?.size ?? ""),
+  sizeMine: d.postage?.sizeBy === "you",
 });
 const parcelOf = (f: PostageForm) => ({ lengthCm: num(f.lengthCm), widthCm: num(f.widthCm), heightCm: num(f.heightCm), weightKg: num(f.weightKg) });
 const postageReady = (f: PostageForm) => f.postcode.trim().length >= 5 && (f.only || num(f.cost) >= 0);
@@ -1266,32 +1288,77 @@ const postageBody = (f: PostageForm) => {
     collectionOnly: f.only,
     postcode: f.postcode,
     parcel: Object.values(parcel).every((v) => v > 0) ? parcel : null,
+    // K's own choice is kept; otherwise the server works the size out from the parcel.
+    ...(f.sizeMine && f.size === "courier" ? { mode: "courier" } : f.sizeMine && f.size ? { size: f.size } : {}),
   };
 };
 
-function PostageStep({ draft, open, busy, form, setForm, onQuote }: { draft: Draft; open: boolean; busy: string | null; form: PostageForm | null; setForm: Dispatch<StateUpdater<PostageForm | null>>; onQuote: (p: unknown) => void }) {
+const SOURCE_WORD = { spec: "from the manufacturer's specs", estimate: "estimated", unknown: "not known" } as const;
+
+function PostageStep(props: {
+  draft: Draft;
+  open: boolean;
+  busy: string | null;
+  form: PostageForm | null;
+  setForm: Dispatch<StateUpdater<PostageForm | null>>;
+  onQuote: (p: unknown) => void;
+  onPlan: () => void;
+}) {
+  const { draft, open, busy, form, setForm, onQuote } = props;
   const f = form ?? postageForm(draft);
+  const plan = draft.parcelPlan;
   // Merged into the latest state, so quick successive edits (autofill, fast typing) never undo each other.
   const set = (patch: Partial<PostageForm>) => setForm((cur) => ({ ...(cur ?? postageForm(draft)), ...patch }));
   useEffect(() => {
     if (!form) set({});
     if (!f.postcode) api<{ postcode: string | null }>("/drafts/defaults").then((d) => d.postcode && setForm((cur) => ({ ...(cur ?? postageForm(draft)), postcode: cur?.postcode || d.postcode! }))).catch(() => {});
+    // Worked out on arrival: the packed parcel, its size, quotes and the postage.
+    if (open && !plan && !busy) props.onPlan();
   }, []);
+  // A fresh plan (or new quotes) refills the form.
+  useEffect(() => {
+    if (plan) setForm(postageForm(draft));
+  }, [plan?.at, draft.quotes?.at]);
   const dim = (k: "lengthCm" | "widthCm" | "heightCm" | "weightKg", label: string) => (
     <Field label={label}>
-      <input type="number" inputMode="decimal" min="0" step="0.1" disabled={!open} value={f[k]} onInput={(e) => set({ [k]: e.currentTarget.value })} />
+      <input type="number" inputMode="decimal" min="0" step="0.1" disabled={!open} value={f[k]} onInput={(e) => set({ [k]: e.currentTarget.value, ...(f.sizeMine ? {} : { size: "" }) })} />
     </Field>
   );
   const parcelOk = Object.values(parcelOf(f)).every((v) => v > 0);
+  const courier = f.size === "courier";
+  const sized = sizeText(f.size);
+  const item = plan?.item;
+
+  if (busy === "postage-plan") return <Working label="Working out the parcel and the postage" lines={4} />;
   return (
     <div class="grid gap-5">
       <Toggle label="Collection only" sub="No postage: the buyer collects it from you." checked={f.only} disabled={!open} onChange={() => set({ only: !f.only })} />
       {!f.only && (
         <>
+          {plan && plan.missing.length > 0 && (
+            <div class="flag">
+              <p class="font-semibold">Measure it, please</p>
+              <p class="mt-1 text-sm">The size couldn't be worked out from anything known about it. Give {plan.missing.join(" and ")}, packed as you'll post it, then Get prices.</p>
+            </div>
+          )}
           <div class="card grid gap-4">
-            <p class="text-sm text-muted">
-              <Icons.truck size={16} /> The packed parcel's size and weight, for prices from the carriers eBay's Simple Delivery uses (Evri, Royal Mail, DHL, InPost).
-            </p>
+            <div>
+              <p class="kind">The parcel</p>
+              {plan ? (
+                <p class="text-sm text-muted">
+                  {plan.packaging}.{" "}
+                  {item && item.source !== "unknown" && (
+                    <>
+                      The item {item.lengthCm && item.widthCm && item.heightCm ? `is about ${item.lengthCm} x ${item.widthCm} x ${item.heightCm} cm` : ""}
+                      {item.weightKg ? `${item.lengthCm ? ", " : "weighs "}${item.weightKg} kg` : ""} ({SOURCE_WORD[item.source]}).
+                    </>
+                  )}{" "}
+                  {plan.by === "claude" && <Chip tone={plan.confidence === "high" ? "good" : plan.confidence === "medium" ? "accent" : "warn"}>{plan.confidence === "high" ? "From published specs" : plan.confidence === "medium" ? "Estimated" : "Needs measuring"}</Chip>}
+                </p>
+              ) : (
+                <p class="text-sm text-muted">The packed parcel's size and weight, as you'll post it.</p>
+              )}
+            </div>
             <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {dim("lengthCm", "Length, cm")}
               {dim("widthCm", "Width, cm")}
@@ -1299,34 +1366,72 @@ function PostageStep({ draft, open, busy, form, setForm, onQuote }: { draft: Dra
               {dim("weightKg", "Weight, kg")}
             </div>
             {open && (
-              <button class="btn btn-secondary w-fit" disabled={busy !== null || !parcelOk} onClick={() => onQuote(parcelOf(f))}>
-                {busy === "quotes" ? "Getting prices…" : "Get prices"}
-              </button>
-            )}
-            {draft.quotes?.error && <p class="rounded-xl bg-yellow-soft px-3 py-2 text-sm text-yellow">{draft.quotes.error}</p>}
-            {draft.quotes && draft.quotes.quotes.length > 0 && (
-              <ul class="m-0 grid gap-2 p-0">
-                {draft.quotes.quotes.map((q, i) => {
-                  const picked = f.carrier?.carrier === q.carrier && f.carrier?.service === q.service;
-                  return (
-                    <li key={i} class="list-none">
-                      <button
-                        class={`flex w-full items-center justify-between rounded-xl border px-4 py-2.5 text-left text-sm ${picked ? "border-accent bg-accent-soft" : "border-line bg-surface"}`}
-                        disabled={!open}
-                        onClick={() => set({ cost: String(Math.ceil(q.price * 2) / 2), carrier: { carrier: q.carrier, service: q.service } })}
-                      >
-                        <span>
-                          <strong>{q.carrier}</strong> {q.service} {i === 0 && <Chip tone="good">Cheapest</Chip>}
-                        </span>
-                        <span class="font-semibold tabular-nums">{money(q.price)}</span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+              <div class="flex flex-wrap gap-2">
+                <button class="btn btn-secondary w-fit" disabled={busy !== null || !parcelOk} onClick={() => onQuote(parcelOf(f))}>
+                  {busy === "quotes" ? "Getting prices…" : "Get prices"}
+                </button>
+                <button class="btn btn-text w-fit" disabled={busy !== null} onClick={props.onPlan}>
+                  <Icons.refresh size={14} /> Work it out again
+                </button>
+              </div>
             )}
           </div>
-          <Field label="Postage the buyer pays (£)" hint="Rounding up is fine: refund any difference.">
+
+          <div class="card grid gap-3">
+            <Field label="How it's posted" hint={f.sizeMine ? "Your choice." : "Worked out from the parcel: the smallest of eBay's sizes it fits, with a little room on the weight."}>
+              <select
+                disabled={!open}
+                value={f.size}
+                onChange={(e) => set({ size: e.currentTarget.value, sizeMine: true })}
+                aria-label="Simple Delivery size, or courier"
+              >
+                {!f.size && <option value="">Worked out when you press Next</option>}
+                {["Large letter", "Small parcel", "Medium parcel"].map((g) => (
+                  <optgroup key={g} label={`eBay Simple Delivery: ${g} (${PARCEL_SIZES.find((z) => z.group === g)!.dims})`}>
+                    {PARCEL_SIZES.filter((z) => z.group === g).map((z) => (
+                      <option key={z.code} value={z.code}>
+                        {g}, {z.label.toLowerCase()}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+                <option value="courier">Too big or heavy for Simple Delivery: courier, at the postage below</option>
+              </select>
+            </Field>
+            {sized && !courier && (
+              <div class="evidence text-sm">
+                <p class="font-semibold">After it's listed: switch it to Simple Delivery</p>
+                <p class="mt-1">
+                  eBay doesn't let apps set Simple Delivery, so it goes live with the postage below. You'll get a to-do in the Inbox: in Seller Hub, Edit the listing, choose <strong>Buyer pays postage</strong>, then <strong>{sized}</strong>. If eBay recommends a different size there, use eBay's.
+                </p>
+              </div>
+            )}
+            {courier && <p class="text-sm text-muted">The buyer pays the postage below; after it sells, book the courier (Parcel2Go has the quote).</p>}
+          </div>
+
+          {draft.quotes?.error && <p class="rounded-xl bg-yellow-soft px-3 py-2 text-sm text-yellow">{draft.quotes.error}</p>}
+          {draft.quotes && draft.quotes.quotes.length > 0 && (
+            <ul class="m-0 grid gap-2 p-0">
+              {draft.quotes.quotes.map((q, i) => {
+                const picked = f.carrier?.carrier === q.carrier && f.carrier?.service === q.service;
+                return (
+                  <li key={i} class="list-none">
+                    <button
+                      class={`flex w-full items-center justify-between rounded-xl border px-4 py-2.5 text-left text-sm ${picked ? "border-accent bg-accent-soft" : "border-line bg-surface"}`}
+                      disabled={!open}
+                      onClick={() => set({ cost: String(Math.ceil(q.price * 2) / 2), carrier: { carrier: q.carrier, service: q.service } })}
+                    >
+                      <span>
+                        <strong>{q.carrier}</strong> {q.service} {i === 0 && <Chip tone="good">Cheapest</Chip>}
+                      </span>
+                      <span class="font-semibold tabular-nums">{money(q.price)}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <Field label="Postage the buyer pays (£)" hint={courier ? "From the cheapest quote, rounded up: refund any difference." : "Shown until you switch to Simple Delivery, when eBay sets it."}>
             <input type="number" inputMode="decimal" min="0" step="0.01" disabled={!open} value={f.cost} onInput={(e) => set({ cost: e.currentTarget.value, carrier: null })} />
           </Field>
           <Toggle label="Collection also welcome" sub="Offered free as a second option." checked={f.collect} disabled={!open} onChange={() => set({ collect: !f.collect })} />
@@ -1357,7 +1462,7 @@ function ReviewStep(props: { draft: Draft; busy: string | null; confirmDelete: b
         </motion.div>
         <div>
           <h2 class="text-2xl">{draft.status === "published" ? "Listed on eBay" : "Sent for approval"}</h2>
-          <p class="mt-2 text-muted">{draft.status === "published" ? `Item ${draft.item_id}.` : "The label is waiting in the Inbox. It goes live on eBay once one of you approves it."}</p>
+          <p class="mt-2 text-muted">{draft.status === "published" ? `Item ${draft.item_id}.${draft.postage?.mode === "simple_delivery" && sizeText(draft.postage.size) ? ` Next: switch its postage to Simple Delivery (${sizeText(draft.postage.size)}) in Seller Hub. The steps are in your Inbox to-dos.` : ""}` : `The label is waiting in the Inbox. It goes live on eBay once one of you approves it.${draft.postage?.mode === "simple_delivery" && sizeText(draft.postage.size) ? ` Then switch its postage to Simple Delivery (${sizeText(draft.postage.size)}) in Seller Hub: a to-do will remind you.` : ""}`}</p>
         </div>
         {draft.status === "submitted" && (
           <div class="flex flex-wrap justify-center gap-2">
@@ -1386,6 +1491,7 @@ function ReviewStep(props: { draft: Draft; busy: string | null; confirmDelete: b
             <Chip>{condition ?? "Condition not set"}</Chip>
             <Chip>{plural(draft.photos.length, "photo")}</Chip>
             <Chip>{!post ? "No postage yet" : post.collectionOnly ? "Collection only" : `Postage ${money(post.cost)}${post.collectionOffered ? " · collection welcome" : ""}`}</Chip>
+            {post && !post.collectionOnly && (post.mode === "courier" ? <Chip tone="warn">Courier</Chip> : sizeText(post.size) ? <Chip tone="accent">Simple Delivery: {sizeText(post.size)}</Chip> : null)}
             {draft.price?.bestOffer && <Chip>Offers on</Chip>}
             {draft.category && <Chip>{draft.category.name}</Chip>}
           </div>

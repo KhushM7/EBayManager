@@ -90,6 +90,18 @@ K's first Sandbox approval failed at the first photo: `UploadSiteHostedPictures`
 | Description lacked the product's published details | The research's web search ran out of uses (4, and with dynamic filtering every lookup counts) | 10 searches plus opening pages (the manual), features recorded as well as sizes, and the names it's sold under. It found the **SHFD 1400 C1** behind Lidl's 438124, with 15 sourced specs |
 | "No sales found", though many are listed | Searched with Lidl's item number, which sellers don't use; then a used sale was taken for an exact match, adjusted the wrong way | Other names and broader searches when the first finds under 5 sales; each sale's condition shown to the matcher; the adjustment direction spelled out. Priced at £21.99 from two new sales (£28.12, £37.73) and one used (£12.79 adjusted up) |
 
+## Postage, done for K (2026-11-06)
+
+K's choice (b): the app creates the listing, then K switches its postage to Simple Delivery in Seller Hub, because eBay's API can't set Simple Delivery (eBay developer support). Arriving at Postage, the app:
+
+1. Works out the packed parcel (`planPostage`, Sonnet, about 1 to 2p) from the researched specs, the photos and K's facts: the item, its original box if any, accessories, a shipping box and padding, rounded up. Each figure says whether it came from the manufacturer or is estimated; when it can't tell, it asks K to measure.
+2. Picks the size from eBay's own list (K's screenshot: Large letter up to 1 kg; Small parcel 1 or 2 kg; Medium parcel 1, 2, 10 or 20 kg): the smallest the parcel fits on every side, with the weight 5% under the band. K can change it from a dropdown.
+3. Bigger than a medium parcel, over 20 kg, or priced over £750 (Simple Delivery's limit): a courier, quoted across every courier by Parcel2Go.
+4. Fills in the postage from the cheapest quote (rounded up to 50p) with the remembered postcode.
+5. After the listing goes live, files an Inbox to-do with the steps: Seller Hub, Edit, Buyer pays postage, the size; use eBay's recommendation if it differs.
+
+Checked on the air fryer: 44 x 37 x 38 cm, 4.8 kg, Medium parcel up to 10 kg, which is what eBay recommended to K.
+
 ## What K needs to test by hand
 
 Two short sessions; everything else is scripted above or already recorded in [go-live-tests.md](go-live-tests.md).

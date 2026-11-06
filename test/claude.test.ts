@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
 import type { Env } from "../src/env";
 import { costUsd, MODELS, runAgent, type MessagesApi } from "../src/claude";
 import { AUDIT_SYSTEM, AUDIT_TOOLS } from "../src/jobs";
@@ -25,7 +25,7 @@ function scripted(responses: Anthropic.Beta.BetaMessage[]) {
 
 let env: Env;
 beforeEach(() => {
-  env = { DB: fakeD1(), EBAY_ENV: "sandbox", WRITE_MODE: "approval" } as Env;
+  env = { store: memoryStore(), EBAY_ENV: "sandbox", WRITE_MODE: "approval" } as Env;
 });
 
 const run = (over: Partial<Parameters<typeof runAgent>[1]> = {}) => ({
@@ -59,9 +59,9 @@ describe("Claude tool-use loop", () => {
       ["tool_result", "t2", "[]"],
     ]);
 
-    const logged = await env.DB.prepare("SELECT COUNT(*) AS n, SUM(cost_usd) AS usd FROM claude_usage").first<any>();
-    expect(logged.n).toBe(2);
-    expect(logged.usd).toBeCloseTo(2 * costUsd(MODELS.audit, usage()), 10);
+    const logged = await env.store.usage.since(0);
+    expect(logged.length).toBe(2);
+    expect(logged.reduce((s, u) => s + u.cost_usd, 0)).toBeCloseTo(2 * costUsd(MODELS.audit, usage()), 10);
   });
 
   it("refuses tools outside the job's allowlist without running them", async () => {
@@ -72,7 +72,7 @@ describe("Claude tool-use loop", () => {
     await runAgent(env, run(), api);
     const result = (calls[1].messages.at(-1)?.content as any[])[0];
     expect(result.is_error).toBe(true);
-    expect(await env.DB.prepare("SELECT value FROM settings WHERE key = 'writes_paused'").first()).toBeNull();
+    expect(await env.store.kv.get("writes_paused")).toBeNull();
     // Only allowlisted tools are even offered.
     expect(calls[0].tools?.map((t: any) => t.name)).toEqual(["list_proposals"]);
   });
@@ -85,11 +85,7 @@ describe("Claude tool-use loop", () => {
   });
 
   it("won't start once today's budget is spent", async () => {
-    await env.DB.prepare(
-      "INSERT INTO claude_usage (at, job, model, input_tokens, output_tokens, cost_usd) VALUES (?, 'x', 'y', 0, 0, 5)",
-    )
-      .bind(Date.now())
-      .run();
+    await env.store.usage.log({ at: Date.now(), job: "x", model: "y", input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 5, stop_reason: null });
     const { api, calls } = scripted([msg("end_turn", [])]);
     await expect(runAgent(env, run(), api)).rejects.toThrow(/budget/);
     expect(calls).toHaveLength(0);

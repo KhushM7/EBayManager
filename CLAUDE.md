@@ -4,20 +4,20 @@ Automates K's eBay selling: improve existing listings, re-evaluate unsold ones, 
 
 Full plan (decisions, eBay API map, rollout): https://claude.ai/artifact/JowUE86DsPhFBsswMms8jf
 
-Design docs: [roadmap](docs/roadmap.md), [pricing engine](docs/pricing-engine.md), [security](docs/security.md), [pricing and promotion](docs/pricing-and-promotion.md), [sold-price data](docs/sold-price-data.md), [listing assistant](docs/listing-assistant.md), [go-live tests](docs/go-live-tests.md), [safety and environments](docs/safety-and-environments.md), [approvals](docs/approvals.md), [app and dashboard](docs/app-and-dashboard.md).
+Design docs: [roadmap](docs/roadmap.md), [design system](docs/design-system.md), [pricing engine](docs/pricing-engine.md), [security](docs/security.md), [pricing and promotion](docs/pricing-and-promotion.md), [sold-price data](docs/sold-price-data.md), [listing assistant](docs/listing-assistant.md), [go-live tests](docs/go-live-tests.md), [safety and environments](docs/safety-and-environments.md), [approvals](docs/approvals.md), [app and dashboard](docs/app-and-dashboard.md).
 
 ## Decisions (2026-11-02)
 
 - **Sandbox first.** Everything is built and tested on eBay Sandbox. K's real seller account is connected read-only at Phase 6 and accepts approved writes only from Phase 8. See [safety-and-environments.md](docs/safety-and-environments.md).
 - **Every eBay write needs approval**, not only prices and messages. Strict at launch. Later, K may opt eligible kinds into auto-apply. See [approvals.md](docs/approvals.md).
-- **One PWA is both the website and the app.** The dashboard is an installable Android PWA with Web Push Approve/Reject, served by the same Worker. ntfy becomes an optional fallback. See [app-and-dashboard.md](docs/app-and-dashboard.md).
+- **One PWA is both the website and the app.** The dashboard is an installable Android PWA with Web Push Approve/Reject, served by the same app as the backend. ntfy becomes an optional fallback. See [app-and-dashboard.md](docs/app-and-dashboard.md).
 
 ## Stack
 
-- TypeScript on Cloudflare Workers, with D1 (SQLite) for state and R2 for photos. Deployed with `wrangler`, with separate `sandbox` and `production` environments that each have their own D1 and R2.
+- TypeScript on Azure (moved from Cloudflare on 2026-11-05, [azure-migration.md](docs/azure-migration.md)): Azure Functions on Flex Consumption (France Central), Cosmos DB for NoSQL (free tier: one account, databases `ebay-sandbox` and `ebay-production`), Blob Storage for photos, Key Vault for secrets, a Storage Queue for background jobs. Infrastructure is Bicep (`infra/`); `sandbox` and `production` are separate resource groups that share only the Cosmos account, each app reaching only its own database through its managed identity.
 - eBay: Trading API (XML) for existing listings, best offers and revisions; REST APIs (Browse, Inventory, Marketing, Negotiation, Analytics, Taxonomy) elsewhere. Marketplace is EBAY_GB, site ID 3. `EBAY_ENV` (`sandbox` | `production`) selects hosts and keyset.
-- Claude: called from the Worker through the Anthropic API with K's key, using `@anthropic-ai/sdk`. This decision was made on 2026-11-01 and replaces the earlier plan to run on the Claude subscription. Use Claude Sonnet 5.5 (`claude-sonnet-5-5`) for listing builds and photo feedback. Use Claude Haiku 5.5 (`claude-haiku-5-5`) for nightly triage and buyer message drafts. The target spend is about $3 to $6 a month.
-- Dashboard and PWA: Vite + Preact + TypeScript in `web/`, served as Workers static assets at the site root. K signs in with `DASHBOARD_KEY` (separate from `MCP_TOKEN`); `/api/*` needs that session cookie plus an `X-EbayManager` header. Cloudflare Access can be added in front later. Design: the tasteskill "quiet instrument" direction (Switzer, Frost and slate); its house rules apply to every screen.
+- Claude: called from the app (server side) through the Anthropic API with K's key, using `@anthropic-ai/sdk`. This decision was made on 2026-11-01 and replaces the earlier plan to run on the Claude subscription. Use Claude Sonnet 5.5 (`claude-sonnet-5-5`) for listing builds and photo feedback. Use Claude Haiku 5.5 (`claude-haiku-5-5`) for nightly triage and buyer message drafts. The target spend is about $3 to $6 a month.
+- Dashboard and PWA: Vite + Preact + TypeScript in `web/`, served by the same Function App at the site root. People sign in with passkeys (Sandbox also allows `DASHBOARD_KEY`, never production); `/api/*` needs the session cookie plus an `X-EbayManager` header. Design: [design-system.md](docs/design-system.md), a pro-consumer "glass and glow" look in Tailwind v4 and Framer Motion (K, 2026-11-05). The tasteskill house rules no longer bind the dashboard.
 - Notifications: Web Push (VAPID, implemented on Web Crypto in `src/push.ts`, no library) to the installed PWA, with signed Approve/Reject actions handled by `web/public/sw.js`. ntfy.sh is the fallback.
 - The `/mcp` endpoint stays. It lets K use the same tools from the Claude app or Claude Code when they want to, but nothing depends on it.
 
@@ -35,6 +35,17 @@ Design docs: [roadmap](docs/roadmap.md), [pricing engine](docs/pricing-engine.md
 - **First-day audit** of listings, sold history, messages (reply style) and settings once the real account connects.
 - **UI redesign** with the tasteskill: eBay-based colours made K's own, a logo, separate phone and desktop layouts with the same features.
 
+## Decisions (2026-11-05)
+
+- **Dashboard redesign** ([design-system.md](docs/design-system.md)): glass and glow, swipeable approval cards, a listings catalogue, Insights and Store Pulse (was Audit), and a New listing wizard, now on the drafts server (merged 2026-11-06). The environment shows as a pinned pill; the change switch, Claude spend and diagnostics are under Settings → Advanced. This supersedes the tasteskill rules for the app.
+
+## Decisions (2026-11-06)
+
+- **One Sell screen**: the redesign's New listing wizard, on the real drafts server; `add-listing` and `claude/frontend-redesign` merged on `merge-redesign` ([handover](docs/add-listing-handover.md)). One set of photo checks (`web/src/photocheck.ts`).
+- **Claude may deploy to Sandbox** (`node scripts/azure-deploy.mjs sandbox`) and run `scripts/sandbox-listing-check.mjs` there. Production stays K's.
+- **Postage** (K, 2026-11-06): the app works out the packed parcel and the Simple Delivery size from eBay's list, fills in postage from Parcel2Go, and after publishing files a to-do for K to switch the listing to Simple Delivery in Seller Hub (the API can't). Parcels too big for it, or items over £750, go by courier at a Parcel2Go quote.
+- **Parcel2Go** is on trial for postage quotes ([parcel2go-api.md](docs/parcel2go-api.md), `scripts/parcel2go-quote.mjs`); kept only if its sandbox replies are good.
+
 ## Rules that are enforced in code, never in prompts
 
 These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the approval rules on 2026-11-02.
@@ -43,7 +54,7 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 - **Locked kinds.** `price`, `message`, `best_offer_response`, `offer_to_watchers`, `create_listing`, `end_listing`, `policy` and `promote` can never be auto-applied, whatever the dashboard settings say.
 - **One write gate.** Only `ebayWrite()` in `src/ebay/write.ts` may call eBay write endpoints. It refuses unless `WRITE_MODE=approval`, the kill switch is off and the proposal is approved. Every write is recorded in `audit_log`.
 - **Read-only until Phase 8.** K's real account is connected read-only (Phase 6). Never set `WRITE_MODE=approval` in production, or request write scopes, before Phase 8 and the go-live tests.
-- **Pricing target.** The pricing engine (`src/pricing/`, [pricing-engine.md](docs/pricing-engine.md)) prices toward the cheaper end of current sales of the same item without going below its long-run value, holds at a higher price when a dip is temporary, and asks K when it can't identify the item. K's floor is enforced in code; the engine moves at most 10% a step, and a bigger jump or a second change within 7 days is flagged on the label. Updated by K on 2026-11-03.
+- **Pricing target (K's seller rule, 2026-11-06).** The pricing engine (`src/pricing/`, [pricing-engine.md](docs/pricing-engine.md)) prices like K: what buyers pay comes from sales in the same condition only (close or different-condition matches only when there's nothing else; with under 6 sales, their middle, no trend). With realistic competition it goes just under the cheapest same-condition listing; listings far above what buyers pay (over 1.3x the value, or 15% above the dearest sale) are ignored; it never goes below the lowest same-condition sale to chase a cheap listing. With no realistic competition it prices at what buyers pay. Temporary dips, falling markets and faults keep their own rules. K's floor is enforced in code; the engine moves at most 10% a step, and a bigger jump or a second change within 7 days is flagged on the label.
 - **Returns.** Always accepted, and the buyer pays return postage. This is set as an eBay business policy.
 - **Shipping.** Assume K has a box and ships the item, unless they say collection only.
 - **Negotiation.** K leads it. Claude only drafts replies, and K approves each message and counter-offer.
@@ -59,11 +70,12 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/proposals.ts` | Proposals, signed expiring approval links, and deciding them |
 | `src/tools.ts`, `src/mcp.ts` | Tool definitions and a minimal stateless MCP server |
 | `src/notify.ts`, `src/push.ts` | Notifications: Web Push to the PWA (RFC 8291/8292), ntfy fallback |
-| `schema.sql` | D1 schema |
+| `src/store/`, `infra/cosmos-containers.json` | The data store: one document layer with a Cosmos DB and an in-memory implementation, repositories on top, and the 14 containers (`schema.sql` is the old D1 schema, kept for the import) |
+| `src/platform/azure/`, `infra/`, `scripts/azure-*.mjs` | The Azure Functions adapter (HTTP, timers, queue), Bicep templates, and the infra, secrets and deploy scripts |
 | `test/` | Vitest: gate refusal paths (`gate.test.ts`), source scans keeping writes behind the gate (`safety.test.ts`) |
 | `docs/` | Design docs and roadmap |
 | `src/api.ts`, `src/session.ts` | Dashboard JSON API and K's sign-in session |
-| `web/` | The dashboard PWA (Preact). `MOCK=1 npm run dev:web` runs it on sample data |
+| `web/` | The dashboard PWA (Preact, Tailwind, Framer Motion). `MOCK=1 npm run dev:web` runs it on sample data. `ui.tsx` shared motion pieces, `wizard.tsx` + `camera.tsx` + `photocheck.ts` (the one set of photo checks) the New listing flow. Under `MOCK=1`, `/api/drafts` runs the real server code with stand-ins for Claude, eBay and sold data (`web/mock-drafts.ts`) |
 | `scripts/` | `make-keys.mjs` (DASHBOARD_KEY, VAPID_KEY into .dev.vars), `make-icons.mjs` |
 | `src/claude.ts`, `src/jobs.ts` | Claude tool-use loop (allowlisted tools, cost log, daily budget) and the jobs that use it |
 | `src/nightly.ts`, `src/health.ts`, `src/ebay/sell.ts` | The 02:00 run: snapshot, orders and traffic sync, rule-based health flags, Haiku triage of flagged listings |
@@ -72,25 +84,29 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/specs.ts` | Published specifications for an exactly identified product (Sonnet + web search), each with a verified source |
 | `src/firstday.ts`, `src/style.ts`, `src/promotion.ts`, `src/ebay/history.ts` | First-day audit report, K's reply style guide, Promoted Listings research, and the account-history reads they use |
 | `src/inbox.ts`, `src/ebay/inbox.ts` | The 15-minute poll: buyer questions and Best Offers, Haiku drafts, floor enforced in code |
+| `src/todos.ts`, `src/store/todos.ts`, `web/src/todos.tsx` | Inbox to-dos: what needs K but isn't an eBay change, filed by the audit and the nightly ([approvals.md](docs/approvals.md)) |
+| `src/drafts.ts`, `src/newlisting.ts`, `src/photos.ts`, `src/postage.ts`, `src/store/drafts.ts`, `web/src/wizard.tsx`, `web/src/listing/` | Add Listing: the wizard at `/new` (`/sell` still opens it), drafts, private photos, Claude's photo check, sourced listing text, price, postage, submit as a `create_listing` label ([add-listing.md](docs/add-listing.md), [handover](docs/add-listing-handover.md)) |
 
 ## Commands
 
 ```sh
 npm install
 npm run typecheck && npm test   # tsc + vitest
-npx wrangler dev                # local, Sandbox; secrets in .dev.vars
-npm run deploy:sandbox          # Claude may run this
-npm run deploy:production       # K runs this, then: node scripts/check-production.mjs
+MOCK=1 npm run dev:web          # the dashboard on sample data
+node scripts/azure-deploy.mjs sandbox      # Claude may run this (typecheck and tests first)
+$env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-deploy.mjs production   # K runs this, then: node scripts/check-production.mjs
 ```
 
-Production is read-only (`WRITE_MODE=off`). Claude can read production D1 for diagnosis (`npx wrangler d1 execute ebay-autopilot-production --env production --remote --json --command "SELECT ..."`), but K runs anything that changes production: deploys, migrations (`migrations/*.sql`, also appended to `schema.sql`) and secrets (`npx wrangler secret bulk .prod.vars --env production`). Never print secrets or `.prod.vars`.
+Production is read-only (`WRITE_MODE=off`, forced by the Bicep template). Claude can read production data for diagnosis (`node scripts/prod-query.mjs production <container> "SELECT ..."`: K's Azure login, which has only Data Reader on production), but K runs anything that changes production: infrastructure (`scripts/azure-infra.mjs`), deploys (`scripts/azure-deploy.mjs`) and secrets (`scripts/azure-secrets.mjs` from `.prod.vars`). Every production script refuses to run without `EBAY_CONFIRM_PRODUCTION=yes`. Never print secrets or `.prod.vars`.
 
-## Where things stand (2026-11-03)
+## Where things stand (2026-11-06)
 
-- Phases 0–6 are done. K's real eBay account is connected **read-only** to production: https://ebay-autopilot-production.ebay-autopilot.workers.dev (Sandbox: https://ebay-autopilot-sandbox.ebay-autopilot.workers.dev).
-- The pricing engine is built (`src/pricing/`, [pricing-engine.md](docs/pricing-engine.md)). It prices listings, Best Offers and counters, audits and a nightly price review, and the code enforces that prices come from it. In K's backtest against 5 real sales it was 12.4% off on average (4 priced), against CompsAPI 27.1% and Trawl 77%.
+- Phases 0–6 are done, and the move to Azure is done (M0–M7; M8, deleting Cloudflare, is due about 2026-11-19). K's real eBay account is connected **read-only** to production: https://ebay-autopilot-production-wrpoyt.azurewebsites.net (Sandbox: https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net). K is the only user for now.
+- **Branches:** `merge-redesign` holds everything (Azure work, Add Listing, the redesigned app) and runs on Sandbox. It goes to `azure-migration` (a fast-forward), then `main` by pull request, then production. Production still runs older `azure-migration` code.
+- The pricing engine (`src/pricing/`, [pricing-engine.md](docs/pricing-engine.md)) follows K's seller rule (revision 4): same-condition sales set the value, just under the cheapest realistic listing, overpriced listings ignored. It prices listings, Best Offers and counters, audits and a nightly price review.
 - K's past sales (23, from 2025-03 to 2026-09) are imported from the Seller Hub orders report. eBay's APIs return only 90 days.
-- **Current phase: 7, read-only on the real account.** Built: the first-day audit and report (`src/firstday.ts`, Audit screen), the reply style guide (`src/style.ts`, used by every draft) and promotion research (`src/promotion.ts`). Next: K runs the audit on production, then one full nightly cycle and go-live tests A to H ([go-live-tests.md](docs/go-live-tests.md)). See [roadmap.md](docs/roadmap.md).
+- Add Listing is built and tested on Sandbox with K's own items ([add-listing-handover.md](docs/add-listing-handover.md)): condition first, Claude's photo check and research (model, specs, other names), listing text, price, postage done for K (parcel worked out, Simple Delivery size, Parcel2Go quotes) and a Seller Hub to-do after publishing. eBay Sandbox's picture service is down, so photo upload is first proven on production.
+- **Current phase: 7, read-only on the real account.** Next: the steps in [add-listing-handover.md](docs/add-listing-handover.md#steps-left-before-going-live-updated-end-of-2026-11-06): code to `main`, production update, go-live tests C to H, then go live (section I).
 
 ## Open items
 

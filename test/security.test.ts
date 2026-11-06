@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
 import type { Env } from "../src/env";
 import { handleApi } from "../src/api";
 import worker from "../src/index";
@@ -10,7 +10,7 @@ import { CallNotAllowed, assertRest, assertTrading } from "../src/ebay/allowlist
 
 const ORIGIN = "https://app.example";
 const enc = new TextEncoder();
-const sha256 = async (d: Uint8Array) => new Uint8Array(await crypto.subtle.digest("SHA-256", d));
+const sha256 = async (d: Uint8Array) => new Uint8Array(await crypto.subtle.digest("SHA-256", d as BufferSource));
 
 // --- A tiny CBOR encoder, for building authenticator responses. ---
 function cbor(v: any): Uint8Array {
@@ -85,7 +85,7 @@ const api = async (path: string, body?: unknown, cookie = "", headers: Record<st
   const url = new URL(`${ORIGIN}/api${path}`);
   const init: RequestInit = {
     method: body === undefined ? "GET" : "POST",
-    headers: { "X-EbayManager": "1", "CF-Connecting-IP": "1.2.3.4", Cookie: cookie, ...headers },
+    headers: { "X-EbayManager": "1", "Client-IP": "1.2.3.4:5000", Cookie: cookie, ...headers },
     body: body === undefined ? undefined : JSON.stringify(body),
   };
   const res = await handleApi(env, new Request(url, init), url);
@@ -108,7 +108,7 @@ async function signIn(pk: SoftPasskey, opts: Parameters<SoftPasskey["get"]>[1] =
 }
 
 beforeEach(() => {
-  env = { DB: fakeD1(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", PUBLIC_URL: ORIGIN, SIGNING_KEY: "sign", DASHBOARD_KEY: "boot-key-123" } as Env;
+  env = { store: memoryStore(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", PUBLIC_URL: ORIGIN, SIGNING_KEY: "sign", DASHBOARD_KEY: "boot-key-123" } as Env;
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -184,14 +184,38 @@ describe("people and roles", () => {
     expect((await api("/settings/writes", { paused: true }, manager.cookie)).status).toBe(200);
     expect((await api("/settings/writes", { paused: false }, manager.cookie)).status).toBe(403);
     expect((await api("/settings/writes", { paused: false }, owner.cookie)).status).toBe(200);
+    // An Inbox answer is saved as K's facts about K's item: only K gives one.
+    await env.store.todos.sync("audit", { codes: ["measurements"] }, [{ code: "measurements", kind: "answer", itemId: "1", itemTitle: null, title: "t", detail: "", fingerprint: "m" }], Date.now());
+    const [todo] = await env.store.todos.list("open");
+    expect((await api(`/todos/${todo.id}/answer`, { text: "Width 1 m" }, manager.cookie)).status).toBe(403);
+    expect((await api(`/todos/${todo.id}/answer`, { text: "Width 1 m" }, owner.cookie)).status).toBe(200);
+    // Proposing a price or setting an own price from a price check: K only.
+    expect((await api("/pricing/propose", { itemId: "123456", price: 10 }, manager.cookie)).status).toBe(403);
+    expect((await api("/pricing/own", { itemId: "123456", price: 10 }, manager.cookie)).status).toBe(403);
+    expect((await api("/pricing/own", { itemId: "123456", price: "no idea" }, owner.cookie)).status).toBe(400);
+  });
+
+  it("refuses an invite link after 24 hours (go-live B5)", async () => {
+    const { owner } = await team();
+    const inv = await api("/people/invite", { name: "Alex" }, owner.cookie);
+    const token = inv.json.inviteUrl.split("#")[1];
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 24 * 3_600_000 + 60_000);
+    try {
+      const late = await api("/auth/register/options", { invite: token });
+      expect(late.status).toBeGreaterThanOrEqual(400);
+      expect(late.json.error).toMatch(/expired or been used/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("records who decided a proposal", async () => {
     const { manager } = await team();
     const p = await createProposal(env, { kind: "price", itemId: "1", payload: { newPrice: 5 } });
     await api("/proposals/decide", { ids: [p.id], decision: "reject" }, manager.cookie);
-    const row = await env.DB.prepare("SELECT decided_by FROM proposals WHERE id = ?").bind(p.id).first<any>();
-    expect(row.decided_by).toBe("Sam");
+    const row = await env.store.proposals.get(p.id);
+    expect(row!.decided_by).toBe("Sam");
   });
 
   it("removing a person ends their sessions at once", async () => {
@@ -221,6 +245,19 @@ describe("request protection", () => {
   it("rate-limits sign-in attempts per network", async () => {
     for (let i = 0; i < 20; i++) await api("/auth/recover", { code: "nope" });
     expect((await api("/auth/recover", { code: "nope" })).status).toBe(429);
+  });
+
+  it("limits failed passkey sign-ins per person (5 in 15 minutes), even from different networks", async () => {
+    const setup = await api("/setup", { key: "boot-key-123", name: "K" });
+    const owner = await join(setup.json.inviteUrl);
+    for (let i = 0; i < 5; i++) {
+      const o = await api("/auth/login/options", {}, "", { "Client-IP": `10.0.0.${i}:443` });
+      const r = await api("/auth/login/verify", { challengeId: o.json.challengeId, credential: await owner.pk.get(o.json.options, { tamper: true }) }, "", { "Client-IP": `10.0.0.${i}:443` });
+      expect(r.status).toBe(400);
+    }
+    const blocked = await signIn(owner.pk);
+    expect(blocked.status).toBe(400);
+    expect(blocked.json.error).toMatch(/Too many failed sign-ins for this person/);
   });
 
   it("refuses cross-site requests and requests without the custom header", async () => {
@@ -289,7 +326,7 @@ describe("marketplace account deletion", () => {
         String(url).includes("/identity/") ? Response.json({ access_token: "t", expires_in: 7200 }) : Response.json({ key: pem, algorithm: "ECDSA", digest: "SHA1" }),
       ),
     );
-    await env.DB.prepare("INSERT INTO buyer_messages (message_id, item_id, sender, body, received_at) VALUES ('m1', '1', 'gone_buyer', 'hi', 0)").run();
+    await env.store.messages.recordQuestion({ message_id: "m1", item_id: "1", sender: "gone_buyer", body: "hi", received_at: 0, proposal_id: "" });
     const p = await createProposal(env, { kind: "message", itemId: "1", payload: { recipientId: "gone_buyer", question: "hi", body: "hello" } });
 
     const body = JSON.stringify({ metadata: { topic: "MARKETPLACE_ACCOUNT_DELETION" }, notification: { data: { username: "gone_buyer", userId: "x" } } });
@@ -302,8 +339,8 @@ describe("marketplace account deletion", () => {
     expect((await post({ "X-EBAY-SIGNATURE": btoa(JSON.stringify({ kid: "k1", signature: "AAAA" })) })).status).toBe(412);
     expect((await post({ "X-EBAY-SIGNATURE": header })).status).toBe(204);
 
-    expect(await env.DB.prepare("SELECT * FROM buyer_messages WHERE sender = 'gone_buyer'").first()).toBeNull();
-    const row = await env.DB.prepare("SELECT status, payload FROM proposals WHERE id = ?").bind(p.id).first<any>();
+    expect(await env.store.messages.seenQuestion("m1")).toBe(false);
+    const row = (await env.store.proposals.get(p.id))!;
     expect(row.status).toBe("expired");
     expect(row.payload).not.toContain("gone_buyer");
     expect(await forgetUser(env, "")).toBe(0);
@@ -325,7 +362,7 @@ describe("connecting eBay", () => {
     // eBay's redirect back: no session cookie (SameSite=Strict), only the state cookie.
     const callback = (s: string) => worker.fetch(new Request(`${ORIGIN}/oauth/callback?code=c&state=${s}`, { headers: { Cookie: stateCookie } }), env);
     expect((await callback(state)).status).toBe(200);
-    expect(await env.DB.prepare("SELECT scopes FROM ebay_tokens").first()).not.toBeNull();
+    expect(await env.store.kv.getEbayTokens()).not.toBeNull();
     expect((await callback(state)).status).toBe(400);
     expect((await callback("made-up")).status).toBe(400);
   });

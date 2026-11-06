@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
+import { withEbayTokens } from "./fixtures";
 import type { Env } from "../src/env";
 import { healthFlags, type ListingFacts } from "../src/health";
 import { parseTraffic, toOrder } from "../src/ebay/sell";
@@ -83,12 +84,8 @@ describe("nightly run", () => {
         return new Response("Not available in Sandbox", { status: 500 });
       }),
     );
-    env = { DB: fakeD1(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", EBAY_SITE_ID: "3", EBAY_MARKETPLACE: "EBAY_GB", NTFY_TOPIC: "" } as Env;
-    await env.DB.prepare(
-      "INSERT INTO ebay_tokens (id, access_token, access_expires_at, refresh_token, refresh_expires_at, scopes) VALUES (1, 't', ?, 'r', ?, 's')",
-    )
-      .bind(Date.now() + 3_600_000, Date.now() + 3_600_000)
-      .run();
+    env = { store: memoryStore(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", EBAY_SITE_ID: "3", EBAY_MARKETPLACE: "EBAY_GB", NTFY_TOPIC: "" } as Env;
+    await withEbayTokens(env.store);
   });
   afterEach(() => vi.unstubAllGlobals());
 

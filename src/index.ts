@@ -17,8 +17,8 @@ const html = (body: string, status = 200) =>
     { status, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
 
-// The dashboard loads only its own code and the Switzer font, and can't be framed.
-const CSP = [
+// The dashboard loads only its own code and fonts, and can't be framed.
+const APP_CSP = [
   "default-src 'self'",
   "style-src 'self'",
   "font-src 'self'",
@@ -29,19 +29,45 @@ const CSP = [
   "form-action 'self'",
 ].join("; ");
 
-function withSecurityHeaders(res: Response): Response {
+// The server's own small pages (approval links, eBay sign-in result) run no script and only inline styles.
+const PAGE_CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+// JSON and everything else: nothing may load from it.
+const DATA_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
+
+/**
+ * Security headers on every response (docs/security.md): CSP, no framing, no sniffing, no referrer, HTTPS
+ * only. The dashboard's files get the app policy; server pages and data get stricter ones.
+ */
+export function withSecurityHeaders(res: Response, kind: "app" | "page" | "data"): Response {
   const out = new Response(res.body, res);
-  out.headers.set("Content-Security-Policy", CSP);
+  out.headers.set("Content-Security-Policy", kind === "app" ? APP_CSP : kind === "page" ? PAGE_CSP : DATA_CSP);
   out.headers.set("X-Content-Type-Options", "nosniff");
   out.headers.set("Referrer-Policy", "no-referrer");
+  out.headers.set("X-Frame-Options", "DENY");
+  out.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   return out;
 }
 
 const escHtml =(s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
+/** Every request, on any platform: routes it and adds the security headers. */
+export async function handle(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const res = await route(request, env, url);
+  const isApp = !/^\/(api|mcp|oauth|decide|ebay|health)(\/|$)/.test(url.pathname);
+  const isPage = (res.headers.get("Content-Type") ?? "").startsWith("text/html");
+  return withSecurityHeaders(res, isApp ? "app" : isPage ? "page" : "data");
+}
+
+/** The scheduled jobs: the 02:00 UTC nightly run, and the buyer-message poll every 15 minutes. */
+export function runScheduled(kind: "nightly" | "poll", env: Env) {
+  return kind === "nightly" ? runNightly(env) : pollInbox(env);
+}
+
+export default { fetch: handle };
+
+const route = async (request: Request, env: Env, url: URL): Promise<Response> => {
+  {
 
     // The Claude connector: Sandbox only unless switched on deliberately (docs/security.md).
     if (url.pathname === "/mcp") return env.MCP_ENABLED === "true" ? handleMcp(env, request) : new Response("Not found", { status: 404 });
@@ -111,12 +137,7 @@ export default {
 
     if (url.pathname === "/health") return Response.json({ ok: true, ebayEnv: env.EBAY_ENV, writeMode: env.WRITE_MODE });
     // Everything else is the dashboard and PWA (single-page app); its data comes from /api with K's session.
-    if (env.ASSETS) return withSecurityHeaders(await env.ASSETS.fetch(request));
+    if (env.ASSETS) return env.ASSETS.serve(request);
     return new Response("Not found", { status: 404 });
-  },
-
-  // 02:00 UTC: the nightly health check (src/nightly.ts). Every 15 minutes: new buyer questions and offers (src/inbox.ts).
-  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(controller.cron === "0 2 * * *" ? runNightly(env) : pollInbox(env));
-  },
-} satisfies ExportedHandler<Env>;
+  }
+};

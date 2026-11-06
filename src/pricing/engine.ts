@@ -2,8 +2,9 @@ import type { Env } from "../env";
 import type { MessagesApi } from "../claude";
 import { searchActiveComps, type Comp } from "../ebay/browse";
 import { getItem } from "../ebay/trading";
+import { push } from "../notify";
 import { itemNumber, poolSales, providerEnabled, searchSold, type Provider, type SoldSale } from "../solddata";
-import { identify, IDENTITY_VERSION, matchTitles, type Component, type Grade, type Identity } from "./identify";
+import { identify, identifyByRules, IDENTITY_VERSION, matchTitles, type Component, type Grade, type Identity } from "./identify";
 import {
   charmPrice,
   decide,
@@ -36,6 +37,10 @@ export interface PriceInput {
   /** Postage K charges; null if unknown (then the market's typical postage is assumed). */
   postage?: number | null;
   floor?: number | null;
+  /** K's facts about the item (src/pricing/identify.ts), e.g. an answer to the engine's question. */
+  factsFromK?: string | null;
+  /** Other names the product is sold under, from published sources (a new listing's spec lookup). */
+  aliases?: string[];
   current?: number | null;
   /** eBay item numbers left out of the evidence (K's own listing or sale). */
   excludeItemIds?: string[];
@@ -78,26 +83,26 @@ const median = (xs: number[]) => {
 };
 
 export async function paramsFor(env: Env, group: string): Promise<SaleParams> {
-  const row = await env.DB.prepare("SELECT tau, alpha FROM pricing_params WHERE grp IN (?, 'all') ORDER BY grp = 'all' LIMIT 1")
-    .bind(group)
-    .first<{ tau: number; alpha: number }>()
-    .catch(() => null);
+  const row = await env.store.pricing.paramsFor(group).catch(() => null);
   return row ? { tau: row.tau, alpha: row.alpha } : DEFAULT_PARAMS;
 }
+
+/** Sales found under a component's main query below which its other searches are tried too. */
+export const ENOUGH_SALES = 5;
 
 /** How much a close (adjusted) comparable counts against an exact one. */
 export const CLOSE_WEIGHT = 0.35;
 
 async function cachedIdentity(env: Env, input: PriceInput, api?: MessagesApi): Promise<Identity> {
-  // Redone when the listing's title, condition, description or first photo changes.
-  const key = `v${IDENTITY_VERSION}|${input.title}|${input.condition ?? ""}|${(input.description ?? "").length}|${input.photos?.[0] ?? ""}`;
-  const hit = await env.DB.prepare("SELECT identity FROM item_identity WHERE key = ?").bind(key).first<{ identity: string }>();
-  if (hit) return JSON.parse(hit.identity);
+  // Redone when the listing's title, condition, description or first photo changes, or K's facts do (added
+  // only when there are some, so identities cached before facts existed still hit).
+  const facts = input.factsFromK?.trim();
+  const key = `v${IDENTITY_VERSION}|${input.title}|${input.condition ?? ""}|${(input.description ?? "").length}|${input.photos?.[0] ?? ""}${facts ? `|k:${facts}` : ""}${input.aliases?.length ? `|a:${input.aliases.join(";")}` : ""}`;
+  const hit = await env.store.pricing.getIdentity(key);
+  if (hit) return JSON.parse(hit);
   const id = await identify(env, input, api);
   if (id.by === "claude")
-    await env.DB.prepare("INSERT OR REPLACE INTO item_identity (key, item_id, identity, at) VALUES (?, ?, ?, ?)")
-      .bind(key, input.itemId ?? null, JSON.stringify(id), Date.now())
-      .run();
+    await env.store.pricing.putIdentity(key, input.itemId ?? null, JSON.stringify(id), Date.now());
   return id;
 }
 
@@ -120,7 +125,24 @@ async function priceComponent(env: Env, identity: Identity, c: Component, input:
   const exclude = new Set(input.excludeItemIds ?? []);
   const asOf = input.asOf ?? Date.now();
   const backtest = input.asOf != null && Date.now() - input.asOf > 14 * DAY;
-  const gathered = (await gatherSold(env, c.query, input.days ?? 730, errors)).filter((s) => !exclude.has(itemNumber(s.url) ?? ""));
+  let gathered = (await gatherSold(env, c.query, input.days ?? 730, errors)).filter((s) => !exclude.has(itemNumber(s.url) ?? ""));
+  // Too few sales under the main query: the same product under its other names, or more broadly (identify.ts,
+  // alternates). Each search counts against the providers' monthly caps and is cached for 30 days; the
+  // matching pass below still grades every title against this exact product, so a broad search can't price it
+  // from different things.
+  const searched = [c.query];
+  const words = (q: string) => q.toLowerCase().split(/s+/).filter(Boolean);
+  const empty: string[][] = gathered.length ? [] : [words(c.query)];
+  for (const q of c.alternates ?? []) {
+    if (gathered.length >= ENOUGH_SALES) break;
+    // Searches need every word: one that adds words to a search that found nothing can't find anything either.
+    if (empty.some((e) => e.every((w) => words(q).includes(w)))) continue;
+    searched.push(q);
+    const more = (await gatherSold(env, q, input.days ?? 730, errors)).filter((s) => !exclude.has(itemNumber(s.url) ?? ""));
+    if (!more.length) empty.push(words(q));
+    gathered = poolSales(gathered, more);
+  }
+  if (searched.length > 1) errors.push(`Few sales under "${c.query}", so also searched: ${searched.slice(1).map((q) => `"${q}"`).join(", ")}.`);
   let soldAll = gathered.filter((s) => !s.dateSold || Date.parse(s.dateSold) <= asOf);
   let marketAt = asOf;
   // Backtest only: providers return the latest few hundred sales, so for a popular item nothing may predate
@@ -135,13 +157,21 @@ async function priceComponent(env: Env, identity: Identity, c: Component, input:
   }
   let activeAll: Comp[] = [];
   if (!backtest) try {
-    activeAll = (await searchActiveComps(env, c.query, { limit: 100 })).comps.filter((a) => !exclude.has(a.itemId.split("|")[1] ?? a.itemId));
+    activeAll = (await searchActiveComps(env, searched.at(-1)!, { limit: 100 })).comps.filter((a) => !exclude.has(a.itemId.split("|")[1] ?? a.itemId));
+    if (searched.length > 1 && activeAll.length < ENOUGH_SALES) {
+      const more = (await searchActiveComps(env, c.query, { limit: 100 })).comps.filter((a) => !exclude.has(a.itemId.split("|")[1] ?? a.itemId));
+      const seen = new Set(activeAll.map((a) => a.itemId));
+      activeAll = [...activeAll, ...more.filter((a) => !seen.has(a.itemId))];
+    }
   } catch (e) {
     errors.push(`eBay active listings: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   // One matching pass over sold and active titles together.
-  const titles = [...soldAll.map((s) => s.title), ...activeAll.map((a) => a.title)];
+  // Each title with the condition the provider or eBay reports, so a used sale isn't taken for a new item's
+  // exact match (2026-11-06: one used sale graded exact priced an unused air fryer at £11 against new sales at £28 to £40).
+  const withCondition = (t: string, cond: string | null | undefined) => (cond && cond.trim() ? `${t} [condition: ${cond.trim().slice(0, 30)}]` : t);
+  const titles = [...soldAll.map((s) => withCondition(s.title, s.condition)), ...activeAll.map((a) => withCondition(a.title, a.condition))];
   const { matches, by } = await matchTitles(env, identity, c, titles, input.title, api);
   const grades = new Map(matches.map((g) => [g.i, g]));
   // Best Offer sales whose accepted price isn't known would overstate the market, so they're left out.
@@ -156,22 +186,34 @@ async function priceComponent(env: Env, identity: Identity, c: Component, input:
   const typicalPostage = r2(median(knownPostage) ?? input.postage ?? 0);
   const total = (price: number, shipping: number | null) => r2(price + (shipping ?? typicalPostage));
 
+  // Same-condition evidence first (K, 2026-11-06): when there are exact sales, close and different-condition
+  // ones (a used sale against an unused item) are set aside; they count only when there's nothing else.
+  const exactSold = sold.filter((s) => s.g.grade === "exact");
+  const exactActive = active.filter((a) => a.g.grade === "exact");
+  const useSold = exactSold.length ? exactSold : sold;
+  const useActive = exactActive.length ? exactActive : active;
+  const setAside = sold.length - useSold.length;
+  const asOfSale = (s: { dateSold: string | null }) => (s.dateSold ? Date.parse(s.dateSold) || asOf - 30 * DAY : asOf - 30 * DAY);
   // Each comparable is adjusted to K's item (as a valuer adjusts a comparable sale) and weighted by how close it is.
-  const sales: MarketSale[] = sold.map((s) => ({
+  const sales: MarketSale[] = useSold.map((s) => ({
     total: r2(total(s.price, s.shipping) * s.g.factor),
-    at: s.dateSold ? Date.parse(s.dateSold) || asOf - 30 * DAY : asOf - 30 * DAY,
+    at: asOfSale(s),
     bestOffer: s.bestOffer === true,
     weight: weight(s.g),
   }));
   const market = marketState(
     sales,
-    active.map((a) => ({ total: r2(total(a.price, a.shipping) * a.g.factor), weight: weight(a.g) })),
+    useActive.map((a) => ({ total: r2(total(a.price, a.shipping) * a.g.factor), weight: weight(a.g) })),
     { now: marketAt },
   );
-  const postage = input.postage ?? typicalPostage;
+  const postage = pricingPostage(input.postage, typicalPostage);
   const costs: Costs = { postage };
   const single = identity.components.length === 1;
-  const decision = decide({ market, costs, params, floor: single ? input.floor : null, current: single ? input.current : null, listedDays: input.listedDays });
+  const minorFault = identity.condition === "parts" && identity.fault === "minor";
+  const evidence = { sold: exactSold.map((s) => ({ total: total(s.price, s.shipping), at: asOfSale(s) })), active: exactActive.map((a) => total(a.price, a.shipping)) };
+  const decision = decide({ market, costs, params, floor: single ? input.floor : null, current: single ? input.current : null, listedDays: input.listedDays, minorFault, evidence });
+  if (setAside) decision.why += ` ${setAside} close or different-condition sale${setAside === 1 ? "" : "s"} set aside, as there are sales in the same condition.`;
+  if (single && input.postage != null && postage < input.postage) decision.why += postageNote(input.postage, postage);
 
   // Only exact matches teach the sale model which prices sell.
   if (!backtest) await recordSnapshot(env, c.query, identity.group, active.filter((a) => a.g.grade === "exact"), typicalPostage, market).catch(() => {});
@@ -211,17 +253,29 @@ async function recordSnapshot(env: Env, query: string, group: string, active: Co
   if (!active.length || market.mNow == null) return;
   const key = query.toLowerCase().trim();
   const at = Date.now();
-  const last = await env.DB.prepare("SELECT MAX(taken_at) AS t FROM market_snapshots WHERE key = ?").bind(key).first<{ t: number | null }>();
-  if (last?.t && at - last.t < DAY) return; // at most one a day per search
+  const last = await env.store.pricing.lastMarketAt(key);
+  if (last && at - last < DAY) return; // at most one a day per search
   const share = Math.max(market.demand28, market.demand91) / (market.supply + 1);
-  await env.DB.batch(
-    active.slice(0, 100).map((a) =>
-      env.DB.prepare(
-        "INSERT OR IGNORE INTO market_snapshots (key, taken_at, item_id, total, grp, market, share) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ).bind(key, at, a.itemId, r2(a.price + (a.shipping ?? postage)), group, market.mNow, share),
-    ),
-  );
+  // One document per search per day; each listing once (the first, as INSERT OR IGNORE kept).
+  const seen = new Set<string>();
+  const items = active
+    .slice(0, 100)
+    .filter((a) => !seen.has(a.itemId) && seen.add(a.itemId))
+    .map((a) => ({ item_id: a.itemId, total: r2(a.price + (a.shipping ?? postage)) }));
+  await env.store.pricing.writeMarket(key, at, { grp: group, market: market.mNow, share, items });
 }
+
+/**
+ * The postage the engine prices with. K sets postage on the high side for big items, offers collection, and
+ * refunds any overpaid postage (K, 2026-11-05), so a postage above the market's typical isn't held against
+ * the price: the engine prices as if the typical postage were charged.
+ */
+export function pricingPostage(kPostage: number | null | undefined, typical: number): number {
+  return kPostage == null ? typical : Math.min(kPostage, typical);
+}
+
+export const postageNote = (kPostage: number, typical: number) =>
+  ` Your postage (£${kPostage.toFixed(2)}) is above the typical £${typical.toFixed(2)} for this item; priced as if buyers paid the typical postage, since you refund any overpaid postage and offer collection.`;
 
 /** Adds up a bundle's parts: each part priced on its own market, postage charged once. */
 export function sumOfParts(parts: ComponentResult[], postage: number, floor?: number | null): Decision {
@@ -240,6 +294,7 @@ export function sumOfParts(parts: ComponentResult[], postage: number, floor?: nu
       why: ask ? `No reliable price for "${ask.name}". ${ask.market.why}` : "No part of this bundle could be priced.",
       confidence: 0,
       question: ask ? `What exactly is the "${ask.name}" (brand and model)?` : "What's in this bundle?",
+      reason: "unidentified",
     };
   // Each part's item price is its market total less that market's postage.
   const itemPrice = (p: ComponentResult, i: number) => Math.max(0, (p.decision.options[i]?.total ?? p.decision.total!) - p.typicalPostage);
@@ -268,7 +323,7 @@ export async function priceItem(env: Env, input: PriceInput, api?: MessagesApi):
   const identity = await cachedIdentity(env, input, api);
   const at = Date.now();
   if (!identity.priceable) {
-    const empty: Decision = { strategy: "ask", price: null, total: null, options: [], why: "The listing doesn't say exactly what the item is.", confidence: 0, question: identity.question ?? "Which brand and model is it?" };
+    const empty: Decision = { strategy: "ask", price: null, total: null, options: [], why: "The listing doesn't say exactly what the item is.", confidence: 0, question: identity.question ?? "Which brand and model is it?", reason: "unidentified" };
     return { at, identity, components: [], decision: empty, method: "single" };
   }
   const params = await paramsFor(env, identity.group);
@@ -278,29 +333,31 @@ export async function priceItem(env: Env, input: PriceInput, api?: MessagesApi):
     components.push(await priceComponent(env, identity, c, input, params, api));
   }
   const bundle = components.length > 1;
-  const decision = bundle ? sumOfParts(components, input.postage ?? Math.max(...components.map((c) => c.typicalPostage)), input.floor) : components[0].decision;
+  const typical = bundle ? Math.max(...components.map((c) => c.typicalPostage)) : 0;
+  const decision = bundle ? sumOfParts(components, pricingPostage(input.postage, typical), input.floor) : components[0].decision;
+  if (bundle && input.postage != null && pricingPostage(input.postage, typical) < input.postage) decision.why += postageNote(input.postage, typical);
+  if (identity.fallback) {
+    // Word rules stood in for Claude: say so, and don't let the price look surer than it is.
+    decision.why = `${identity.fallback}, so simple word rules were used: check this price. ${decision.why}`;
+    decision.confidence = Math.round(decision.confidence * 0.5 * 100) / 100;
+  }
   return { at, identity, components, decision, method: bundle ? "sum of parts" : "single" };
 }
 
 /** Keeps the decision for learning and for the price label's track record. */
 export async function recordDecision(env: Env, itemId: string | null, r: PriceResult) {
   const m = r.components[0]?.market;
-  await env.DB.prepare(
-    `INSERT INTO price_decisions (item_id, at, grp, strategy, price, total, market_price, predicted_days, result)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      itemId,
-      r.at,
-      r.identity.group,
-      r.decision.strategy,
-      r.decision.price,
-      r.decision.total,
-      m?.mNow ?? null,
-      r.decision.options[1]?.daysToSell ?? null,
-      JSON.stringify(r).slice(0, 60_000),
-    )
-    .run();
+  await env.store.pricing.recordDecision({
+    item_id: itemId,
+    at: r.at,
+    grp: r.identity.group,
+    strategy: r.decision.strategy,
+    price: r.decision.price,
+    total: r.decision.total,
+    market_price: m?.mNow ?? null,
+    predicted_days: r.decision.options[1]?.daysToSell ?? null,
+    result: JSON.stringify(r).slice(0, 60_000),
+  });
 }
 
 const num = (v: any): number | null => {
@@ -343,20 +400,74 @@ export function inputFromItem(item: any): PriceInput {
   };
 }
 
+/**
+ * How often the engine looks again for a market for an own-priced listing: the nightly price review re-checks a
+ * listing every 6 days, so the look happens there, and the review proposes the engine's price the same night.
+ */
+export const OWN_PRICE_RECHECK_DAYS = 6;
+
+/** K's own price for a listing with no market to price from: the engine reports it and never moves it. */
+export function ownPriceResult(input: PriceInput, own: number): PriceResult {
+  return {
+    at: Date.now(),
+    identity: { ...identifyByRules(input.title), priceable: true, question: null },
+    components: [],
+    decision: {
+      strategy: "own",
+      price: own,
+      total: r2(own + (input.postage ?? 0)),
+      options: [],
+      why: "Your own price: there were no sales of this item or anything close to price it from. The engine looks for a market about once a week and prices it as soon as one appears; clear it on Listings to let it price now.",
+      confidence: 1,
+    },
+    method: "single",
+  };
+}
+
+/**
+ * A listing on K's own price. About once a week the engine looks again for a market (K, 2026-11-05: an
+ * own-priced listing mustn't be forgotten); as soon as sales of the item or something close turn up, K's price
+ * is lifted, K is told, and the engine's price is returned (the nightly review then proposes it as usual).
+ */
+export async function priceOwned(
+  env: Env,
+  itemId: string,
+  input: PriceInput,
+  s: { own_price: number | null; own_price_set_at?: number | null; own_checked_at?: number | null },
+  marketCheck: () => Promise<PriceResult>,
+  now = Date.now(),
+): Promise<PriceResult> {
+  const ownPrice = s.own_price!;
+  if (now - (s.own_checked_at ?? s.own_price_set_at ?? 0) >= OWN_PRICE_RECHECK_DAYS * DAY) {
+    const market = await marketCheck();
+    if (market.decision.strategy !== "ask") {
+      await env.store.listings.setOwnPrice(itemId, null);
+      market.decision.why = `Sales of this item or close matches have appeared, so your own price (£${ownPrice.toFixed(2)}) is lifted and the engine prices it again. ${market.decision.why}`;
+      await recordDecision(env, itemId, market);
+      await push(env, "A market for your item appeared", `${input.title.slice(0, 60)}: comparable sales found. The engine prices it again; any change comes as a label.`, undefined, `market-${itemId}`).catch(() => {});
+      return market;
+    }
+    await env.store.listings.markOwnChecked(itemId, now);
+  }
+  const own = ownPriceResult(input, ownPrice);
+  await recordDecision(env, itemId, own);
+  return own;
+}
+
 /** Prices one of K's live listings (read-only eBay calls) and records the decision. */
 export async function priceListing(env: Env, itemId: string, api?: MessagesApi): Promise<PriceResult> {
   const input = inputFromItem(await getItem(env, itemId));
-  const s = await env.DB.prepare("SELECT floor_price FROM item_settings WHERE item_id = ?").bind(itemId).first<{ floor_price: number | null }>();
-  const r = await priceItem(env, { ...input, itemId, floor: s?.floor_price ?? null, excludeItemIds: [itemId] }, api);
+  const s = await env.store.listings.getSettings(itemId);
+  if (s?.own_price != null)
+    return priceOwned(env, itemId, input, s, () => priceItem(env, { ...input, itemId, floor: s.floor_price ?? null, factsFromK: s.notes ?? null, excludeItemIds: [itemId] }, api));
+  const r = await priceItem(env, { ...input, itemId, floor: s?.floor_price ?? null, factsFromK: s?.notes ?? null, excludeItemIds: [itemId] }, api);
   await recordDecision(env, itemId, r);
   return r;
 }
 
 /** The engine's latest result for one of K's listings if recent enough, else a fresh check (or null). */
 export async function currentPricing(env: Env, itemId: string, maxAgeDays = 3, api?: MessagesApi): Promise<PriceResult | null> {
-  const row = await env.DB.prepare("SELECT result FROM price_decisions WHERE item_id = ? AND at > ? ORDER BY at DESC LIMIT 1")
-    .bind(itemId, Date.now() - maxAgeDays * DAY)
-    .first<{ result: string }>();
+  const row = await env.store.pricing.latestDecision(itemId, Date.now() - maxAgeDays * DAY);
   if (row) return JSON.parse(row.result);
   if (!providerEnabled(env, "trawl") && !providerEnabled(env, "compsapi")) return null;
   return priceListing(env, itemId, api).catch(() => null);

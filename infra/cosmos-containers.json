@@ -1,0 +1,144 @@
+{
+  "$comment": "The data store's containers (docs/azure-migration.md). Read by infra/main.bicep and by the Cosmos emulator tests. Partition key path is /pk everywhere. defaultTtl: omitted = TTL off, -1 = per-document ttl only, n = seconds. Changing a partition key or deleting a container loses data: treat edits here like a database migration. Fields used in ORDER BY must be indexed. Never list /id/? (or other system properties): Cosmos indexes id itself in consistent mode and rejects the path; filters on other fields still work but scan.",
+  "containers": [
+    {
+      "id": "kv",
+      "defaultTtl": null,
+      "indexed": [
+        "/type/?",
+        "/created_at/?"
+      ]
+    },
+    {
+      "id": "auth",
+      "defaultTtl": null,
+      "indexed": [
+        "/type/?",
+        "/user_id/?",
+        "/used_at/?",
+        "/expires_at/?",
+        "/disabled/?",
+        "/is_test/?",
+        "/created_at/?"
+      ]
+    },
+    {
+      "id": "ephemeral",
+      "defaultTtl": -1,
+      "indexed": [
+        "/type/?",
+        "/user_id/?",
+        "/key/?",
+        "/at/?"
+      ]
+    },
+    {
+      "id": "proposals",
+      "defaultTtl": null,
+      "indexed": [
+        "/type/?",
+        "/status/?",
+        "/kind/?",
+        "/item_id/?",
+        "/created_at/?",
+        "/decided_at/?",
+        "/expires_at/?",
+        "/dry_run/?"
+      ],
+      "composite": [
+        [
+          {
+            "path": "/status",
+            "order": "ascending"
+          },
+          {
+            "path": "/created_at",
+            "order": "descending"
+          }
+        ]
+      ]
+    },
+    {
+      "id": "audit",
+      "defaultTtl": null,
+      "indexed": [
+        "/at/?"
+      ]
+    },
+    {
+      "id": "listings",
+      "defaultTtl": null,
+      "indexed": [
+        "/type/?",
+        "/taken_at/?",
+        "/item_id/?"
+      ]
+    },
+    {
+      "id": "orders",
+      "defaultTtl": null,
+      "indexed": [
+        "/type/?",
+        "/created_at/?"
+      ]
+    },
+    {
+      "id": "messages",
+      "defaultTtl": null,
+      "indexed": [
+        "/type/?",
+        "/sender/?",
+        "/buyer/?"
+      ]
+    },
+    {
+      "id": "pricing",
+      "defaultTtl": null,
+      "indexed": [
+        "/type/?",
+        "/at/?",
+        "/item_id/?",
+        "/total/?",
+        "/market_price/?",
+        "/status/?"
+      ]
+    },
+    {
+      "id": "market",
+      "defaultTtl": 15552000,
+      "indexed": [
+        "/taken_at/?"
+      ]
+    },
+    {
+      "id": "cache",
+      "defaultTtl": -1,
+      "indexed": [
+        "/type/?"
+      ]
+    },
+    {
+      "id": "usage",
+      "defaultTtl": null,
+      "indexed": [
+        "/at/?"
+      ]
+    },
+    {
+      "id": "reports",
+      "defaultTtl": null,
+      "indexed": []
+    },
+    {
+      "id": "jobs",
+      "defaultTtl": -1,
+      "indexed": [
+        "/type/?",
+        "/kind/?",
+        "/checked_at/?",
+        "/created_at/?",
+        "/status/?"
+      ]
+    }
+  ]
+}

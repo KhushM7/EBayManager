@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fakeD1 } from "./d1";
+import { memoryStore, orderLines } from "../src/store";
 import type { Env } from "../src/env";
 import { handleApi } from "../src/api";
 import { readSalesReport, reportDate } from "../src/salesreport";
@@ -46,7 +46,7 @@ describe("Seller Hub orders report", () => {
 
 describe("importing past sales", () => {
   const ORIGIN = "https://app.example";
-  const env = () => ({ DB: fakeD1(), EBAY_ENV: "sandbox", PUBLIC_URL: ORIGIN, DASHBOARD_KEY: "k-123", ALLOW_KEY_LOGIN: "true" }) as Env;
+  const env = () => ({ store: memoryStore(), EBAY_ENV: "sandbox", PUBLIC_URL: ORIGIN, DASHBOARD_KEY: "k-123", ALLOW_KEY_LOGIN: "true" }) as Env;
   const call = async (e: Env, path: string, body: unknown, cookie = "") => {
     const url = new URL(`${ORIGIN}/api${path}`);
     const res = await handleApi(e, new Request(url, { method: "POST", headers: { "X-EbayManager": "1", Cookie: cookie }, body: JSON.stringify(body) }), url);
@@ -63,12 +63,13 @@ describe("importing past sales", () => {
     expect(first.json).toEqual({ received: 3, valid: 2, imported: 2, alreadyThere: 0 });
     expect((await call(e, "/sales/import", { sales }, owner)).json.imported).toBe(0);
 
-    const items = await e.DB.prepare("SELECT * FROM order_items ORDER BY price").all<any>();
-    expect(items.results.map((r) => [r.item_id, r.price])).toEqual([
+    const orders = await e.store.orders.all();
+    const lines = orderLines(orders).sort((a, b) => (a.price ?? 0) - (b.price ?? 0));
+    expect(lines.map((r) => [r.item_id, r.price])).toEqual([
       ["178305344332", 32.97],
       ["176887824593", 1018.5],
     ]);
-    const all = JSON.stringify((await e.DB.prepare("SELECT * FROM orders").all()).results) + JSON.stringify(items.results);
+    const all = JSON.stringify(await e.store.docs.query("orders", {}));
     expect(all).not.toContain("jane");
 
     expect((await call(e, "/sales/import", { sales })).status).toBe(401);

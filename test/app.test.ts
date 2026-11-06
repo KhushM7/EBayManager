@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
 import type { Env } from "../src/env";
 import { b64u, encryptPayload, vapidPublicKey } from "../src/push";
 import { handleApi } from "../src/api";
@@ -8,8 +8,8 @@ import { createProposal, getProposal } from "../src/proposals";
 const enc = new TextEncoder();
 
 async function hkdf(salt: Uint8Array, ikm: Uint8Array, info: Uint8Array, bytes: number) {
-  const key = await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]);
-  return new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info }, key, bytes * 8));
+  const key = await crypto.subtle.importKey("raw", ikm as BufferSource, "HKDF", false, ["deriveBits"]);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: salt as BufferSource, info: info as BufferSource }, key, bytes * 8));
 }
 
 describe("Web Push encryption (RFC 8291)", () => {
@@ -60,7 +60,7 @@ describe("dashboard API", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("<x/>")));
     env = {
-      DB: fakeD1(),
+      store: memoryStore(),
       EBAY_ENV: "sandbox",
       WRITE_MODE: "approval",
       SIGNING_KEY: "k",

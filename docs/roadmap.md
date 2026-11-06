@@ -4,7 +4,7 @@ Everything up to Phase 5 runs on eBay Sandbox. K's real account is connected **r
 
 Updated 2026-11-02 (plan v3). Design: [security.md](security.md), [pricing-and-promotion.md](pricing-and-promotion.md), [listing-assistant.md](listing-assistant.md), [go-live-tests.md](go-live-tests.md), [safety-and-environments.md](safety-and-environments.md), [approvals.md](approvals.md), [app-and-dashboard.md](app-and-dashboard.md).
 
-**Current phase: 7. Read-only on the real account.**
+**Current phase: 7. Read-only on the real account.** Since 2026-11-05 everything runs on Azure ([azure-migration.md](azure-migration.md)); the entries below that mention the Worker, D1 or R2 record what was built on Cloudflare before the move.
 
 | # | Phase | Environment | Exit gate |
 | --- | --- | --- | --- |
@@ -14,7 +14,7 @@ Updated 2026-11-02 (plan v3). Design: [security.md](security.md), [pricing-and-p
 | 8 | **Go live, approve everything** | Production | Go-live tests I1 to I5 |
 | 9 | Auto-apply settings for listing edits (title, description, specifics), each with a "Done" notification | Production | K switches one on |
 | 10 | Listing assistant: photos with coaching, no-assumption facts, publish | Production | First listing published via an approved proposal |
-| later | Optional third-party sold data (off by default, see sold-price-data.md), Cloudflare Access in front | Production | — |
+| later | An identity gate in front (App Service authentication), managers invited (their go-live items run then) | Production | — |
 
 ## Phase 1: Safety foundation (sandbox)
 
@@ -85,7 +85,11 @@ Updated 2026-11-02 (plan v3). Design: [security.md](security.md), [pricing-and-p
 - [x] K's provider test (`src/solddata-eval.ts`), with the engine as a third column backtested to each sale date: engine 12.4% mean error on 4 of 5 sales, CompsAPI 27.1%, Trawl 77% (2026-11-03).
 - [x] Promotion research (`src/promotion.ts`): a `promote` proposal only when the market is saturated, the listing needs to be seen, and a 2–4% general rate (at most half eBay's suggestion from the Recommendation API) pays back under the engine's sale model. Nightly and in the audit. `promote` is a locked kind. Applying it (Marketing API writes) is built with Phase 8.
 - [x] The redesigned app (tasteskill; eBay-based colours made K's own, logo, separate phone and desktop layouts, same features).
-- [ ] One full nightly cycle with all of it, then go-live tests A to H.
+- [x] Moved to Azure (2026-11-03 to 11-05): Cloudflare's free plan broke the first-day audit (50 outgoing calls and 10 ms CPU per run). Functions, Cosmos DB, Key Vault and Blob Storage, every safeguard kept or strengthened ([azure-migration.md](azure-migration.md)). Production: https://ebay-autopilot-production-wrpoyt.azurewebsites.net.
+- [x] Inbox to-dos (`src/todos.ts`): what needs K but isn't an eBay change, filed by the audit and the nightly, each worded as an instruction; the Audit screen became a short summary (K, 2026-11-05).
+- [x] Pricing revision 3 from K's first real labels: own price when nothing comparable has sold (watched weekly, reminder after 30 days), a known minor fault priced at the middle of spares sales, postage above the typical not held against the price, no repeated proposals while changes are off ([pricing-engine.md](pricing-engine.md)).
+- [x] One full nightly cycle on Azure with no failed steps (2026-11-05, Run now and the 02:00 timer).
+- [ ] Go-live tests A to H (K is the only user: manager items N/A until a manager joins).
 
 ## Phase 8: Go live
 

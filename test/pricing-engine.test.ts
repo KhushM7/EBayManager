@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
 import type { Env } from "../src/env";
 import type { MessagesApi } from "../src/claude";
 import { isJunk, itemNumber, poolSales, wordsFromTitle, type SoldSale } from "../src/solddata";
@@ -8,6 +8,7 @@ import { identify, identifyByRules, matchTitles } from "../src/pricing/identify"
 import { priceItem, recordDecision, sumOfParts } from "../src/pricing/engine";
 import { learnParams } from "../src/pricing/learn";
 import { evaluateCombine, evaluateSplit, suggestBundles } from "../src/pricing/bundles";
+import { otherSearches } from "../src/pricing/identify";
 
 const DAY = 86_400_000;
 
@@ -75,7 +76,7 @@ describe("search fixes", () => {
 });
 
 describe("identify and match", () => {
-  const env = { DB: fakeD1(), ANTHROPIC_API_KEY: "k" } as Env;
+  const env = { store: memoryStore(), ANTHROPIC_API_KEY: "k" } as Env;
 
   it("uses Claude's identification, including a bundle's parts", async () => {
     const { api, calls } = fakeClaude(() => ({
@@ -97,7 +98,7 @@ describe("identify and match", () => {
   });
 
   it("falls back to word rules without a key, and asks when the title is too vague", async () => {
-    const id = await identify({ DB: fakeD1() } as Env, { title: "Lights" });
+    const id = await identify({ store: memoryStore() } as Env, { title: "Lights" });
     expect(id.by).toBe("rules");
     expect(id.priceable).toBe(false);
     expect(identifyByRules("Samsung Galaxy Buds 2 Pro").components[0].query).toBe("Samsung Galaxy Buds 2 Pro");
@@ -145,12 +146,28 @@ describe("identify and match", () => {
     expect(content.at(-1).text).toContain("Used twice , 45L");
     expect(identifyByRules("Sensor bin 45L").condition).toBe("unknown");
   });
+
+  it("keeps Claude's fault reading only for spares or repair items", async () => {
+    const answer = (condition: string, fault: string | null) => fakeClaude(() => ({ product: "x", group: "g", condition, fault, keyFacts: [], components: [{ name: "x", query: "x y", valued: true }], priceable: true, question: null })).api;
+    expect((await identify(env, { title: "Dyson hose split" }, answer("parts", "minor"))).fault).toBe("minor");
+    expect((await identify(env, { title: "Dyson" }, answer("used", "minor"))).fault).toBeNull();
+    expect((await identify(env, { title: "Dyson spares" }, answer("parts", null))).fault).toBe("unknown");
+  });
+
+  it("gives Claude K's facts, such as an answer to the engine's question, as a true source", async () => {
+    const { api, calls } = fakeClaude(() => ({ product: "x", group: "g", condition: "unknown", keyFacts: [], components: [{ name: "x", query: "x y", valued: true }], priceable: true, question: null }));
+    await identify(env, { title: "Ceiling lights", factsFromK: "Brand: Astro, model Ascoli 1286" }, api);
+    expect(calls[0].prompt).toContain("Facts from the seller (K), true:\nBrand: Astro, model Ascoli 1286");
+    expect(calls[0].system).toMatch(/facts from the seller, which are true/);
+    await identify(env, { title: "Ceiling lights" }, api);
+    expect(calls[1].prompt).not.toContain("Facts from the seller");
+  });
 });
 
 describe("thin markets", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("prices from a few exact sales plus adjusted close ones instead of asking", async () => {
+  it("prices from same-condition sales, setting close ones aside when there are any (K, 2026-11-06)", async () => {
     const now = Date.now();
     const item = (title: string, p: number, daysAgo: number, id: string) => ({ title, price: p, native_price: p, native_currency: "GBP", last_sold: new Date(now - daysAgo * DAY).toISOString(), url: `https://www.ebay.co.uk/itm/${id}` });
     vi.stubGlobal(
@@ -176,15 +193,102 @@ describe("thin markets", () => {
               .map((l) => ({ n: Number(l.split(".")[0]), factor: 0.8 })),
           },
     );
-    const r = await priceItem({ DB: fakeD1(), EBAY_ENV: "sandbox", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" } as Env, { title: "Sensor bin 45L", postage: 0 }, api);
+    const r = await priceItem({ store: memoryStore(), EBAY_ENV: "sandbox", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" } as Env, { title: "Sensor bin 45L", postage: 0 }, api);
     const c = r.components[0];
     expect(c.matched).toMatchObject({ sold: 2, closeSold: 4 });
-    expect(c.market.effective).toBeCloseTo(3.4, 1);
-    expect(c.market.mNow).toBeGreaterThan(24);
-    expect(c.market.mNow).toBeLessThan(25); // exact sales weigh more than the adjusted close ones
+    // Only the two exact sales count; the close ones (another size) are set aside, and said so.
+    expect(c.market.effective).toBe(2);
+    expect(c.market.mNow).toBe(25);
     expect(r.decision.strategy).not.toBe("ask");
-    expect(r.decision.price).toBeGreaterThan(20);
+    expect(r.decision.price).toBe(24.99); // what buyers pay, nothing listed to undercut
+    expect(r.decision.why).toMatch(/4 close or different-condition sales set aside/);
     expect(r.decision.confidence).toBeLessThan(0.3);
+  });
+
+  it("uses close matches when there's nothing in the same condition", async () => {
+    const now = Date.now();
+    const item = (title: string, p: number, daysAgo: number, id: string) => ({ title, price: p, native_price: p, native_currency: "GBP", last_sold: new Date(now - daysAgo * DAY).toISOString(), url: `https://www.ebay.co.uk/itm/${id}` });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("compsapi") ? Response.json({ items: [1, 2, 3, 4].map((k) => item("Sensor bin 50L", 30, 10 + k, `20000000000${k}`)) }) : new Response("no", { status: 500 }),
+      ),
+    );
+    const { api } = fakeClaude((system, prompt) =>
+      system.includes("identify")
+        ? { product: "Sensor bin 45L", group: "bins", condition: "used", keyFacts: [], components: [{ name: "Sensor bin 45L", query: "sensor bin 45L", valued: true }], priceable: true, question: null }
+        : { exact: [], close: prompt.split("\n").filter((l) => /^\d+\. Sensor bin 50L/.test(l)).map((l) => ({ n: Number(l.split(".")[0]), factor: 0.8 })) },
+    );
+    const r = await priceItem({ store: memoryStore(), EBAY_ENV: "sandbox", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" } as Env, { title: "Sensor bin 45L", postage: 0 }, api);
+    expect(r.decision.strategy).not.toBe("ask");
+    expect(r.components[0].market.mNow).toBe(24); // £30 adjusted to K's smaller bin
+  });
+});
+
+describe("other names for the same product", () => {
+  it("takes model names and broader searches in turn, without long names, single words or repeats", () => {
+    expect(otherSearches("SilverCrest air fryer 438124", ["SilverCrest SHFD 1400 C1 Digital Air Fryer Black", "SHFD 1400 C1", "SHFD 1400", "438124", "IAN 438124"], ["Silvercrest air fryer 2.4L", "Silvercrest digital air fryer", "shfd 1400"]))
+      .toEqual(["SHFD 1400 C1", "Silvercrest air fryer 2.4L", "SHFD 1400", "Silvercrest digital air fryer"]);
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  // 2026-11-06: a Lidl air fryer known on its box only by item number 438124 found no sales at all, while
+  // sellers list it as the "SHFD 1400" or a "2.4L digital air fryer".
+  it("searches the product's other names when the main query finds too few sales, and says so", async () => {
+    const now = Date.now();
+    const queries: string[] = [];
+    const item = (title: string, p: number, daysAgo: number, id: string) => ({ title, price: p, native_price: p, native_currency: "GBP", last_sold: new Date(now - daysAgo * DAY).toISOString(), url: `https://www.ebay.co.uk/itm/${id}` });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const u = new URL(String(url));
+        if (!u.hostname.includes("compsapi")) return new Response("no", { status: 500 });
+        const q = u.searchParams.get("q") ?? "";
+        queries.push(q);
+        return Response.json({ items: /SHFD 1400/i.test(q) ? [1, 2, 3, 4, 5, 6].map((k) => ({ ...item(`Silvercrest SHFD 1400 C1 Digital Air Fryer 2.4L`, 30 + k, 3 * k, `30000000000${k}`), condition: k === 6 ? "Used" : "New" })) : [] });
+      }),
+    );
+    const { api, calls } = fakeClaude((system, prompt) =>
+      system.includes("identify")
+        ? { product: "SilverCrest digital air fryer 438124", group: "kitchen appliances", condition: "new", fault: "none", keyFacts: [], priceable: true, question: null, components: [{ name: "Air fryer", query: "SilverCrest air fryer 438124", valued: true, alternates: ["Silvercrest air fryer 2.4L"] }] }
+        : { exact: prompt.split("\n").filter((l) => /^\d+\. Silvercrest SHFD/.test(l)).map((l) => Number(l.split(".")[0])), close: [] },
+    );
+    const r = await priceItem(
+      { store: memoryStore(), EBAY_ENV: "sandbox", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" } as Env,
+      { title: "SilverCrest Digital Air Fryer 438124", condition: "New", postage: 0, aliases: ["Silvercrest SHFD 1400 C1"] },
+      api,
+    );
+    // The published alias goes to identify, and is searched first after the main query.
+    expect(calls[0].prompt).toContain("Silvercrest SHFD 1400 C1");
+    expect(queries.slice(0, 2)).toEqual(["SilverCrest air fryer 438124", "Silvercrest SHFD 1400 C1"]);
+    expect(r.components[0].matched.sold).toBe(6);
+    expect(r.decision.strategy).not.toBe("ask");
+    expect(r.components[0].errors.join(" ")).toMatch(/also searched: "Silvercrest SHFD 1400 C1"/);
+    // The matcher sees each sale's reported condition, so a used sale can't pass for a new item's exact match.
+    const matchPrompt = calls.find((x) => !x.system.includes("identify"))!.prompt;
+    expect(matchPrompt).toContain("Silvercrest SHFD 1400 C1 Digital Air Fryer 2.4L [condition: Used]");
+    expect(matchPrompt).toContain("[condition: New]");
+  });
+
+  it("doesn't search further when the main query finds enough", async () => {
+    const queries: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const u = new URL(String(url));
+        if (!u.hostname.includes("compsapi")) return new Response("no", { status: 500 });
+        queries.push(u.searchParams.get("q") ?? "");
+        return Response.json({ items: [1, 2, 3, 4, 5, 6].map((k) => ({ title: "Thing 1", price: 10, native_price: 10, native_currency: "GBP", last_sold: new Date().toISOString(), url: `https://www.ebay.co.uk/itm/40000000000${k}` })) });
+      }),
+    );
+    const { api } = fakeClaude((system) =>
+      system.includes("identify")
+        ? { product: "Thing 1", group: "toys", condition: "used", fault: "none", keyFacts: [], priceable: true, question: null, components: [{ name: "Thing 1", query: "thing 1", valued: true, alternates: ["thing one toy"] }] }
+        : { exact: [1, 2, 3, 4, 5, 6], close: [] },
+    );
+    await priceItem({ store: memoryStore(), EBAY_ENV: "sandbox", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" } as Env, { title: "Thing 1", postage: 0 }, api);
+    expect(queries).toEqual(["thing 1"]);
   });
 });
 
@@ -219,7 +323,7 @@ describe("pricing an item end to end", () => {
   }
 
   const env = () =>
-    ({ DB: fakeD1(), EBAY_ENV: "sandbox", EBAY_MARKETPLACE: "EBAY_GB", EBAY_APP_ID: "a", EBAY_CERT_ID: "c", TRAWL_API_KEY: "tk", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" }) as Env;
+    ({ store: memoryStore(), EBAY_ENV: "sandbox", EBAY_MARKETPLACE: "EBAY_GB", EBAY_APP_ID: "a", EBAY_CERT_ID: "c", TRAWL_API_KEY: "tk", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" }) as Env;
 
   it("pools, matches with Claude, prices on totals, leaves K's own sale out, and records a snapshot", async () => {
     const now = Date.now();
@@ -240,10 +344,11 @@ describe("pricing an item end to end", () => {
     expect(r.decision.strategy).toBe("compete");
     expect(r.decision.price).toBeGreaterThan(36);
     expect(r.decision.price).toBeLessThanOrEqual(40);
-    expect((await e.DB.prepare("SELECT COUNT(*) AS n FROM market_snapshots").first<any>()).n).toBe(6);
+    expect((await e.store.pricing.marketSince(0)).length).toBe(6);
 
     await recordDecision(e, "555555555555", r);
-    expect((await e.DB.prepare("SELECT strategy, grp FROM price_decisions").first<any>())).toEqual({ strategy: "compete", grp: "headphones" });
+    const d = await e.store.pricing.latestDecision("555555555555");
+    expect({ strategy: d!.strategy, grp: d!.grp }).toEqual({ strategy: "compete", grp: "headphones" });
   });
 
   it("asks rather than guessing when Claude can't identify the item", async () => {
@@ -294,7 +399,7 @@ describe("bundles", () => {
       ],
     }));
     const slowCharger = { itemId: "3", title: "Samsung charger", price: 8, listedDays: 200, watchers: 0, daysToSell: 400 };
-    const advice = await suggestBundles({ DB: fakeD1(), ANTHROPIC_API_KEY: "k" } as Env, [slow, popular, slowCharger], api);
+    const advice = await suggestBundles({ store: memoryStore(), ANTHROPIC_API_KEY: "k" } as Env, [slow, popular, slowCharger], api);
     expect(advice).toHaveLength(1);
     expect(advice[0].together).toBeGreaterThan(advice[0].separately);
   });
@@ -307,7 +412,7 @@ describe("bundles", () => {
 
 describe("learning from snapshots", () => {
   it("fits parameters from gone and remaining listings", async () => {
-    const env = { DB: fakeD1() } as Env;
+    const env = { store: memoryStore() } as Env;
     const now = Date.now();
     const rows: unknown[][] = [];
     // Cheap listings vanish within a week; dear ones stay. Across 10 searches.
@@ -317,10 +422,17 @@ describe("learning from snapshots", () => {
         rows.push([`q${k}`, now - 10 * DAY, `i${k}-${i}`, total, "headphones", 40, 0.05]);
         if (total > 40) rows.push([`q${k}`, now - 3 * DAY, `i${k}-${i}`, total, "headphones", 40, 0.05]);
       }
-    await env.DB.batch(rows.map((r) => env.DB.prepare("INSERT INTO market_snapshots (key, taken_at, item_id, total, grp, market, share) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(...r)));
+    // One market document per search per day, as the engine writes them.
+    const buckets = new Map<string, { key: string; at: number; items: { item_id: string; total: number }[] }>();
+    for (const [key, at, item_id, total] of rows as [string, number, string, number][]) {
+      const b = buckets.get(`${key}|${at}`) ?? { key, at, items: [] };
+      b.items.push({ item_id, total });
+      buckets.set(`${key}|${at}`, b);
+    }
+    for (const b of buckets.values()) await env.store.pricing.writeMarket(b.key, b.at, { grp: "headphones", market: 40, share: 0.05, items: b.items });
     const out = await learnParams(env, now);
     expect(out.outcomes).toBe(100);
-    const p = await env.DB.prepare("SELECT * FROM pricing_params WHERE grp = 'headphones'").first<any>();
+    const p = (await env.store.docs.query<any>("pricing", { pk: "_params" })).find((d) => d.grp === "headphones");
     expect(p.n).toBe(100);
     // Strongly price-driven: sharper than the default 0.08.
     expect(p.tau).toBeLessThan(0.08);
@@ -348,7 +460,7 @@ describe("backtests", () => {
         ? { product: "Galaxy Buds+", group: "headphones", condition: "used", keyFacts: [], components: [{ name: "Galaxy Buds+", query: "Galaxy Buds+", valued: true }], priceable: true, question: null }
         : { exact: prompt.split("\n").filter((l) => /^\d+\. Galaxy/.test(l)).map((l) => Number(l.split(".")[0])), close: [] },
     );
-    const r = await priceItem({ DB: fakeD1(), EBAY_ENV: "sandbox", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" } as Env, { title: "Galaxy Buds+", postage: 0, asOf: soldAt }, api);
+    const r = await priceItem({ store: memoryStore(), EBAY_ENV: "sandbox", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" } as Env, { title: "Galaxy Buds+", postage: 0, asOf: soldAt }, api);
     const c = r.components[0];
     expect(c.matched.sold).toBe(5); // the sale 90 days later is too far
     expect(c.market.mNow).toBe(25);

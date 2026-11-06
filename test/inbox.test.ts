@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
+import { withEbayTokens } from "./fixtures";
 import type { Env } from "../src/env";
 import { parseTradingResponse } from "../src/ebay/trading";
 import { toOffers, toQuestions, type Offer } from "../src/ebay/inbox";
@@ -95,12 +96,8 @@ describe("inbox poll", () => {
         return new Response(call === "GetMemberMessages" ? QUESTIONS : call === "GetBestOffers" ? OFFERS : ITEM);
       }),
     );
-    env = { DB: fakeD1(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", EBAY_SITE_ID: "3", NTFY_TOPIC: "", SIGNING_KEY: "k" } as Env;
-    await env.DB.prepare(
-      "INSERT INTO ebay_tokens (id, access_token, access_expires_at, refresh_token, refresh_expires_at, scopes) VALUES (1, 't', ?, 'r', ?, 's')",
-    )
-      .bind(Date.now() + 3_600_000, Date.now() + 3_600_000)
-      .run();
+    env = { store: memoryStore(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", EBAY_SITE_ID: "3", NTFY_TOPIC: "", SIGNING_KEY: "k" } as Env;
+    await withEbayTokens(env.store);
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -133,12 +130,8 @@ describe("inbox poll", () => {
 describe("resuming writes", () => {
   it("applies what K approved while paused", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(`<ReviseFixedPriceItemResponse><Ack>Success</Ack></ReviseFixedPriceItemResponse>`)));
-    const env = { DB: fakeD1(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", EBAY_SITE_ID: "3", NTFY_TOPIC: "", SIGNING_KEY: "k" } as Env;
-    await env.DB.prepare(
-      "INSERT INTO ebay_tokens (id, access_token, access_expires_at, refresh_token, refresh_expires_at, scopes) VALUES (1, 't', ?, 'r', ?, 's')",
-    )
-      .bind(Date.now() + 3_600_000, Date.now() + 3_600_000)
-      .run();
+    const env = { store: memoryStore(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", EBAY_SITE_ID: "3", NTFY_TOPIC: "", SIGNING_KEY: "k" } as Env;
+    await withEbayTokens(env.store);
     await setWritesPaused(env, true);
     const p = await createProposal(env, { kind: "price", itemId: "1", payload: { newPrice: 5 } });
     expect(await decide(env, p.id, "approve")).toMatch(/paused/);

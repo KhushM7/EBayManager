@@ -21,14 +21,26 @@ export async function push(
   const fullTitle = envPrefix(env) + title;
   const delivered = await sendToAll(env, { title: fullTitle, body, tag, approveUrl: links?.approve, rejectUrl: links?.reject });
   if (delivered) {
-    await env.DB.prepare(
-      "INSERT INTO settings (key, value) VALUES ('last_push_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-      .bind(String(Date.now()))
-      .run();
+    await env.store.kv.set("last_push_at", String(Date.now()));
   }
   if (!env.NTFY_TOPIC) return;
-  const headers: Record<string, string> = { Title: fullTitle };
-  if (links) headers.Actions = `view, Review and approve, ${links.approve}; view, Reject, ${links.reject}`;
-  await fetch(`https://ntfy.sh/${env.NTFY_TOPIC}`, { method: "POST", headers, body });
+  // Published as JSON, not as Title/Actions headers: titles carry "£" and "→", and Node's fetch (Azure)
+  // refuses any header character beyond Latin-1, which failed every price proposal after it was saved.
+  const actions = links
+    ? [
+        { action: "view", label: "Review and approve", url: links.approve },
+        { action: "view", label: "Reject", url: links.reject },
+      ]
+    : undefined;
+  try {
+    const res = await fetch("https://ntfy.sh/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic: env.NTFY_TOPIC, title: fullTitle, message: body, ...(actions ? { actions } : {}) }),
+    });
+    if (!res.ok) console.warn(`ntfy: HTTP ${res.status}`);
+  } catch (e) {
+    // The fallback channel failing must not undo or hide what was already saved (the Inbox still has it).
+    console.warn(`ntfy: ${e instanceof Error ? e.message : e}`);
+  }
 }

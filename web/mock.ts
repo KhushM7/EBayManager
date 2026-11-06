@@ -1,6 +1,7 @@
 // Dev-only stand-in for the Worker's /api, so the screens can be built and screenshotted without an account.
 // Used by `MOCK=1 npm run dev:web`. Never bundled into the app.
 import type { Plugin } from "vite";
+import { draftsMock } from "./mock-drafts";
 
 const now = Date.now();
 const h = 3_600_000;
@@ -67,6 +68,20 @@ const activity = [
   { id: 3, at: now - 10 * h, env: "sandbox", proposal_id: "x3", call: "AddFixedPriceItem", outcome: "failed", response: "AddFixedPriceItem failed: If you wish to offer either flat or calculated postage, then you must select at least one domestic postage service.", kind: "create_listing", item_id: null },
 ];
 
+// Inbox to-dos (src/todos.ts), sample data: one of each kind.
+const todo = (id: string, kind: string, code: string, title: string, detail: string, extra: Record<string, unknown> = {}) => ({
+  id: `todo:${id}`, code, kind, source: "audit", item_id: null, item_title: null, title, detail, question: null, status: "open",
+  created_at: now - 2 * h, at: now - 2 * h, decided_at: null as number | null, decided_by: null as string | null, note: null as string | null, ...extra,
+});
+const todos = [
+  todo("a1", "answer", "engine_question", "Answer the pricing engine's question", "Your answer is saved as a fact about this listing, then the engine prices it again.", { item_id: "178310678490", item_title: "Designer ceiling lights x2, brushed brass", question: 'What exactly is the "ceiling light" (brand and model)?' }),
+  todo("a2", "answer", "measurements", "Add the measurements", "Missing: Item Width, Item Height, Item Depth. They're saved as facts, and Claude puts them in the item specifics on a label for you to approve.", { item_id: "178305367532", item_title: "Hemnes TV bench, white stain, 148 cm", question: "Measurements, for example: Width 110 cm, Height 44 cm, Weight 32 kg" }),
+  todo("c1", "claude", "claude_review", "Let Claude improve this listing", "6 specifics found in published specs: Brand, Model, Colour, Material, Type, Style, from the published specifications for the IKEA Hemnes TV bench.\nThin description: 140 characters. Add condition, what's included and measurements if known.", { item_id: "178305367532", item_title: "Hemnes TV bench, white stain, 148 cm" }),
+  todo("c2", "claude", "claude_review", "Let Claude improve this listing", "1 specifics found in published specs: Connectivity, from the published specifications for the Galaxy Buds 2 Pro.", { item_id: "178245985136", item_title: "Samsung Galaxy Buds 2 Pro Case" }),
+  todo("y1", "you", "photos", "Add more photos", "4 photos now. More angles, the label or model number, and close-ups of any wear help it sell.", { item_id: "178310678490", item_title: "Designer ceiling lights x2, brushed brass" }),
+  todo("y2", "you", "health", "Freshen this listing", "Listed 112 days with no watchers.\nOnly 0 views in the last 7 days.\nClaude: A clearer title with the brand and diameter should bring it into more searches.", { source: "nightly", item_id: "178310678490", item_title: "Designer ceiling lights x2, brushed brass" }),
+];
+
 const devices = [{ endpoint: "https://fcm.googleapis.com/fcm/send/abc", user_agent: "Mozilla/5.0 (Linux; Android 15) Chrome/141.0", created_at: now - 26 * h, last_ok_at: now - 2 * h, last_error: null }];
 
 export function mockApi(): Plugin {
@@ -77,26 +92,29 @@ export function mockApi(): Plugin {
         if (!req.url?.startsWith("/api/")) return next();
         const url = new URL(req.url, "http://x");
         let body: any = {};
+        let raw = Buffer.alloc(0);
         if (req.method === "POST") {
           const chunks: Buffer[] = [];
           for await (const c of req) chunks.push(c as Buffer);
-          try { body = JSON.parse(Buffer.concat(chunks).toString() || "{}"); } catch {}
+          raw = Buffer.concat(chunks);
+          try { body = JSON.parse(raw.toString() || "{}"); } catch {}
         }
         const send = (d: unknown, status = 200) => { res.statusCode = status; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(d)); };
         const p = url.pathname.slice(4);
         if (process.env.MOCK === "signedout" && p !== "/login") return send({ error: "Sign in" }, 401);
         if (p === "/me") return send(me);
+        // New listing: the real drafts server with stand-ins (mock-drafts.ts); its labels join the sample Inbox.
+        if (process.env.MOCK !== "signedout" && (await draftsMock(server, req, res, raw, { proposals }))) return;
         if (p === "/login") return body.key === "demo" ? send({ ok: true }) : send({ error: "Wrong key" }, 401);
-        if (p === "/proposals") return send(proposals.filter((x) => x.status === (url.searchParams.get("status") ?? "pending")));
-        if (p === "/proposals/decide") {
-          const results = (body.ids as string[]).map((id) => {
-            const x = proposals.find((y) => y.id === id)!;
-            x.status = body.decision === "approve" ? "applied" : "rejected";
-            x.decided_at = Date.now();
-            x.result = body.decision === "approve" ? "ReviseFixedPriceItem ok" : "Rejected";
-            return { id, result: x.result };
-          });
-          return send({ results });
+        if (p === "/todos") return send(todos.filter((x) => x.status === (url.searchParams.get("status") ?? "open")));
+        const todoAction = p.match(/^\/todos\/(todo:[\w-]+)\/(done|dismiss|answer|claude)$/);
+        if (todoAction) {
+          const x = todos.find((y) => y.id === todoAction[1]);
+          if (!x || x.status !== "open") return send({ error: "Already dealt with" }, 409);
+          await new Promise((r) => setTimeout(r, 400));
+          const note = { answer: "Saved. The engine is pricing it again; you'll get a notification.", claude: "Claude is reviewing it. Its changes arrive as labels to approve.", done: null, dismiss: null }[todoAction[2] as "done"];
+          Object.assign(x, { status: todoAction[2] === "dismiss" ? "dismissed" : "done", decided_at: Date.now(), decided_by: "K", note });
+          return send({ ok: true, note: note ?? undefined });
         }
         if (p === "/listings") return send(listings);
         if (p === "/listings/refresh") return send({ count: listings.length });
@@ -120,12 +138,14 @@ export function mockApi(): Plugin {
           });
         }
         if (p === "/firstday") return send({ report: mockReport });
+        if (/^\/items\/\d+\/settings$/.test(p)) return send({ floorPrice: 55, notes: "Width 110 cm" });
         if (p === "/firstday/run") { await new Promise((r) => setTimeout(r, 800)); return send({ report: { ...mockReport, at: Date.now() } }); }
         if (p === "/style" && req.method === "GET") return send({ style: mockStyle });
         if (p === "/style") { Object.assign(mockStyle, body.style, { editedBy: "K", at: Date.now() }); return send({ style: mockStyle }); }
         if (p === "/usage") return send({ today: { usd: 0.04, calls: 6 }, month: { usd: 0.61, calls: 88 }, byJob: [{ job: "audit", calls: 40, usd: 0.52 }, { job: "triage", calls: 48, usd: 0.09 }], dailyBudgetUsd: 1, apiKeySet: false });
         if (p === "/audit") { await new Promise((r) => setTimeout(r, 600)); return send({ error: "ANTHROPIC_API_KEY is not set on this Worker yet." }, 503); }
         if (p === "/settings/writes") { me.writesPaused = Boolean(body.paused); (me as any).writesBlocked = me.writesPaused ? "Writes are paused" : null; return send({ writesPaused: me.writesPaused }); }
+        if (p === "/solddata") return send({ providers: [{ provider: "trawl", enabled: true, used: 26, cap: 250 }, { provider: "compsapi", enabled: true, used: 27, cap: 100 }], primary: "trawl", lastEval: null });
         return send({ ok: true });
       });
     },

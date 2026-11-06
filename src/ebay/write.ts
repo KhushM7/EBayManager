@@ -1,7 +1,8 @@
 import type { Env } from "../env";
 import type { Proposal } from "../proposals";
 import { RETURNS } from "../rules";
-import { esc, tradingRequest } from "./trading";
+import { esc, tradingRequest, tradingUpload } from "./trading";
+import { seqId } from "../store/doc";
 
 // The write gate. This is the only module that may send an eBay write (enforced by test/safety.test.ts).
 // It reads the proposal's state from D1 itself, so a caller can't talk it into applying something.
@@ -9,16 +10,11 @@ import { esc, tradingRequest } from "./trading";
 export class WriteRefused extends Error {}
 
 export async function writesPaused(env: Env): Promise<boolean> {
-  const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'writes_paused'").first<{ value: string }>();
-  return row?.value === "1";
+  return (await env.store.kv.get("writes_paused")) === "1";
 }
 
 export async function setWritesPaused(env: Env, paused: boolean): Promise<void> {
-  await env.DB.prepare(
-    "INSERT INTO settings (key, value) VALUES ('writes_paused', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-  )
-    .bind(paused ? "1" : "0")
-    .run();
+  await env.store.kv.set("writes_paused", paused ? "1" : "0");
 }
 
 interface WriteCall {
@@ -62,9 +58,13 @@ export function callFor(p: Pick<Proposal, "kind" | "item_id" | "payload">): Writ
     case "create_listing": {
       const pictures = (a.pictureUrls ?? []).map((u: string) => `<PictureURL>${esc(u)}</PictureURL>`).join("");
       // eBay rejects collection in person as the only flat-rate service; collection only = no postage, ship nowhere.
+      // Collection offered as well as postage is a second, free service.
+      const collect = a.collectionOffered
+        ? `<ShippingServiceOptions><ShippingServicePriority>2</ShippingServicePriority><ShippingService>UK_CollectInPerson</ShippingService><ShippingServiceCost currencyID="GBP">0.00</ShippingServiceCost></ShippingServiceOptions>`
+        : "";
       const shipping = a.collectionOnly
         ? `<ShipToLocations>None</ShipToLocations>`
-        : `<ShippingDetails><ShippingType>Flat</ShippingType><ShippingServiceOptions><ShippingServicePriority>1</ShippingServicePriority><ShippingService>UK_RoyalMailSecondClassStandard</ShippingService><ShippingServiceCost currencyID="GBP">${Number(a.shippingCost ?? 0).toFixed(2)}</ShippingServiceCost></ShippingServiceOptions></ShippingDetails>`;
+        : `<ShippingDetails><ShippingType>Flat</ShippingType><ShippingServiceOptions><ShippingServicePriority>1</ShippingServicePriority><ShippingService>UK_RoyalMailSecondClassStandard</ShippingService><ShippingServiceCost currencyID="GBP">${Number(a.shippingCost ?? 0).toFixed(2)}</ShippingServiceCost></ShippingServiceOptions>${collect}</ShippingDetails>`;
       return {
         call: "AddFixedPriceItem",
         xml: `<Item>
@@ -127,13 +127,24 @@ export async function verifyNewListing(env: Env, payload: unknown): Promise<{ fe
 }
 
 async function audit(env: Env, proposalId: string, call: string, request: string, outcome: string, response: string) {
-  // Who approved it, for the Activity screen.
-  await env.DB.prepare(
-    `INSERT INTO audit_log (at, env, proposal_id, call, request, response, outcome, actor)
-     VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT decided_by FROM proposals WHERE id = ?))`,
-  )
-    .bind(Date.now(), env.EBAY_ENV, proposalId, call, request.slice(0, 8000), response.slice(0, 8000), outcome, proposalId)
-    .run();
+  // Who approved it (read now, after the decision), what kind of change and for which item, for Activity.
+  const p = await env.store.proposals.get(proposalId);
+  const at = Date.now();
+  await env.store.audit.record(
+    {
+      at,
+      env: env.EBAY_ENV,
+      proposal_id: proposalId,
+      call,
+      request: request.slice(0, 8000),
+      response: response.slice(0, 8000),
+      outcome,
+      actor: p?.decided_by ?? null,
+      kind: p?.kind ?? null,
+      item_id: p?.item_id ?? null,
+    },
+    seqId(at),
+  );
 }
 
 /** Why the gate would refuse right now, before looking at the proposal; null if writes are open. */
@@ -149,7 +160,7 @@ export async function gateClosedReason(env: Env): Promise<string | null> {
  * so a double tap can't apply it twice.
  */
 export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
-  const p = await env.DB.prepare("SELECT * FROM proposals WHERE id = ?").bind(proposalId).first<Proposal>();
+  const p = (await env.store.proposals.get(proposalId)) as Proposal | null;
   if (!p) throw new WriteRefused("Proposal not found");
 
   let built: WriteCall;
@@ -162,24 +173,75 @@ export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
   }
 
   const closed = await gateClosedReason(env);
-  const claimed = closed
-    ? null
-    : await env.DB.prepare("UPDATE proposals SET status = 'applying' WHERE id = ? AND status = 'approved' AND dry_run = 0")
-        .bind(p.id)
-        .run();
-  if (closed || !claimed?.meta.changes) {
+  // The claim is one conditional write: approved and not a dry run -> applying, at most once.
+  const claimed = closed ? false : await env.store.proposals.claimForApply(p.id);
+  if (closed || !claimed) {
     const reason = closed ?? (p.dry_run ? "Dry-run proposal" : `Proposal is ${p.status}, not approved`);
     await audit(env, p.id, built.call, built.xml, "refused", reason);
     throw new WriteRefused(reason);
   }
 
   try {
+    // A new listing from a draft: its photos go to eBay's picture service first (as uploaded bytes; they never
+    // get a public address), then the listing is built with eBay's picture addresses.
+    let note = "";
+    if (p.kind === "create_listing") {
+      const a = JSON.parse(p.payload);
+      if (Array.isArray(a.photoKeys) && a.photoKeys.length) {
+        const pictures = await uploadPictures(env, p.id, a.photoKeys);
+        if (pictures.sandboxDown) note = " (without photos: eBay Sandbox's picture service is down)";
+        built = callFor({ ...p, payload: JSON.stringify({ ...a, pictureUrls: pictures.urls }) });
+      }
+    }
     const res = await tradingRequest(env, built.call, built.xml);
-    const summary = res.ItemID ? `${built.call} ok, item ${res.ItemID}` : `${built.call} ok`;
+    const summary = (res.ItemID ? `${built.call} ok, item ${res.ItemID}` : `${built.call} ok`) + note;
     await audit(env, p.id, built.call, built.xml, "applied", JSON.stringify(res));
+    if (p.kind === "create_listing" && res.ItemID) {
+      const a = JSON.parse(p.payload);
+      if (typeof a.draftId === "string")
+        await env.store.drafts.setStatus(a.draftId, "published", Date.now(), { item_id: String(res.ItemID), published_at: Date.now() }).catch(() => null);
+      // What K does next in Seller Hub (Simple Delivery can't be set through the API): an Inbox to-do, not a write.
+      const t = a.afterPublish;
+      if (t && typeof t.code === "string" && typeof t.title === "string")
+        await env.store.todos
+          .sync("listing", { codes: [t.code], itemIds: [String(res.ItemID)] }, [{ code: t.code, kind: "you", itemId: String(res.ItemID), itemTitle: String(a.title ?? ""), title: String(t.title), detail: String(t.detail ?? ""), fingerprint: String(t.title) }], Date.now())
+          .catch(() => null);
+    }
     return summary;
   } catch (e) {
     await audit(env, p.id, built.call, built.xml, "failed", e instanceof Error ? e.message : String(e));
     throw e;
   }
+}
+
+/**
+ * Uploads a new listing's photos to eBay's picture service (UploadSiteHostedPictures, sent as the image bytes)
+ * and returns eBay's addresses for them, in order. Only called while applying an approved create_listing,
+ * after the gate's claim. Each upload is in the audit log.
+ */
+async function uploadPictures(env: Env, proposalId: string, keys: string[]): Promise<{ urls: string[]; sandboxDown?: boolean }> {
+  if (!env.photos) throw new Error("Photo storage isn't set up, so the listing's photos can't be sent to eBay");
+  const urls: string[] = [];
+  for (const [i, key] of keys.slice(0, 24).entries()) {
+    const bytes = await env.photos.get(key);
+    if (!bytes) throw new Error(`Photo ${i + 1} is missing from storage`);
+    const xml = `<PictureName>photo-${i + 1}</PictureName><PictureSet>Supersize</PictureSet>`;
+    try {
+      const res = await tradingUpload(env, "UploadSiteHostedPictures", xml, bytes, `photo-${i + 1}.jpg`);
+      const url = String(res?.SiteHostedPictureDetails?.FullURL ?? "");
+      if (!/^https:\/\//.test(url)) throw new Error("eBay returned no picture address");
+      urls.push(url);
+      await audit(env, proposalId, "UploadSiteHostedPictures", xml, "applied", url);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await audit(env, proposalId, "UploadSiteHostedPictures", xml, "failed", msg);
+      // eBay Sandbox's picture service has been down since 2025 (eBay's API status page: "The
+      // UploadSiteHostedPictures API call in the Sandbox environment is not working"), answering every upload with
+      // error 10007. On Sandbox only, the first photo failing that way lists the item without photos, so the rest
+      // of publishing can still be tested. Production always stops: a listing never goes live without its photos.
+      if (env.EBAY_ENV === "sandbox" && i === 0 && /Internal error to the application/i.test(msg)) return { urls: [], sandboxDown: true };
+      throw e;
+    }
+  }
+  return { urls };
 }

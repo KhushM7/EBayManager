@@ -134,14 +134,11 @@ export async function learnStyle(env: Env, replies: PastReply[], api?: MessagesA
 }
 
 export async function getStyle(env: Env): Promise<StyleGuide | null> {
-  const row = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(STYLE_KEY).first<{ value: string }>();
-  return row ? (JSON.parse(row.value) as StyleGuide) : null;
+  return env.store.kv.getJson<StyleGuide>(STYLE_KEY);
 }
 
 export async function saveStyle(env: Env, g: StyleGuide): Promise<void> {
-  await env.DB.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-    .bind(STYLE_KEY, JSON.stringify(g))
-    .run();
+  await env.store.kv.setJson(STYLE_KEY, g);
 }
 
 /** K's edit: any field K sends replaces the stored one. */

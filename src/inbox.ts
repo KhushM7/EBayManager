@@ -49,7 +49,7 @@ export async function listingContext(env: Env, itemId: string): Promise<string> 
     .join("; ");
   const price = item?.StartPrice?.["#text"] ?? item?.StartPrice ?? item?.SellingStatus?.CurrentPrice?.["#text"];
   const ships = item?.ShipToLocations === "None" ? "Collection only." : "Posted by K.";
-  const facts = await env.DB.prepare("SELECT notes FROM item_settings WHERE item_id = ?").bind(itemId).first<{ notes: string | null }>();
+  const facts = await env.store.listings.getSettings(itemId);
   return [
     `Title: ${item?.Title ?? ""}`,
     `Price: £${price ?? "?"}`,
@@ -93,8 +93,7 @@ export function defaultSuggestion(offer: Offer): OfferSuggestion {
 }
 
 async function floorFor(env: Env, itemId: string) {
-  const row = await env.DB.prepare("SELECT floor_price FROM item_settings WHERE item_id = ?").bind(itemId).first<{ floor_price: number | null }>();
-  return row?.floor_price ?? null;
+  return (await env.store.listings.getSettings(itemId))?.floor_price ?? null;
 }
 
 async function handleQuestion(env: Env, q: Question) {
@@ -123,9 +122,7 @@ async function handleQuestion(env: Env, q: Question) {
     body ? `"${q.body}"\n\nDraft reply: ${body}` : `"${q.body}"\n\nOpen the app to write a reply.`,
     { links: Boolean(body) },
   );
-  await env.DB.prepare("INSERT INTO buyer_messages (message_id, item_id, sender, body, received_at, proposal_id) VALUES (?, ?, ?, ?, ?, ?)")
-    .bind(q.messageId, q.itemId, q.sender, q.body, q.receivedAt, out.proposalId)
-    .run();
+  await env.store.messages.recordQuestion({ message_id: q.messageId, item_id: q.itemId, sender: q.sender, body: q.body, received_at: q.receivedAt, proposal_id: out.proposalId });
 }
 
 /**
@@ -192,21 +189,17 @@ async function handleOffer(env: Env, o: Offer) {
     `Offer £${o.price.toFixed(2)}: ${o.itemTitle}`,
     [`Suggested: ${what}.`, s.reason, ...s.flags.map((f) => `Note: ${f}`)].join("\n"),
   );
-  await env.DB.prepare("INSERT INTO best_offers (best_offer_id, item_id, buyer, price, seen_at, proposal_id) VALUES (?, ?, ?, ?, ?, ?)")
-    .bind(o.bestOfferId, o.itemId, o.buyer, o.price, Date.now(), out.proposalId)
-    .run();
+  await env.store.messages.recordOffer({ best_offer_id: o.bestOfferId, item_id: o.itemId, buyer: o.buyer, price: o.price, seen_at: Date.now(), proposal_id: out.proposalId });
 }
 
 export async function pollInbox(env: Env): Promise<{ questions: number; offers: number; errors: string[] }> {
   const errors: string[] = [];
   let questions = 0;
   let offers = 0;
-  const seen = async (table: "buyer_messages" | "best_offers", col: string, id: string) =>
-    Boolean(await env.DB.prepare(`SELECT 1 FROM ${table} WHERE ${col} = ?`).bind(id).first());
 
   try {
     for (const q of await getUnansweredQuestions(env)) {
-      if (await seen("buyer_messages", "message_id", q.messageId)) continue;
+      if (await env.store.messages.seenQuestion(q.messageId)) continue;
       await handleQuestion(env, q);
       questions++;
     }
@@ -215,15 +208,13 @@ export async function pollInbox(env: Env): Promise<{ questions: number; offers: 
   }
   try {
     for (const o of await getActiveOffers(env)) {
-      if (await seen("best_offers", "best_offer_id", o.bestOfferId)) continue;
+      if (await env.store.messages.seenOffer(o.bestOfferId)) continue;
       await handleOffer(env, o);
       offers++;
     }
   } catch (e) {
     errors.push(`offers: ${e instanceof Error ? e.message : String(e)}`);
   }
-  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('last_inbox_poll', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-    .bind(JSON.stringify({ at: Date.now(), questions, offers, errors }))
-    .run();
+  await env.store.kv.setJson("last_inbox_poll", { at: Date.now(), questions, offers, errors });
   return { questions, offers, errors };
 }

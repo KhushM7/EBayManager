@@ -31,7 +31,7 @@ export const tools: Tool[] = [
     inputSchema: obj({ item_id: { type: "string" } }, ["item_id"]),
     run: async (env, a) => {
       const item = await getItem(env, a.item_id);
-      const s = await env.DB.prepare("SELECT notes FROM item_settings WHERE item_id = ?").bind(a.item_id).first<{ notes: string | null }>();
+      const s = await env.store.listings.getSettings(a.item_id);
       const published = await specsFor(env, item);
       return {
         ...item,
@@ -79,13 +79,7 @@ export const tools: Tool[] = [
       ["item_id"],
     ),
     run: async (env, a) => {
-      await env.DB.prepare(
-        `INSERT INTO item_settings (item_id, floor_price, collection_only, notes) VALUES (?, ?, ?, ?)
-         ON CONFLICT(item_id) DO UPDATE SET floor_price = COALESCE(excluded.floor_price, floor_price),
-           collection_only = excluded.collection_only, notes = COALESCE(excluded.notes, notes)`,
-      )
-        .bind(a.item_id, a.floor_price ?? null, a.collection_only ? 1 : 0, a.notes ?? null)
-        .run();
+      await env.store.listings.mergeSettings(a.item_id, { floor_price: a.floor_price ?? null, collection_only: Boolean(a.collection_only), notes: a.notes ?? null });
       return { ok: true };
     },
   },
@@ -98,25 +92,25 @@ export const tools: Tool[] = [
       ["item_id", "new_price", "reason"],
     ),
     run: async (env, a) => {
-      const settings = await env.DB.prepare("SELECT floor_price FROM item_settings WHERE item_id = ?")
-        .bind(a.item_id)
-        .first<{ floor_price: number | null }>();
+      const settings = await env.store.listings.getSettings(a.item_id);
       if (settings?.floor_price != null && a.new_price < settings.floor_price)
         throw new Error(`Below K's floor of ${settings.floor_price}; not proposed.`);
       // Every price comes from the pricing engine: one of its three options from a check in the last 3 days.
       const engine = await enginePriceCheck(env, a.item_id, a.new_price);
       a.reason = `${a.reason}\nEngine: ${engine}`;
 
-      const last = await env.DB.prepare(
-        "SELECT price FROM listing_snapshots WHERE item_id = ? ORDER BY taken_at DESC LIMIT 1",
-      )
-        .bind(a.item_id)
-        .first<{ price: number }>();
-      const recent = await env.DB.prepare(
-        "SELECT COUNT(*) AS n FROM proposals WHERE item_id = ? AND kind = 'price' AND status = 'applied' AND decided_at > ?",
-      )
-        .bind(a.item_id, Date.now() - MIN_DAYS_BETWEEN_PRICE_CHANGES * 86_400_000)
-        .first<{ n: number }>();
+      const latest = await env.store.listings.latest(a.item_id);
+      const last = latest && latest.taken_at ? { price: latest.price } : null;
+      const recent = {
+        n: (
+          await env.store.proposals.listWhere([
+            { f: "item_id", op: "=", v: a.item_id },
+            { f: "kind", op: "=", v: "price" },
+            { f: "status", op: "=", v: "applied" },
+            { f: "decided_at", op: ">", v: Date.now() - MIN_DAYS_BETWEEN_PRICE_CHANGES * 86_400_000 },
+          ])
+        ).length,
+      };
       const flags: string[] = [];
       if (last && Math.abs(a.new_price - last.price) / last.price > MAX_PRICE_STEP)
         flags.push(`more than ${MAX_PRICE_STEP * 100}% away from £${Number(last.price).toFixed(2)}`);
@@ -262,9 +256,7 @@ export const tools: Tool[] = [
  * and the engine must not be asking K a question instead. Returns the engine's summary for the reason.
  */
 export async function enginePriceCheck(env: Env, itemId: string, price: number): Promise<string> {
-  const row = await env.DB.prepare("SELECT result FROM price_decisions WHERE item_id = ? AND at > ? ORDER BY at DESC LIMIT 1")
-    .bind(itemId, Date.now() - 3 * 86_400_000)
-    .first<{ result: string }>();
+  const row = await env.store.pricing.latestDecision(itemId, Date.now() - 3 * 86_400_000);
   if (!row) throw new Error("Run price_check for this item first: prices come from the pricing engine. Not proposed.");
   const d = JSON.parse(row.result).decision as { strategy: string; price: number | null; options: { price: number }[]; why: string; question?: string };
   if (d.strategy === "ask" || d.price == null)

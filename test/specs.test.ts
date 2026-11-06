@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
 import type { Env } from "../src/env";
 import type { MessagesApi } from "../src/claude";
 import { costUsd } from "../src/claude";
@@ -21,7 +21,7 @@ const DYSON = { ItemID: "178245985136", Title: "Dyson Cinetic Big Ball Animal Va
 
 let env: Env;
 beforeEach(() => {
-  env = { DB: fakeD1(), EBAY_ENV: "production", WRITE_MODE: "off" } as Env;
+  env = { store: memoryStore(), EBAY_ENV: "production", WRITE_MODE: "off" } as Env;
 });
 
 describe("verifying published specs", () => {
@@ -84,14 +84,45 @@ describe("looking up specs", () => {
     };
     const r = await lookupSpecs(env, DYSON, ["Item Weight", "Item Height"], api);
     expect(calls).toHaveLength(2);
-    expect(calls[0].tools.map((t: any) => t.type ?? t.name)).toEqual(["web_search_20260209", "record_specs"]);
+    expect(calls[0].tools.map((t: any) => t.type ?? t.name)).toEqual(["web_search_20260209", "web_fetch_20260209", "record_specs"]);
     expect(calls[1].messages.at(-1).role).toBe("assistant"); // the paused turn sent back
     expect(r).toMatchObject({ exact: true, product: "Dyson Cinetic Big Ball Animal", dropped: 1 });
     expect(r.specs.map((s) => s.name)).toEqual(["Item Weight"]);
-    const logged = await env.DB.prepare("SELECT job, cost_usd FROM claude_usage").all<any>();
-    expect(logged.results).toHaveLength(2);
-    expect(logged.results[0].job).toBe("specs:178245985136");
+    const logged = await env.store.usage.since(0);
+    expect(logged).toHaveLength(2);
+    expect(logged[0].job).toBe("specs:178245985136");
     expect(costUsd("claude-sonnet-5-5", usage as any)).toBeCloseTo(0.002 + 0.002 + 0.02, 5);
+  });
+
+  it("counts an opened page as a source, keeps sourced aliases, and says why searches failed", async () => {
+    const fetched = { type: "web_fetch_tool_result", tool_use_id: "f1", content: { type: "web_fetch_result", url: "https://www.manualslib.com/manual/3519974/Silvercrest-438124.html", content: {} } };
+    const failed = { type: "web_search_tool_result", tool_use_id: "s2", content: { type: "web_search_tool_result_error", error_code: "max_uses_exceeded" } };
+    const api: MessagesApi = {
+      async create() {
+        return msg("tool_use", [
+          fetched,
+          failed,
+          record({
+            exact: true,
+            product: "SilverCrest SHFD 1400 C1 digital air fryer",
+            note: "Lidl item 438124 is the SHFD 1400 C1.",
+            aliases: ["SHFD 1400 C1", "Silvercrest SHFD 1400", "x"],
+            specs: [{ name: "Capacity", value: "2.4 l", source: "https://manualslib.com/manual/3519974/Silvercrest-438124.html", sourceTitle: "Manual" }],
+          }),
+        ]);
+      },
+    };
+    const r = await lookupSpecs(env, { ItemID: "d1", Title: "SilverCrest air fryer 438124" }, [], api);
+    expect(r.specs.map((s) => s.name)).toEqual(["Capacity"]);
+    expect(r.aliases).toEqual(["SHFD 1400 C1", "Silvercrest SHFD 1400"]);
+    expect(r.note).not.toMatch(/search errors/); // specs were found, so a failed attempt isn't worth reporting
+    const none: MessagesApi = { async create() { return msg("tool_use", [{ type: "server_tool_use", id: "s2", name: "web_search", input: { query: "x" } }, failed, record({ exact: false, product: "", note: "Nothing found.", aliases: [], specs: [] })]); } };
+    expect((await lookupSpecs(env, { ItemID: "d2", Title: "x" }, [], none)).note).toBe('Nothing found. (search errors: max_uses_exceeded [web_search {"query":"x"}])');
+  });
+
+  it("keeps no aliases when no spec came from a real page", () => {
+    const v = verifySpecs({ exact: true, product: "P", note: "", aliases: ["P-100"], specs: [{ name: "A", value: "1", source: "https://made-up.example", sourceTitle: "?" }] }, []);
+    expect(v.aliases).toEqual([]);
   });
 
   it("stores a lookup per title and reuses it", async () => {
@@ -119,7 +150,7 @@ describe("the audit with published specs", () => {
     expect(a.findings.map((f) => f.title)).not.toContain("Thin description");
   });
 
-  it("sends specifics found online to Claude and only the rest to K", () => {
+  it("sends specifics found online to Claude, and the missing measurements to Claude too (from K's facts)", () => {
     const published = {
       itemId: "1", title: "", at: 0, exact: true, product: "Techlink Arena AA110B", note: "", dropped: 0, costUsd: 0,
       specs: [
@@ -133,7 +164,7 @@ describe("the audit with published specs", () => {
     );
     expect(a.findings.find((f) => f.fix === "claude" && /published specs/.test(f.title))!.detail).toMatch(/Item Width, Item Weight/);
     const measure = a.findings.find((f) => f.title === "Measurements missing")!;
-    expect(measure.detail).toMatch(/^Item Depth\. Not published for the Techlink Arena AA110B/);
+    expect(measure).toMatchObject({ fix: "claude", detail: expect.stringMatching(/^eBay also asks for Item Depth\. Claude fills them from your facts/) });
     expect(a.published!.specs).toHaveLength(2);
   });
 });

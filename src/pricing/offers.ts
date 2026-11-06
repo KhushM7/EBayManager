@@ -45,7 +45,7 @@ export function answerOffer(i: OfferInput): OfferAnswer | null {
   // Never below the long-run value floor of this item, nor K's floor.
   const valueFloor = i.market?.valueFloor != null ? Math.max(0, i.market.valueFloor - i.postage) : 0;
   const reservation = r2(Math.max(carryOn, valueFloor, i.floor ?? 0));
-  const days = Number.isFinite(rec.daysToSell) ? rec.daysToSell : null;
+  const days = Number.isFinite(rec.daysToSell) && rec.daysToSell <= 365 ? rec.daysToSell : null;
   const wait = days == null ? "an uncertain wait" : `about ${days} days`;
 
   if (i.offer >= reservation) {

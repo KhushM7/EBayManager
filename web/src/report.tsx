@@ -1,10 +1,13 @@
+import { motion } from "framer-motion";
 import { useEffect, useState } from "preact/hooks";
-import { api, SignedOut } from "./api";
+import { api, apiJob, SignedOut } from "./api";
 import { ago, money } from "./format";
 import type { ScreenProps } from "./screens";
+import { EASE_OUT, Icons, Ring, SPRING } from "./ui";
 
-// The first-day audit report (src/firstday.ts) and K's reply style guide (src/style.ts). Read-only on eBay:
-// fixes are labels in the Inbox like any other change.
+// The first-day audit report (src/firstday.ts), K's facts box and K's reply style guide (src/style.ts).
+// Read-only on eBay. What needs doing is in the Inbox (to-dos and labels); this page is the summary and the
+// figures behind it, folded away.
 
 interface Finding {
   area: string;
@@ -83,19 +86,6 @@ interface Report {
   steps: Record<string, string>;
 }
 
-const SEVERITY: Record<Finding["severity"], [string, string]> = {
-  high: ["state-decide", "Important"],
-  medium: ["state-held", "Worth fixing"],
-  low: ["state-info", "Note"],
-};
-
-const FIX: Record<Finding["fix"], string> = {
-  proposal: "A label is waiting in the Inbox.",
-  claude: "Claude can propose the fix below.",
-  you: "Needs you.",
-  none: "",
-};
-
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 function postageText(l: ListingAudit): string | null {
@@ -128,25 +118,27 @@ function Published({ p }: { p: NonNullable<ListingAudit["published"]> }) {
   );
 }
 
-/** K's facts about one item (measurements, faults, what's included) and the floor price. */
-function Facts({ itemId, initial, onSignedOut }: { itemId: string; initial: string | null; onSignedOut: () => void }) {
+/** K's facts about one item (measurements, faults, what's included) and the floor price. On Listings. */
+export function Facts({ itemId, hasFloor, onSignedOut }: { itemId: string; hasFloor: boolean; onSignedOut: () => void }) {
   const [open, setOpen] = useState(false);
-  const [notes, setNotes] = useState(initial ?? "");
+  const [notes, setNotes] = useState("");
   const [floor, setFloor] = useState("");
+  const [own, setOwn] = useState<number | null>(null);
+  const [clearOwn, setClearOwn] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const load = () =>
-    api<{ floorPrice: number | null; notes: string | null }>(`/items/${itemId}/settings`)
-      .then((s) => (setNotes(s.notes ?? ""), setFloor(s.floorPrice != null ? String(s.floorPrice) : ""), setOpen(true)))
+    api<{ floorPrice: number | null; notes: string | null; ownPrice: number | null }>(`/items/${itemId}/settings`)
+      .then((s) => (setNotes(s.notes ?? ""), setFloor(s.floorPrice != null ? String(s.floorPrice) : ""), setOwn(s.ownPrice), setClearOwn(false), setOpen(true)))
       .catch((e) => (e instanceof SignedOut ? onSignedOut() : setMsg(e.message)));
   const save = () =>
-    api(`/items/${itemId}/settings`, { body: { notes, floorPrice: floor.trim() === "" ? null : Number(floor) } })
-      .then(() => (setMsg("Saved. Claude uses these facts in listing edits and replies, marked as from you."), setOpen(false)))
+    api(`/items/${itemId}/settings`, { body: { notes, floorPrice: floor.trim() === "" ? null : Number(floor), clearOwnPrice: clearOwn } })
+      .then(() => (setMsg(clearOwn ? "Saved. The engine prices this listing again from the next check." : "Saved. Claude uses these facts in listing edits and replies, marked as from you."), setOpen(false)))
       .catch((e) => (e instanceof SignedOut ? onSignedOut() : setMsg(e.message)));
   return (
     <div class="wide" style={{ margin: "6px 0 0" }}>
       {!open ? (
         <button class="btn-link" onClick={load}>
-          {initial ? "Edit your facts and floor" : "Add facts and a floor price"}
+          {hasFloor ? "Facts and floor price" : "Add facts and a floor price"}
         </button>
       ) : (
         <div class="form">
@@ -158,6 +150,12 @@ function Facts({ itemId, initial, onSignedOut }: { itemId: string; initial: stri
             Lowest price you'd accept (floor), £
             <input inputMode="decimal" value={floor} onInput={(e) => setFloor((e.target as HTMLInputElement).value)} />
           </label>
+          {own != null && (
+            <label class="choice">
+              <input type="checkbox" checked={clearOwn} onChange={() => setClearOwn(!clearOwn)} />
+              Your own price is £{own.toFixed(2)}, so the engine leaves it alone. Tick to let the engine price it again.
+            </label>
+          )}
           <div class="actions">
             <button class="btn btn-stamp" onClick={save}>
               Save
@@ -173,25 +171,10 @@ function Facts({ itemId, initial, onSignedOut }: { itemId: string; initial: stri
   );
 }
 
-function FindingRow({ f }: { f: Finding }) {
-  const [cls, word] = SEVERITY[f.severity];
-  return (
-    <li class="paper">
-      <p class={`state ${cls}`}>{word}</p>
-      <h3 class="kind">{f.title}</h3>
-      {f.itemTitle && f.area !== "unsold" && <p class="item-title">{f.itemTitle}</p>}
-      <p>{f.detail}</p>
-      {FIX[f.fix] && <p class="small muted">{FIX[f.fix]}</p>}
-    </li>
-  );
-}
-
-export function Report({ me, onSignedOut, onChanged }: ScreenProps) {
+export function Report({ me, onSignedOut, onChanged, go }: ScreenProps) {
   const [report, setReport] = useState<Report | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  const [all, setAll] = useState(false);
-  const [fixes, setFixes] = useState<Record<string, { busy?: boolean; note?: string; error?: string }>>({});
   const owner = me.user.role === "owner";
 
   const fail = (e: unknown) => (e instanceof SignedOut ? onSignedOut() : setError((e as Error).message));
@@ -207,7 +190,7 @@ export function Report({ me, onSignedOut, onChanged }: ScreenProps) {
     setRunning(true);
     setError(null);
     try {
-      const r = await api<{ report: Report }>("/firstday/run", { body: {} });
+      const r = await apiJob<{ report: Report }>("/firstday/run", {});
       setReport(r.report);
       onChanged();
     } catch (e) {
@@ -217,95 +200,122 @@ export function Report({ me, onSignedOut, onChanged }: ScreenProps) {
     }
   };
 
-  // One Sonnet review per listing, one at a time, each filing its own labels.
-  const claudeFix = async (itemId: string) => {
-    setFixes((f) => ({ ...f, [itemId]: { busy: true } }));
-    try {
-      const out = await api<{ note: string; costUsd: number }>("/audit", { body: { itemId } });
-      setFixes((f) => ({ ...f, [itemId]: { note: out.note || "Done." } }));
-      onChanged();
-    } catch (e) {
-      if (e instanceof SignedOut) onSignedOut();
-      else setFixes((f) => ({ ...f, [itemId]: { error: (e as Error).message } }));
-    }
-  };
-  const fixAll = async () => {
-    for (const id of report?.forClaude ?? []) if (!fixes[id]?.note) await claudeFix(id);
-  };
-
-  if (report === undefined) return error ? <p class="error">{error}</p> : <div class="page-head" aria-busy="true" />;
+  const intro = "A read-only check of the whole shop: every listing, your sales, ended listings, past replies and settings. Nothing changes on eBay.";
+  if (report === undefined)
+    return error ? (
+      <p class="error">{error}</p>
+    ) : (
+      <div class="card">
+        <div class="skeleton h-5 w-40" />
+        <div class="skeleton mt-4 h-24 w-full" />
+      </div>
+    );
 
   if (!report)
     return (
       <>
         <div class="page-head">
-          <h1 class="title-in">Audit</h1>
-          <p>
-            A read-only look at the whole account: every listing, your sold history, ended listings, your past replies and your settings.
-            Nothing changes on eBay; anything worth fixing becomes a label in the Inbox.
-          </p>
+          <div>
+            <h1>Store Pulse</h1>
+            <p>{intro}</p>
+          </div>
         </div>
         {error && <p class="error">{error}</p>}
-        <p class="paper">
+        <div class="card flex flex-col items-start gap-3">
           {owner ? (
-            <button class="btn btn-stamp" disabled={running} onClick={run}>
-              {running ? "Reading the account (a minute or two)" : "Run the audit"}
-            </button>
+            <motion.button whileTap={{ scale: 0.95 }} class="btn btn-primary" disabled={running} onClick={run}>
+              <Icons.pulse size={16} /> {running ? "Reading your shop (a minute or two)" : "Check my shop"}
+            </motion.button>
           ) : (
-            "Not run yet. It runs on the first night after eBay is connected, or K can run it now."
+            <p>Not run yet. It runs on the first night after eBay is connected, or K can run it now.</p>
           )}
-        </p>
+        </div>
       </>
     );
 
-  const top = report.findings.filter((f) => f.fix !== "none" || f.severity !== "low");
-  const shown = all ? top : top.slice(0, 10);
-  const high = report.findings.filter((f) => f.severity === "high").length;
-  const forClaude = report.forClaude.filter((id) => report.listings.some((l) => l.itemId === id));
+  // What needs doing lives in the Inbox: to-dos for what only K can do, labels for changes already drafted.
+  const toDo = report.findings.filter((f) => f.fix === "you").length + report.listings.filter((l) => l.findings.some((f) => f.fix === "claude")).length;
+  const failed = Object.entries(report.steps).filter(([, v]) => v.startsWith("failed"));
+  const returns = report.settings.policies?.returns ?? [];
+  const checks: [string, boolean][] = [
+    ["Every part of your shop was read", failed.length === 0],
+    ["Every listing has 4 or more photos", report.listings.length > 0 && report.listings.every((l) => l.photos >= 4)],
+    ["Descriptions say more than the title", report.listings.length > 0 && report.listings.every((l) => l.descriptionChars >= 200)],
+    ["Returns accepted, buyer pays return postage", returns.length > 0 && returns.every((r) => r.accepted && r.buyerPaysReturnPostage !== false)],
+    ["Sales history on file", report.sold.count > 0],
+    ["Nothing waiting for you", toDo + report.proposals.length === 0],
+  ];
+  const passed = checks.filter(([, ok]) => ok).length;
 
   return (
     <>
       <div class="page-head">
-        <h1 class="title-in">Audit</h1>
-        <p>
-          Read {ago(report.at)}: {plural(report.listings.length, "listing")}, {plural(report.sold.count, "past sale")},{" "}
-          {plural(report.unsold.length, "ended listing")}, {plural(report.messages.replies, "past reply", "past replies")}. {plural(high, "important finding")}
-          {report.proposals.length ? `, ${plural(report.proposals.length, "label")} filed in the Inbox` : ""}.{" "}
-          {owner && (
-            <button class="btn-link" disabled={running} onClick={run}>
-              {running ? "Reading the account" : "Run again"}
-            </button>
-          )}
-        </p>
+        <div>
+          <h1>Store Pulse</h1>
+          <p>
+            Checked {ago(report.at)}: {plural(report.listings.length, "listing")}, {plural(report.sold.count, "past sale")}, {plural(report.unsold.length, "ended listing")} and{" "}
+            {plural(report.messages.replies, "past reply", "past replies")}.
+          </p>
+        </div>
+        {owner && (
+          <motion.button whileTap={{ scale: 0.95 }} class="btn btn-secondary" disabled={running} onClick={run}>
+            <Icons.refresh size={16} /> {running ? "Checking…" : "Check again"}
+          </motion.button>
+        )}
       </div>
       {error && <p class="error">{error}</p>}
 
-      <section class="section">
-        <h2>Top findings</h2>
-        {!top.length && <p class="paper">Nothing needs fixing.</p>}
-        <ol class="labels">
-          {shown.map((f) => (
-            <FindingRow f={f} />
-          ))}
-        </ol>
-        {top.length > 10 && (
-          <button class="btn-link" onClick={() => setAll(!all)}>
-            {all ? "Show the top 10" : `Show all ${top.length}`}
-          </button>
-        )}
+      <section class="card grid items-center gap-6 md:grid-cols-[auto_minmax(0,1fr)]">
+        <div class="flex flex-col items-center gap-2 text-center">
+          <Ring value={passed / checks.length} size={148} stroke={12} color={passed === checks.length ? "var(--green)" : passed >= checks.length / 2 ? "var(--accent)" : "var(--yellow)"}>
+            <div>
+              <span class="block text-3xl font-bold tabular-nums">
+                {passed}/{checks.length}
+              </span>
+              <span class="text-xs text-muted">checks passed</span>
+            </div>
+          </Ring>
+        </div>
+        <div>
+          <ul class="m-0 grid gap-2.5 p-0">
+            {checks.map(([label, ok], i) => (
+              <motion.li key={label} class="flex list-none items-center gap-3" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 + i * 0.14, ease: EASE_OUT }}>
+                <motion.span
+                  class={`grid size-6 flex-none place-items-center rounded-full ${ok ? "bg-green text-[#04130d]" : "bg-yellow-soft text-yellow"}`}
+                  initial={{ scale: 0, rotate: -45 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  transition={{ ...SPRING, delay: 0.3 + i * 0.14 }}
+                  style={ok ? { boxShadow: "0 0 14px -2px var(--green)" } : undefined}
+                >
+                  {ok ? <Icons.check size={14} /> : <Icons.alert size={13} />}
+                </motion.span>
+                <span class={ok ? "" : "text-ink-2"}>{label}</span>
+              </motion.li>
+            ))}
+          </ul>
+          {(toDo > 0 || report.proposals.length > 0) && (
+            <div class="mt-5 flex flex-wrap items-center gap-3 border-t border-line pt-4">
+              <span class="text-sm text-muted">
+                It left {[toDo && plural(toDo, "suggestion"), report.proposals.length && `${plural(report.proposals.length, "change")} to approve`].filter(Boolean).join(" and ")}.
+              </span>
+              <motion.button whileTap={{ scale: 0.95 }} class="btn btn-primary" onClick={() => go("/")}>
+                Open the Inbox <Icons.arrowRight size={16} />
+              </motion.button>
+            </div>
+          )}
+          {failed.length > 0 && (
+            <p class="flag mt-3">
+              {plural(failed.length, "part")} couldn't be read: {failed.map(([k]) => k.replace(/_/g, " ")).join(", ")}.
+            </p>
+          )}
+        </div>
       </section>
 
-      <section class="section">
-        <h2>Listings</h2>
-        {forClaude.length > 0 && (
-          <p class="paper">
-            {plural(forClaude.length, "listing")} could use a better title, item specifics or description. Claude (Sonnet) reviews each one and files
-            its suggestions as labels, using only facts the listing already states. About 5 to 10 cents each.{" "}
-            <button class="btn btn-ink" onClick={fixAll} disabled={forClaude.some((id) => fixes[id]?.busy)}>
-              Propose fixes for {forClaude.length}
-            </button>
-          </p>
-        )}
+      <details class="section fold">
+        <summary>
+          <h2>Listings</h2>
+          <span class="small muted">{plural(report.listings.length, "listing")} as eBay shows them</span>
+        </summary>
         <ol class="bars">
           {report.listings.map((l) => (
             <li class="bar" key={l.itemId}>
@@ -320,7 +330,6 @@ export function Report({ me, onSignedOut, onChanged }: ScreenProps) {
                   l.views7d != null && `${l.views7d} views in 7 days`,
                   plural(l.photos, "photo"),
                   plural(l.specifics, "item specific"),
-                  `${l.descriptionChars} characters of description`,
                   postageText(l),
                   l.promotion?.currentRate != null ? `promoted at ${l.promotion.currentRate}%` : null,
                 ]
@@ -328,39 +337,21 @@ export function Report({ me, onSignedOut, onChanged }: ScreenProps) {
                   .join(" · ")}
               </p>
               {l.pricing && (
-                <p class="wide small" style={{ margin: 0 }}>
-                  Market: {l.pricing.strategy === "ask" ? `the engine asks: ${l.pricing.question}` : `${l.pricing.strategy} at ${money(l.pricing.price)}. ${l.pricing.why}`}
-                </p>
-              )}
-              {l.promotion && (
-                <p class="wide small" style={{ margin: 0 }}>
-                  Promotion: {l.promotion.why}
-                </p>
-              )}
-              {l.findings.length > 0 && <p class="wide flag" style={{ margin: 0 }}>{l.findings.map((f) => f.title).join(" · ")}</p>}
-              {l.advice && (
-                <p class="wide" style={{ margin: "6px 0 0" }}>
-                  <strong>{l.advice.action === "relist" ? "Relist" : "Revise"}.</strong> {l.advice.why.replace(/^(Revise|Relist)[^:]*: /, "")}
+                <p class="wide small muted" style={{ margin: 0 }}>
+                  Market: {l.pricing.strategy === "ask" ? "the engine needs your answer (in the Inbox)" : l.pricing.strategy === "own" ? `your own price, ${money(l.pricing.price)}` : `${l.pricing.strategy} at ${money(l.pricing.price)}`}
                 </p>
               )}
               {l.published && <Published p={l.published} />}
-              {owner && <Facts itemId={l.itemId} initial={l.factsFromK ?? null} onSignedOut={onSignedOut} />}
-              {fixes[l.itemId]?.note && <p class="wide result">{fixes[l.itemId].note}</p>}
-              {fixes[l.itemId]?.error && <p class="wide error">{fixes[l.itemId].error}</p>}
-              {forClaude.includes(l.itemId) && !fixes[l.itemId]?.note && (
-                <div class="wide">
-                  <button class="btn-link" disabled={fixes[l.itemId]?.busy} onClick={() => claudeFix(l.itemId)}>
-                    {fixes[l.itemId]?.busy ? "Claude is reviewing (up to a minute)" : "Propose fixes with Claude"}
-                  </button>
-                </div>
-              )}
             </li>
           ))}
         </ol>
-      </section>
+      </details>
 
-      <section class="section">
-        <h2>Sold history</h2>
+      <details class="section fold">
+        <summary>
+          <h2>Sold history</h2>
+          <span class="small muted">{report.sold.count ? `${plural(report.sold.count, "sale")}, ${money(report.sold.revenue)}` : "no sales recorded"}</span>
+        </summary>
         {report.sold.count ? (
           <div class="paper">
             <dl class="figures">
@@ -416,10 +407,13 @@ export function Report({ me, onSignedOut, onChanged }: ScreenProps) {
         ) : (
           <p class="paper">No sales recorded. Import the Seller Hub orders report in Settings.</p>
         )}
-      </section>
+      </details>
 
-      <section class="section">
-        <h2>Ended without selling</h2>
+      <details class="section fold">
+        <summary>
+          <h2>Ended without selling</h2>
+          <span class="small muted">{report.unsold.length ? plural(report.unsold.length, "listing") : "none in the last 60 days"}</span>
+        </summary>
         {report.unsold.length ? (
           <ol class="labels">
             {report.unsold.map((u) => (
@@ -437,12 +431,13 @@ export function Report({ me, onSignedOut, onChanged }: ScreenProps) {
         ) : (
           <p class="paper">None in the last 60 days (as far back as eBay shows).</p>
         )}
-      </section>
+      </details>
 
-      <StyleCard owner={owner} onSignedOut={onSignedOut} note={report.messages.note} />
-
-      <section class="section">
-        <h2>Settings</h2>
+      <details class="section fold">
+        <summary>
+          <h2>Settings</h2>
+          <span class="small muted">{report.seller?.businessType ?? "seller type not stated"}</span>
+        </summary>
         <div class="paper">
           {report.seller && (
             <p>
@@ -465,24 +460,30 @@ export function Report({ me, onSignedOut, onChanged }: ScreenProps) {
             </p>
           ))}
         </div>
-        <details class="small muted">
-          <summary>What the audit read</summary>
-          <ul>
-            {Object.entries(report.steps).map(([k, v]) => (
-              <li>
-                {k.replace(/_/g, " ")}: {v}
-              </li>
-            ))}
-          </ul>
-        </details>
-      </section>
+      </details>
+
+      <details class="section fold">
+        <summary>
+          <h2>What was checked</h2>
+          <span class="small muted">{failed.length ? `${plural(failed.length, "part")} failed` : "every part read"}</span>
+        </summary>
+        <ul class="paper small">
+          {Object.entries(report.steps).map(([k, v]) => (
+            <li class={v.startsWith("failed") ? "flag" : undefined}>
+              {k.replace(/_/g, " ")}: {v}
+            </li>
+          ))}
+        </ul>
+      </details>
+      <p class="small muted">Your reply style guide is in Settings. Facts and floor prices are on each listing in Listings.</p>
     </>
   );
 }
 
 // ---------------------------------------------------------------- The reply style guide
 
-function StyleCard({ owner, onSignedOut, note }: { owner: boolean; onSignedOut: () => void; note: string }) {
+/** K's reply style guide, on Settings. */
+export function StyleCard({ owner, onSignedOut }: { owner: boolean; onSignedOut: () => void }) {
   const [style, setStyle] = useState<Style | null | undefined>(undefined);
   const [draft, setDraft] = useState<Record<string, string> | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -550,15 +551,15 @@ function StyleCard({ owner, onSignedOut, note }: { owner: boolean; onSignedOut: 
   );
 
   return (
-    <section class="section">
+    <section class="paper">
       <h2>Your reply style</h2>
-      <div class="paper">
+      <div>
         <p class="small muted">
-          {note} Every reply and offer message Claude drafts follows this guide. The rules still come first: only facts from the listing, no price
+          Every reply and offer message Claude drafts follows this guide. The rules still come first: only facts from the listing, no price
           agreements, everything kept on eBay.
         </p>
         {style === undefined && <p aria-busy="true" />}
-        {style === null && <p>No guide yet. It's learned when the audit runs.</p>}
+        {style === null && <p>No guide yet. It's learned when Store Pulse runs.</p>}
         {style && !draft && (
           <>
             <dl class="figures">

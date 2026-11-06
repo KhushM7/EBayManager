@@ -4,6 +4,7 @@ import { callFor, ebayWrite, WriteRefused } from "./ebay/write";
 import { push } from "./notify";
 import { snapshotListings } from "./snapshot";
 import { PROPOSAL_TTL_DAYS } from "./rules";
+import { newProposalId } from "./store/proposals";
 
 export type ProposalKind =
   | "price"
@@ -38,7 +39,7 @@ export async function createProposal(
 ): Promise<Proposal> {
   const now = Date.now();
   const row: Proposal = {
-    id: crypto.randomUUID(),
+    id: newProposalId(p.itemId ?? null),
     kind: p.kind,
     item_id: p.itemId ?? null,
     payload: JSON.stringify(p.payload),
@@ -48,41 +49,23 @@ export async function createProposal(
     created_at: now,
     expires_at: now + PROPOSAL_TTL_DAYS * 86_400_000,
   };
-  const statements = [
-    env.DB.prepare(
-      "INSERT INTO proposals (id, kind, item_id, payload, reason, status, dry_run, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).bind(row.id, row.kind, row.item_id, row.payload, row.reason, row.status, row.dry_run, row.created_at, row.expires_at),
-  ];
-  // A newer price, revision or ad rate for the same item supersedes the pending one. Replies and offer
-  // responses never do: each answers a different buyer.
-  if (row.item_id && SUPERSEDING_KINDS.includes(row.kind))
-    statements.unshift(
-      env.DB.prepare("UPDATE proposals SET status = 'expired', decided_at = ? WHERE item_id = ? AND kind = ? AND status = 'pending'").bind(
-        now,
-        row.item_id,
-        row.kind,
-      ),
-    );
-  await env.DB.batch(statements);
+  // A newer price, revision or ad rate for the same item supersedes the pending one, in the same transaction.
+  // Replies and offer responses never do: each answers a different buyer.
+  await env.store.proposals.create(row, Boolean(row.item_id) && SUPERSEDING_KINDS.includes(row.kind));
   return row;
 }
 
 export async function listProposals(env: Env, status = "pending"): Promise<Proposal[]> {
-  const { results } = await env.DB.prepare("SELECT * FROM proposals WHERE status = ? ORDER BY created_at")
-    .bind(status)
-    .all<Proposal>();
-  return results;
+  return (await env.store.proposals.listByStatus(status, "asc")) as Proposal[];
 }
 
 export async function getProposal(env: Env, id: string): Promise<Proposal | null> {
-  return env.DB.prepare("SELECT * FROM proposals WHERE id = ?").bind(id).first<Proposal>();
+  return (await env.store.proposals.get(id)) as (Proposal & { decided_by?: string | null; result?: string | null }) | null;
 }
 
 /** Marks pending proposals past their expiry as expired. Runs nightly. */
 export async function expireStale(env: Env): Promise<void> {
-  await env.DB.prepare("UPDATE proposals SET status = 'expired', decided_at = ? WHERE status = 'pending' AND expires_at < ?")
-    .bind(Date.now(), Date.now())
-    .run();
+  await env.store.proposals.expireStale(Date.now());
 }
 
 // --- One-tap approval links. Only a link signed with SIGNING_KEY can approve; Claude never holds that key path. ---
@@ -138,8 +121,7 @@ const APP_ONLY_KINDS = ["message", "best_offer_response"];
 
 /** Settings switch, on unless K turns it off: replies and offer answers need the app, not a notification tap. */
 export async function requireAppForReplies(env: Env): Promise<boolean> {
-  const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'require_app_for_replies'").first<{ value: string }>();
-  return row?.value !== "0";
+  return (await env.store.kv.get("require_app_for_replies")) !== "0";
 }
 
 /** Kinds whose pending drafts K may edit in the Inbox before approving. */
@@ -164,7 +146,7 @@ export async function editProposal(env: Env, id: string, changes: Record<string,
   }
   payload.editedByK = true;
   payload.editedBy = actor;
-  await env.DB.prepare("UPDATE proposals SET payload = ? WHERE id = ? AND status = 'pending'").bind(JSON.stringify(payload), id).run();
+  if (!(await env.store.proposals.editPayload(id, JSON.stringify(payload)))) return "Already decided";
   return "Saved";
 }
 
@@ -176,17 +158,20 @@ async function refreshAfterChange(env: Env, kind: string) {
 
 /** Applies proposals K approved while writes were paused. Run when K resumes writes. */
 export async function applyApproved(env: Env): Promise<{ id: string; result: string }[]> {
-  const { results } = await env.DB.prepare("SELECT id FROM proposals WHERE status = 'approved' AND dry_run = 0 ORDER BY decided_at").all<{ id: string }>();
+  const approved = (await env.store.proposals.listWhere([
+    { f: "status", op: "=", v: "approved" },
+    { f: "dry_run", op: "=", v: 0 },
+  ])).sort((a, b) => (a.decided_at ?? 0) - (b.decided_at ?? 0));
   const out: { id: string; result: string }[] = [];
-  for (const { id } of results) {
+  for (const { id } of approved) {
     try {
       const result = await ebayWrite(env, id);
-      await env.DB.prepare("UPDATE proposals SET status = 'applied', result = ? WHERE id = ?").bind(result, id).run();
+      await env.store.proposals.setOutcome(id, { status: "applied", result });
       out.push({ id, result });
       await refreshAfterChange(env, "revise");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (!(e instanceof WriteRefused)) await env.DB.prepare("UPDATE proposals SET status = 'failed', result = ? WHERE id = ?").bind(msg, id).run();
+      if (!(e instanceof WriteRefused)) await env.store.proposals.setOutcome(id, { status: "failed", result: msg });
       out.push({ id, result: msg });
       if (e instanceof WriteRefused && /paused|Writes are off/.test(msg)) break;
     }
@@ -202,19 +187,17 @@ export async function decide(env: Env, id: string, decision: "approve" | "reject
   if (p.status !== "pending") return `Already ${p.status}`;
   const now = Date.now();
   if (p.expires_at < now) {
-    await env.DB.prepare("UPDATE proposals SET status = 'expired', decided_at = ? WHERE id = ?").bind(now, id).run();
+    await env.store.proposals.expire(id, now);
     return "Expired";
   }
   if (decision === "reject") {
-    await env.DB.prepare("UPDATE proposals SET status = 'rejected', decided_at = ?, decided_by = ? WHERE id = ? AND status = 'pending'").bind(now, actor, id).run();
+    if (!(await env.store.proposals.decide(id, "rejected", now, actor))) return "Already decided";
     return "Rejected";
   }
   // A dry run can be judged but never applied: approving records K's agreement as 'agreed', a status the write
   // gate never claims (it applies only 'approved' rows that aren't dry runs).
   if (p.dry_run) {
-    await env.DB.prepare("UPDATE proposals SET status = 'agreed', decided_at = ?, decided_by = ?, result = ? WHERE id = ? AND status = 'pending'")
-      .bind(now, actor, DRY_RUN_AGREED, id)
-      .run();
+    if (!(await env.store.proposals.decide(id, "agreed", now, actor, DRY_RUN_AGREED))) return "Already decided";
     return DRY_RUN_AGREED;
   }
   // A draft that can't become an eBay call yet (an empty reply, a kind not built) stays pending for K to finish.
@@ -232,23 +215,21 @@ export async function decide(env: Env, id: string, decision: "approve" | "reject
     }
   }
 
-  const approved = await env.DB.prepare("UPDATE proposals SET status = 'approved', decided_at = ?, decided_by = ? WHERE id = ? AND status = 'pending'")
-    .bind(now, actor, id)
-    .run();
-  if (!approved.meta.changes) return "Already decided";
+  // Approve once, and only while still pending and unexpired: one conditional write.
+  if (!(await env.store.proposals.decide(id, "approved", now, actor, undefined, now))) return "Already decided";
   try {
     const result = await ebayWrite(env, id);
-    await env.DB.prepare("UPDATE proposals SET status = 'applied', result = ? WHERE id = ?").bind(result, id).run();
+    await env.store.proposals.setOutcome(id, { status: "applied", result });
     await refreshAfterChange(env, p.kind);
     return result;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (e instanceof WriteRefused) {
       // Stays approved; nothing reached eBay.
-      await env.DB.prepare("UPDATE proposals SET result = ? WHERE id = ?").bind(msg, id).run();
+      await env.store.proposals.setOutcome(id, { result: msg });
       return `Approved, not applied: ${msg}`;
     }
-    await env.DB.prepare("UPDATE proposals SET status = 'failed', result = ? WHERE id = ?").bind(msg, id).run();
+    await env.store.proposals.setOutcome(id, { status: "failed", result: msg });
     return `Failed: ${msg}`;
   }
 }

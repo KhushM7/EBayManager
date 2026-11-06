@@ -18,8 +18,8 @@ const concat = (...parts: Uint8Array[]) => {
 };
 
 async function hkdf(salt: Uint8Array, ikm: Uint8Array, info: Uint8Array, bytes: number) {
-  const key = await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]);
-  return new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info }, key, bytes * 8));
+  const key = await crypto.subtle.importKey("raw", ikm as BufferSource, "HKDF", false, ["deriveBits"]);
+  return new Uint8Array(await crypto.subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt: salt as BufferSource, info: info as BufferSource }, key, bytes * 8));
 }
 
 /** Encrypts a push message for one subscription (RFC 8291, single aes128gcm record). */
@@ -27,7 +27,7 @@ export async function encryptPayload(plaintext: Uint8Array, p256dh: Uint8Array, 
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const server = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"])) as CryptoKeyPair;
   const serverPub = new Uint8Array((await crypto.subtle.exportKey("raw", server.publicKey)) as ArrayBuffer);
-  const uaKey = await crypto.subtle.importKey("raw", p256dh, { name: "ECDH", namedCurve: "P-256" }, false, []);
+  const uaKey = await crypto.subtle.importKey("raw", p256dh as BufferSource, { name: "ECDH", namedCurve: "P-256" }, false, []);
   const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: uaKey } as any, server.privateKey, 256));
 
   const ikm = await hkdf(auth, shared, concat(enc.encode("WebPush: info\0"), p256dh, serverPub), 32);
@@ -79,18 +79,13 @@ interface Subscription {
 }
 
 export async function saveSubscription(env: Env, s: Subscription, userAgent: string) {
-  await env.DB.prepare(
-    `INSERT INTO push_subscriptions (endpoint, p256dh, auth, user_agent, created_at) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(endpoint) DO UPDATE SET p256dh = excluded.p256dh, auth = excluded.auth, user_agent = excluded.user_agent`,
-  )
-    .bind(s.endpoint, s.p256dh, s.auth, userAgent.slice(0, 200), Date.now())
-    .run();
+  await env.store.push.save(s, userAgent.slice(0, 200), Date.now());
 }
 
 /** Sends to every subscribed device. Returns how many accepted it; gone subscriptions are removed. */
 export async function sendToAll(env: Env, msg: PushMessage): Promise<number> {
   if (!env.VAPID_KEY) return 0;
-  const { results } = await env.DB.prepare("SELECT endpoint, p256dh, auth FROM push_subscriptions").all<Subscription>();
+  const results: Subscription[] = await env.store.push.list();
   let delivered = 0;
   for (const s of results) {
     try {
@@ -104,21 +99,18 @@ export async function sendToAll(env: Env, msg: PushMessage): Promise<number> {
           TTL: "86400",
           Urgency: "high",
         },
-        body,
+        body: body as BodyInit,
       });
       if (res.status === 404 || res.status === 410) {
-        await env.DB.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").bind(s.endpoint).run();
+        await env.store.push.delete(s.endpoint);
         continue;
       }
       const ok = res.ok;
       if (ok) delivered++;
-      await env.DB.prepare("UPDATE push_subscriptions SET last_ok_at = COALESCE(?, last_ok_at), last_error = ? WHERE endpoint = ?")
-        .bind(ok ? Date.now() : null, ok ? null : `${res.status} ${(await res.text()).slice(0, 200)}`, s.endpoint)
-        .run();
+      if (ok) await env.store.push.markOk(s.endpoint, Date.now());
+      else await env.store.push.markError(s.endpoint, `${res.status} ${(await res.text()).slice(0, 200)}`);
     } catch (e) {
-      await env.DB.prepare("UPDATE push_subscriptions SET last_error = ? WHERE endpoint = ?")
-        .bind(e instanceof Error ? e.message : String(e), s.endpoint)
-        .run();
+      await env.store.push.markError(s.endpoint, e instanceof Error ? e.message : String(e));
     }
   }
   return delivered;

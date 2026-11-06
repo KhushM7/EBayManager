@@ -8,15 +8,33 @@ import { expireStale } from "./proposals";
 import { snapshotListings } from "./snapshot";
 import { learnParams } from "./pricing/learn";
 import { bundleAdvice } from "./pricing/bundles";
-import { reviewPrices } from "./pricing/review";
+import { reviewPrices, type ReviewOut } from "./pricing/review";
+import { fileHealthTodos, fileOwnPriceReminders, filePriceQuestions, lastSentence } from "./todos";
 import { reviewPromotions } from "./promotion";
 import { auditDone, runFirstDayAudit } from "./firstday";
+import { cleanUpDrafts } from "./drafts";
 
 // The 02:00 run: read eBay, score listing health by rule, and send only flagged listings to Haiku, which may
 // file proposals for K. Each step runs on its own, so one failure (Sandbox has no traffic data, say) doesn't
 // stop the rest. The outcome is kept in settings.last_nightly for the Metrics screen.
 
 const MAX_TRIAGED_PER_NIGHT = 5;
+/** A change proposed this recently (waiting, approved, agreed as a dry run, or applied) isn't redone by triage. */
+export const REVISE_QUIET_DAYS = 7;
+
+/**
+ * Listings with a recent listing edit: triage mustn't propose another. While changes are off an approved dry
+ * run doesn't change eBay, so triage would otherwise read the old listing and undo K's approved edit (2026-11-05:
+ * a review removed unsupported specifics from the Maono listing and the same night's triage put them back).
+ */
+export async function recentlyRevised(env: Env, now: number, kind: "revise" | "price" = "revise"): Promise<Set<string>> {
+  const rows = await env.store.proposals.listWhere([
+    { f: "kind", op: "=", v: kind },
+    { f: "status", op: "in", v: ["pending", "approved", "agreed", "applied"] },
+    { f: "created_at", op: ">", v: now - REVISE_QUIET_DAYS * 86_400_000 },
+  ]);
+  return new Set(rows.map((p) => p.item_id).filter((x): x is string => Boolean(x)));
+}
 
 export const TRIAGE_SYSTEM = `A nightly rule check flagged one of K's eBay UK listings. Decide whether one small change would help it sell, and if so propose it. You cannot change eBay: propose_* tools record proposals that K approves or rejects.
 
@@ -47,14 +65,16 @@ async function step(steps: Record<string, string>, name: string, fn: () => Promi
 }
 
 export async function listingFacts(env: Env): Promise<ListingFacts[]> {
-  const { results } = await env.DB.prepare(
-    `SELECT s.item_id, s.title, s.price, s.watch_count, s.start_time,
-            (SELECT views_7d FROM listing_traffic t WHERE t.item_id = s.item_id ORDER BY taken_at DESC LIMIT 1) AS views_7d,
-            (SELECT impressions_7d FROM listing_traffic t WHERE t.item_id = s.item_id ORDER BY taken_at DESC LIMIT 1) AS impressions_7d,
-            (SELECT COUNT(*) FROM proposals p WHERE p.item_id = s.item_id AND p.status IN ('pending', 'approved')) AS pending,
-            (SELECT MAX(decided_at) FROM proposals p WHERE p.item_id = s.item_id AND p.kind = 'price' AND p.status = 'applied') AS last_price_change
-     FROM listing_snapshots s WHERE s.taken_at = (SELECT MAX(taken_at) FROM listing_snapshots)`,
-  ).all<any>();
+  const open = await env.store.proposals.listWhere([{ f: "status", op: "in", v: ["pending", "approved"] }]);
+  const appliedPrices = await env.store.proposals.listWhere([
+    { f: "kind", op: "=", v: "price" },
+    { f: "status", op: "=", v: "applied" },
+  ]);
+  const results = (await env.store.listings.latestSet()).map((l) => ({
+    ...l,
+    pending: open.filter((p) => p.item_id === l.item_id).length,
+    last_price_change: appliedPrices.filter((p) => p.item_id === l.item_id).reduce<number | null>((m, p) => (p.decided_at != null && (m == null || p.decided_at > m) ? p.decided_at : m), null),
+  }));
   return results.map((r) => ({
     itemId: r.item_id,
     title: r.title,
@@ -76,37 +96,12 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
   await step(steps, "expire", async () => (await expireStale(env), "done"));
   await step(steps, "orders", async () => {
     const orders = await getRecentOrders(env);
-    const stmts = orders.flatMap((o) => [
-      env.DB.prepare(
-        `INSERT INTO orders (order_id, created_at, total, fees, currency, status) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(order_id) DO UPDATE SET total = excluded.total, fees = excluded.fees, status = excluded.status`,
-      ).bind(o.orderId, o.createdAt, o.total, o.fees, o.currency, o.status),
-      ...o.items.map((i) =>
-        env.DB.prepare("INSERT OR REPLACE INTO order_items (order_id, item_id, title, quantity, price) VALUES (?, ?, ?, ?, ?)").bind(
-          o.orderId,
-          i.itemId,
-          i.title,
-          i.quantity,
-          i.price,
-        ),
-      ),
-    ]);
-    if (stmts.length) await env.DB.batch(stmts);
+    await env.store.orders.upsertFromApi(orders);
     return `${orders.length} orders`;
   });
   await step(steps, "traffic", async () => {
     const rows = await getTraffic7d(env);
-    if (rows.length)
-      await env.DB.batch(
-        rows.map((r) =>
-          env.DB.prepare("INSERT OR REPLACE INTO listing_traffic (item_id, taken_at, views_7d, impressions_7d) VALUES (?, ?, ?, ?)").bind(
-            r.itemId,
-            at,
-            r.views,
-            r.impressions,
-          ),
-        ),
-      );
+    await env.store.listings.writeTraffic(at, rows);
     return `${rows.length} listings`;
   });
 
@@ -117,46 +112,71 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
       if (flags.length) flagged.push({ itemId: l.itemId, flags });
     }
     if (flagged.length)
-      await env.DB.batch(
-        flagged.flatMap((f) =>
-          f.flags.map((fl) =>
-            env.DB.prepare("INSERT OR REPLACE INTO health_flags (item_id, checked_at, flag, detail) VALUES (?, ?, ?, ?)").bind(
-              f.itemId,
-              at,
-              fl.flag,
-              fl.detail,
-            ),
-          ),
-        ),
+      await env.store.jobs.recordHealthFlags(
+        at,
+        flagged.flatMap((f) => f.flags.map((fl) => ({ item_id: f.itemId, flag: fl.flag, detail: fl.detail }))),
       );
     return `${flagged.length} flagged`;
   });
 
   // The pricing engine re-prices a few listings and proposes changes the market supports, before triage,
   // so triage sees those proposals as pending and doesn't repeat them.
-  await step(steps, "prices", async () =>
-    env.TRAWL_API_KEY || env.COMPSAPI_KEY ? reviewPrices(env, at) : "skipped: no sold-data provider keys",
-  );
+  // Its questions become Inbox to-dos for the listings it priced (src/todos.ts).
+  const review: ReviewOut = { priced: [], asked: [] };
+  await step(steps, "prices", async () => {
+    if (!env.TRAWL_API_KEY && !env.COMPSAPI_KEY) return "skipped: no sold-data provider keys";
+    const out = await reviewPrices(env, at, { out: review });
+    await filePriceQuestions(env, review.priced, review.asked, at);
+    return out;
+  });
 
   // Promotion research on the listings the engine has a market picture for (docs/pricing-and-promotion.md).
   await step(steps, "promotion", async () => reviewPromotions(env));
 
   let triaged = 0;
+  const triageNotes = new Map<string, string>();
   await step(steps, "triage", async () => {
     if (!env.ANTHROPIC_API_KEY) return "skipped: no ANTHROPIC_API_KEY";
+    const revised = await recentlyRevised(env, at);
+    const repriced = await recentlyRevised(env, at, "price");
     for (const f of flagged.slice(0, MAX_TRIAGED_PER_NIGHT)) {
-      await runAgent(env, {
+      const noEdit = revised.has(f.itemId);
+      const noPrice = repriced.has(f.itemId);
+      const r = await runAgent(env, {
         job: `triage:${f.itemId}`,
         model: MODELS.triage,
         system: TRIAGE_SYSTEM,
-        prompt: `Listing ${f.itemId} was flagged:\n${f.flags.map((x) => `- ${x.flag}: ${x.detail}`).join("\n")}`,
-        toolNames: AUDIT_TOOLS,
+        prompt:
+          `Listing ${f.itemId} was flagged:\n${f.flags.map((x) => `- ${x.flag}: ${x.detail}`).join("\n")}` +
+          (noEdit ? "\nA listing edit for it was proposed in the last week: don't propose another." : "") +
+          (noPrice ? "\nA price change for it was proposed in the last week: don't propose another." : ""),
+        toolNames: AUDIT_TOOLS.filter((t) => !(noEdit && t === "propose_listing_revision") && !(noPrice && t === "propose_price_change")),
         maxTurns: 6,
         effort: "low",
       });
+      const note = lastSentence(r.text);
+      if (note) triageNotes.set(f.itemId, note);
       triaged++;
     }
     return `${triaged} of ${flagged.length} triaged`;
+  });
+
+  // Flagged listings that didn't end in a label become Inbox to-dos; to-dos for ended listings close.
+  await step(steps, "todos", async () => {
+    const rows = await env.store.listings.latestSet();
+    const live = rows.map((l) => ({ itemId: l.item_id, title: l.title }));
+    if (!live.length) return "skipped: no listings read";
+    const open = await env.store.proposals.listWhere([{ f: "status", op: "in", v: ["pending", "approved"] }]);
+    const labelled = new Set(open.map((p) => p.item_id));
+    const r = await fileHealthTodos(env, live, flagged, triageNotes, (id) => labelled.has(id), at);
+    // Listings on K's own price get a reminder after 30 days unsold.
+    const own = await fileOwnPriceReminders(
+      env,
+      rows.map((l) => ({ itemId: l.item_id, title: l.title, price: l.price, watchers: l.watch_count ?? 0, views7d: l.views_7d ?? null })),
+      await env.store.listings.settingsAll(),
+      at,
+    );
+    return `${r.opened + own.opened} opened, ${r.resolved + own.resolved} resolved`;
   });
 
   // The pricing engine learns from what sold (docs/pricing-engine.md, step 7), then looks for bundles.
@@ -166,6 +186,9 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
   });
   await step(steps, "bundles", async () => (env.ANTHROPIC_API_KEY ? bundleAdvice(env, at) : "skipped: no ANTHROPIC_API_KEY"));
 
+  // New-listing drafts untouched for 30 days are abandoned and their photos deleted (docs/add-listing.md).
+  await step(steps, "drafts", async () => cleanUpDrafts(env, at));
+
   // The first-day audit runs once, on the first night after the account connects (or K runs it from the app).
   await step(steps, "first_day_audit", async () => {
     if (await auditDone(env)) return "already done";
@@ -173,11 +196,9 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
     return `${r.findings.length} findings, ${r.proposals.length} proposals`;
   });
 
-  const made = await env.DB.prepare("SELECT COUNT(*) AS n FROM proposals WHERE created_at >= ?").bind(at).first<{ n: number }>();
-  const result: NightlyResult = { at, steps, flagged, triaged, proposals: made?.n ?? 0 };
-  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('last_nightly', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-    .bind(JSON.stringify(result))
-    .run();
+  const made = (await env.store.proposals.listWhere([{ f: "created_at", op: ">=", v: at }])).length;
+  const result: NightlyResult = { at, steps, flagged, triaged, proposals: made };
+  await env.store.kv.setJson("last_nightly", result);
   if (result.proposals) await push(env, `Nightly check: ${result.proposals} to review`, `${flagged.length} listings flagged.`, undefined, "nightly");
   return result;
 }

@@ -14,6 +14,11 @@ export interface Component {
   query: string;
   /** True if this part carries resale value on its own (not a manual, cable or box). */
   valued: boolean;
+  /**
+   * Other searches for the same product, broader or under other names, used when the main query finds too few
+   * sales (2026-11-06: a Lidl air fryer known on its box only by item number 438124, which sellers never use).
+   */
+  alternates?: string[];
 }
 
 export interface Identity {
@@ -23,6 +28,13 @@ export interface Identity {
   group: string;
   /** "unknown" when the listing doesn't say; never guessed. */
   condition: "new" | "used" | "parts" | "unknown";
+  /**
+   * For parts (spares or repair) only: "minor" when the sources name one fault with a simple, inexpensive fix
+   * and say the rest works; "major" for a serious or several faults; "unknown" when they don't say. Null otherwise.
+   */
+  fault?: "minor" | "major" | "unknown" | null;
+  /** Set when Claude couldn't be asked (or failed) and word rules stood in: shown on the label, confidence lowered. */
+  fallback?: string;
   /** Facts that change the price, as found (model number, size, capacity, what's included, flaws). */
   keyFacts: string[];
   /** One for a single item; several for a bundle. */
@@ -42,38 +54,45 @@ export interface ListingFacts {
   description?: string | null;
   /** Listing photo URLs; the first few are shown to Claude. */
   photos?: string[];
+  /** What K has told the app about this item (Inbox answers, facts on the Listings screen): true, and a source. */
+  factsFromK?: string | null;
+  /** Other names the product is sold under, from published sources (src/specs.ts), such as a model code. */
+  aliases?: string[];
 }
 
 /** Bump when identification changes, so cached identities are redone. */
-export const IDENTITY_VERSION = 3;
+export const IDENTITY_VERSION = 8;
 
-const IDENTIFY_SYSTEM = `You identify an item for sale on eBay UK, so its market price can be found from real sold listings. Use every source: the title, the item specifics, the description and the photos (labels, model numbers on the item or box, what's included, visible wear or damage).
+const IDENTIFY_SYSTEM = `You identify an item for sale on eBay UK, so its market price can be found from real sold listings. Use every source: the title, the item specifics, the description, the photos (labels, model numbers on the item or box, what's included, visible wear or damage) and any facts from the seller, which are true and count as a source ("(from K)").
 
 Return:
 - product: exactly what it is. Never guess a model, size, capacity or variant that no source shows.
 - group: a short category group, e.g. "headphones", "phone accessories", "lighting", "kitchen appliances", "toys".
 - condition: new, used, or parts (not working), only if a source says or the photos clearly show it (e.g. sealed box = new). Otherwise unknown.
+- fault: only for parts. "minor" when a source names exactly one fault with a simple, inexpensive fix (a split hose, a missing charger, a broken clip) AND says the rest works; "major" for a serious fault (motor, board, screen) or several; "unknown" when no source says what's wrong or whether the rest works. "none" when condition isn't parts.
 - keyFacts: up to 8 short facts that change the price, each with its source, e.g. "model SSG-4100GB (title)", "45 litres (specifics)", "remote is BN59-01199F (photo)", "box missing (description)".
 - components: one entry for a single item. For a bundle of different things (e.g. "keyboard + remote"), one entry per part a buyer would value, each identified as precisely as the sources allow, plus valued=false for throwaway extras (manuals, cables, boxes). Several of the same item ("Lot of 2 pairs") is ONE component whose name says the quantity. Accessories that come with the product as standard (in its own box, e.g. a blaster's clip and bipod, a phone's charger) are part of that product, not separate components: use several components only for separately sold products the seller has put together.
 - query for each: 2 to 6 search words: brand, model, variant and model numbers exactly as written, single digits kept ("Galaxy Buds 2 Pro" keeps "2"). Use a model number from the description or photos when the title lacks it. No condition words; no colours unless they change the price.
+- alternates for each: up to 3 other searches for the same product, the way other sellers title it, each 2 to 5 words: the manufacturer's model code or model name when the item is known by a retailer's item or catalogue number (Lidl, Aldi and Argos numbers are rarely in eBay titles), any other names the product is sold under, and brand + product type + the one spec that defines it (for example "Silvercrest air fryer 2.4L"). They're searched only when the main query finds too few sales, and every result is still checked against this exact product.
 - priceable: false only if no source says what the product is precisely enough to find the same thing. Then question is one short question for the seller naming what's missing.`;
 
 const IDENTIFY_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["product", "group", "condition", "keyFacts", "components", "priceable", "question"],
+  required: ["product", "group", "condition", "fault", "keyFacts", "components", "priceable", "question"],
   properties: {
     product: { type: "string" },
     group: { type: "string" },
     condition: { type: "string", enum: ["new", "used", "parts", "unknown"] },
+    fault: { type: "string", enum: ["minor", "major", "unknown", "none"] },
     keyFacts: { type: "array", items: { type: "string" } },
     components: {
       type: "array",
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["name", "query", "valued"],
-        properties: { name: { type: "string" }, query: { type: "string" }, valued: { type: "boolean" } },
+        required: ["name", "query", "valued", "alternates"],
+        properties: { name: { type: "string" }, query: { type: "string" }, valued: { type: "boolean" }, alternates: { type: "array", items: { type: "string" } } },
       },
     },
     priceable: { type: "boolean" },
@@ -95,6 +114,7 @@ export function identifyByRules(title: string): Identity {
           ? "used"
           : "unknown",
     keyFacts: [],
+    fault: null,
     components: [{ name: title, query, valued: true }],
     priceable: enough,
     question: enough ? null : "Which brand and model is it?",
@@ -113,7 +133,7 @@ const plain = (html: string) =>
 
 export async function identify(env: Env, listing: ListingFacts, api?: MessagesApi): Promise<Identity> {
   if (!env.ANTHROPIC_API_KEY && !api) return identifyByRules(listing.title);
-  const photos = (listing.photos ?? []).slice(0, 3);
+  const photos = (listing.photos ?? []).filter((u) => /^https:\/\//.test(u)).slice(0, 3);
   const prompt = [
     `Title: ${listing.title}`,
     listing.condition ? `Condition (seller's setting): ${listing.condition}` : "",
@@ -122,19 +142,34 @@ export async function identify(env: Env, listing: ListingFacts, api?: MessagesAp
       : "",
     listing.description ? `Description:\n${plain(listing.description).slice(0, 4000)}` : "No description available.",
     photos.length ? `The ${photos.length} photos above are the seller's listing photos.` : "No photos available.",
+    listing.factsFromK ? `Facts from the seller (K), true:\n${listing.factsFromK.slice(0, 2000)}` : "",
+    listing.aliases?.length ? `Other names this product is sold under (from published sources): ${listing.aliases.join("; ")}` : "",
   ]
     .filter(Boolean)
     .join("\n\n");
-  const out = await completeOnce<Omit<Identity, "by">>(
+  // A failure is never silent (2026-11-05: a schema Claude rejected sent every item to word rules unnoticed):
+  // it's logged, and the rules identity carries why, which the engine shows on the label.
+  let failure = "";
+  const out = await completeOnce<Omit<Identity, "by" | "fault"> & { fault?: string }>(
     env,
     { job: "pricing:identify", model: MODELS.triage, system: IDENTIFY_SYSTEM, prompt, schema: IDENTIFY_SCHEMA, images: photos },
     api,
-  ).catch(() => null);
-  if (!out || !out.components?.length) return identifyByRules(listing.title);
+  ).catch((e) => {
+    failure = e instanceof Error ? e.message : String(e);
+    console.error(`pricing:identify failed for "${listing.title.slice(0, 80)}": ${failure.slice(0, 500)}`);
+    return null;
+  });
+  if (!out || !out.components?.length)
+    return { ...identifyByRules(listing.title), fallback: failure ? `Claude couldn't identify it (${failure.slice(0, 160)})` : "Claude gave no usable identification" };
   return {
     ...out,
     keyFacts: (out.keyFacts ?? []).slice(0, 8),
-    components: out.components.slice(0, 6).map((c) => ({ ...c, query: c.query.slice(0, 100) })),
+    fault: out.condition === "parts" && (out.fault === "minor" || out.fault === "major") ? out.fault : out.condition === "parts" ? "unknown" : null,
+    components: out.components.slice(0, 6).map((c) => ({
+      ...c,
+      query: c.query.slice(0, 100),
+      alternates: otherSearches(c.query, listing.aliases ?? [], c.alternates ?? []),
+    })),
     by: "claude",
   };
 }
@@ -149,8 +184,8 @@ export interface Grade {
 
 const MATCH_SYSTEM = `You grade eBay UK listings as comparables for an item being priced, like a valuer choosing comparable sales.
 
-- exact: the same product, model and variant, the same quantity, the same main contents, the same condition group. factor 1.
-- close: the same product line with a difference you can value, e.g. a different capacity or size, a missing or extra accessory, a different colour that affects price, a lot of 2 vs 1, new vs used. Give factor = the price of the seller's item divided by the price of this comparable (e.g. comparable is a pair, seller's is one item: about 0.5; comparable is new, seller's is used: about 0.7). Only between 0.3 and 2.
+- exact: the same product, model and variant, the same quantity, the same main contents, the same condition group. factor 1. A listing's "[condition: ...]" is what eBay or the sales data says; trust it over the title. New, new other, and opened but never used are one group; used is another; for parts is another. A title without a model counts as the same product when its brand, product type and the specs that define it (capacity, power, size) all match the item's known facts and nothing in it differs; shops' own brands (Silvercrest, Ambiano, Cooks Professional) are usually listed that way.
+- close: the same product line with a difference you can value, e.g. a different capacity or size, a missing or extra accessory, a different colour that affects price, a lot of 2 vs 1, new vs used. Give factor = the price of the seller's item divided by the price of this comparable (e.g. comparable is a pair, seller's is one item: about 0.5; comparable is new, seller's is used: about 0.7; comparable is used, seller's is new or unused: about 1.4; comparable is for parts, seller's works: about 2). The factor is always the seller's item over the comparable, so a comparable worth less than the seller's item has a factor above 1. Only between 0.3 and 2.
 - anything else (accessories for it, cases, parts, replacements, other products, other models of very different value): leave it out.
 
 When the seller's item is only roughly known, grade generously as close rather than exact. Return the numbers of exact matches in "exact", and close ones with their factor in "close"; leave everything else out.`;
@@ -216,7 +251,7 @@ export async function matchTitles(
       env,
       { job: "pricing:match", model: MODELS.triage, system: MATCH_SYSTEM, prompt, schema: MATCH_SCHEMA, maxTokens: 8000 },
       api,
-    ).catch(() => null);
+    ).catch((e) => (console.error(`pricing:match failed: ${(e instanceof Error ? e.message : String(e)).slice(0, 500)}`), null));
     if (!res) return false;
     const ok = (n: number) => Number.isInteger(n) && n >= 1 && n <= batch.length;
     for (const n of res.exact ?? []) if (ok(n)) out.push({ i: start + n - 1, grade: "exact", factor: 1 });
@@ -236,4 +271,23 @@ export async function matchTitles(
   if (!answered) return { matches: rules(), by: "rules" };
   const seen = new Set<number>();
   return { matches: out.filter((g) => !seen.has(g.i) && seen.add(g.i)).sort((a, b) => a.i - b.i), by: "claude" };
+}
+
+/**
+ * The other searches for a component, at most 4: the published names (model codes) and Claude's broader searches
+ * taken in turn, so a run of model names that find nothing can't crowd out "brand + type + spec" (2026-11-06: an
+ * air fryer's model names found one used sale; "Silvercrest air fryer 2.4L" found the new ones). Searches need
+ * every word, so long product names (more than 5 words) are left out, and so are single words.
+ */
+export function otherSearches(query: string, aliases: string[], alternates: string[]): string[] {
+  const usable = (a: string) => {
+    const n = a.split(/\s+/).length;
+    return n >= 2 && n <= 5;
+  };
+  const a = aliases.map((x) => String(x).trim()).filter(usable);
+  const b = alternates.map((x) => String(x).trim()).filter(usable);
+  const mixed: string[] = [];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) mixed.push(...[a[i], b[i]].filter((x): x is string => Boolean(x)));
+  const seen = new Set([query.toLowerCase()]);
+  return mixed.filter((x) => !seen.has(x.toLowerCase()) && seen.add(x.toLowerCase())).map((x) => x.slice(0, 100)).slice(0, 4);
 }

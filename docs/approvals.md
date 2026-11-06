@@ -27,8 +27,21 @@ These never change anything on eBay:
 
 - Reading listings, orders, messages, traffic and comps.
 - Nightly snapshots (`listing_snapshots`).
-- K's own settings stored in D1: floor price, collection only, notes, auto-apply toggles.
+- K's own settings stored in the app: floor price, own price, collection only, facts, auto-apply toggles.
 - Claude analysis, drafts and proposals. Creating a proposal changes nothing.
+- Inbox to-dos (below).
+
+## To-dos (2026-11-05, K's choice)
+
+The Inbox holds two things: **labels** (proposals, which change eBay only once approved) and **to-dos**, which never change eBay. A to-do is what only a person can do, filed by the first-day audit and the nightly run (`src/todos.ts`, stored in the `pricing` container under its own partition). Each leads with what to do and names the listing:
+
+| Kind | Example | Action | Who |
+| --- | --- | --- | --- |
+| Answer | The pricing engine's question, missing measurements, a fault to describe | The answer is saved as K's facts for the listing (the engine and Claude's edits use them, cited "from K"); an engine question also starts a fresh price check | K only |
+| Claude can do this | "Let Claude improve this listing" (title, specifics, description) | Runs the Claude listing review, which files ordinary labels | Anyone |
+| For you to do | Add photos, turn on Best Offer, a flagged listing that got no label | Done or Dismiss | Anyone |
+
+A finding that already has a label gets no to-do. One to-do per check and listing (or policy): the audit and the nightly file the same one, not two. A rerun refreshes open to-dos and resolves those whose problem has gone; a dismissed or done to-do stays closed unless the problem changes (its fingerprint), and to-dos for ended listings close. The Inbox badge counts labels plus open to-dos.
 
 ## Proposal lifecycle
 

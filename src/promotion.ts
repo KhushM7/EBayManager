@@ -175,16 +175,12 @@ export async function researchPromotion(
 
   const out: ListingPromotion[] = [];
   for (const l of listings) {
-    const row = await env.DB.prepare("SELECT result FROM price_decisions WHERE item_id = ? AND at > ? ORDER BY at DESC LIMIT 1")
-      .bind(l.itemId, Date.now() - 14 * 86_400_000)
-      .first<{ result: string }>();
+    const row = await env.store.pricing.latestDecision(l.itemId, Date.now() - 14 * 86_400_000);
     const priced: PriceResult | null = row ? JSON.parse(row.result) : null;
     // A bundle's market is the sum of several; promotion is judged only on single items.
     const market = priced && priced.method === "single" ? (priced.components[0]?.market ?? null) : null;
-    const traffic = await env.DB.prepare("SELECT views_7d, impressions_7d FROM listing_traffic WHERE item_id = ? ORDER BY taken_at DESC LIMIT 1")
-      .bind(l.itemId)
-      .first<{ views_7d: number | null; impressions_7d: number | null }>();
-    const floor = await env.DB.prepare("SELECT floor_price FROM item_settings WHERE item_id = ?").bind(l.itemId).first<{ floor_price: number | null }>();
+    const traffic = await env.store.listings.latest(l.itemId);
+    const floor = await env.store.listings.getSettings(l.itemId);
     const rec = recs.find((r) => r.listingId === l.itemId);
     const ad = ads.find((a) => a.listingId === l.itemId);
     let item = l.item;
@@ -221,12 +217,12 @@ export async function proposePromotions(env: Env, found: ListingPromotion[]): Pr
   let n = 0;
   for (const p of found) {
     if (p.advice.action === "none") continue;
-    const recent = await env.DB.prepare(
-      "SELECT 1 FROM proposals WHERE item_id = ? AND kind = 'promote' AND (status IN ('pending', 'approved') OR (status = 'rejected' AND decided_at > ?))",
-    )
-      .bind(p.itemId, Date.now() - 14 * 86_400_000)
-      .first();
-    if (recent) continue;
+    const since = Date.now() - 14 * 86_400_000;
+    const earlier = await env.store.proposals.listWhere([
+      { f: "item_id", op: "=", v: p.itemId },
+      { f: "kind", op: "=", v: "promote" },
+    ]);
+    if (earlier.some((x) => x.status === "pending" || x.status === "approved" || (x.status === "rejected" && (x.decided_at ?? 0) > since))) continue;
     const a = p.advice;
     const title = a.action === "promote" ? `Promote at ${a.rate}%` : a.action === "lower" ? `Lower ad rate to ${a.rate}%` : "End promotion";
     await proposeAndNotify(
@@ -256,13 +252,8 @@ export async function proposePromotions(env: Env, found: ListingPromotion[]): Pr
 
 /** Nightly: promotion advice for listings the engine priced recently. */
 export async function reviewPromotions(env: Env): Promise<string> {
-  const { results } = await env.DB.prepare(
-    `SELECT s.item_id, s.title FROM listing_snapshots s
-     WHERE s.taken_at = (SELECT MAX(taken_at) FROM listing_snapshots)
-       AND EXISTS (SELECT 1 FROM price_decisions d WHERE d.item_id = s.item_id AND d.at > ?)`,
-  )
-    .bind(Date.now() - 14 * 86_400_000)
-    .all<{ item_id: string; title: string }>();
+  const recent = new Set((await env.store.pricing.latestDecisions(Date.now() - 14 * 86_400_000)).map((d) => d.item_id));
+  const results = (await env.store.listings.latestSet()).filter((s) => recent.has(s.item_id));
   if (!results.length) return "no listings with a recent market picture";
   const errors: string[] = [];
   const found = await researchPromotion(env, results.map((r) => ({ itemId: r.item_id, title: r.title })), errors);

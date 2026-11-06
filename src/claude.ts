@@ -33,10 +33,7 @@ export function costUsd(model: Model, u: Anthropic.Beta.BetaUsage): number {
 export async function spentTodayUsd(env: Env): Promise<number> {
   const since = new Date();
   since.setUTCHours(0, 0, 0, 0);
-  const row = await env.DB.prepare("SELECT COALESCE(SUM(cost_usd), 0) AS usd FROM claude_usage WHERE at >= ?")
-    .bind(since.getTime())
-    .first<{ usd: number }>();
-  return row?.usd ?? 0;
+  return (await env.store.usage.since(since.getTime())).reduce((sum, u) => sum + u.cost_usd, 0);
 }
 
 /** The subset of the Messages API this loop uses, so tests can stand in for it. */
@@ -74,22 +71,17 @@ export async function client(env: Env, api?: MessagesApi): Promise<MessagesApi> 
 
 export async function logUsage(env: Env, job: string, model: Model, response: Anthropic.Beta.BetaMessage): Promise<number> {
   const cost = costUsd(model, response.usage);
-  await env.DB.prepare(
-    `INSERT INTO claude_usage (at, job, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, stop_reason)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      Date.now(),
-      job,
-      model,
-      response.usage.input_tokens,
-      response.usage.output_tokens,
-      response.usage.cache_read_input_tokens ?? 0,
-      response.usage.cache_creation_input_tokens ?? 0,
-      cost,
-      response.stop_reason,
-    )
-    .run();
+  await env.store.usage.log({
+    at: Date.now(),
+    job,
+    model,
+    input_tokens: response.usage.input_tokens,
+    output_tokens: response.usage.output_tokens,
+    cache_read_tokens: response.usage.cache_read_input_tokens ?? 0,
+    cache_write_tokens: response.usage.cache_creation_input_tokens ?? 0,
+    cost_usd: cost,
+    stop_reason: response.stop_reason,
+  });
   return cost;
 }
 
@@ -97,6 +89,9 @@ export async function logUsage(env: Env, job: string, model: Model, response: An
  * One request, no tools: for drafts. With a JSON schema the reply is structured output, parsed and returned;
  * otherwise the text. Returns null when Claude declined or ran out of room.
  */
+/** Images per request: enough for a full set of listing photos; URL lists (identification) pass at most 4. */
+export const MAX_IMAGES = 12;
+
 export async function completeOnce<T = string>(
   env: Env,
   req: {
@@ -106,16 +101,26 @@ export async function completeOnce<T = string>(
     prompt: string;
     schema?: Record<string, unknown>;
     effort?: "low" | "medium" | "high";
-    /** Public image URLs (eBay photos), shown before the prompt. */
-    images?: string[];
+    /**
+     * Images shown before the prompt: public URLs (eBay photos), or JPEG bytes as base64 (K's private draft
+     * photos, which never get a public address).
+     */
+    images?: (string | { base64: string })[];
     maxTokens?: number;
   },
   api?: MessagesApi,
 ): Promise<T | null> {
   const messagesApi = await client(env, api);
-  const images = (req.images ?? []).filter((u) => /^https:\/\//.test(u)).slice(0, 4);
+  const images = (req.images ?? []).filter((u) => typeof u !== "string" || /^https:\/\//.test(u)).slice(0, MAX_IMAGES);
   const content: string | Anthropic.Beta.BetaContentBlockParam[] = images.length
-    ? [...images.map((url) => ({ type: "image" as const, source: { type: "url" as const, url } })), { type: "text" as const, text: req.prompt }]
+    ? [
+        ...images.map((img) =>
+          typeof img === "string"
+            ? { type: "image" as const, source: { type: "url" as const, url: img } }
+            : { type: "image" as const, source: { type: "base64" as const, media_type: "image/jpeg" as const, data: img.base64 } },
+        ),
+        { type: "text" as const, text: req.prompt },
+      ]
     : req.prompt;
   const response = await messagesApi.create({
     model: req.model,

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
+import { seedProposal, seedSnapshot } from "./fixtures";
 import type { Env } from "../src/env";
 import { answerOffer } from "../src/pricing/offers";
 import { enginePriceCheck, tools } from "../src/tools";
@@ -55,11 +56,9 @@ describe("offers against the engine", () => {
 });
 
 describe("price proposals come from the engine", () => {
-  const env = () => ({ DB: fakeD1(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", SIGNING_KEY: "test-signing-key", PUBLIC_URL: "https://app.example" }) as Env;
+  const env = () => ({ store: memoryStore(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", SIGNING_KEY: "test-signing-key", PUBLIC_URL: "https://app.example" }) as Env;
   const record = (e: Env, d: Decision, at = Date.now()) =>
-    e.DB.prepare("INSERT INTO price_decisions (item_id, at, grp, strategy, price, total, market_price, predicted_days, result) VALUES ('111', ?, 'g', ?, ?, ?, 44, 20, ?)")
-      .bind(at, d.strategy, d.price, d.total, JSON.stringify({ decision: d }))
-      .run();
+    e.store.pricing.recordDecision({ item_id: "111", at, grp: "g", strategy: d.strategy, price: d.price, total: d.total, market_price: 44, predicted_days: 20, result: JSON.stringify({ decision: d }) });
 
   it("refuses without a recent check, off the engine's options, or when it's asking K", async () => {
     const e = env();
@@ -81,7 +80,7 @@ describe("price proposals come from the engine", () => {
     const out: any = await tools.find((t) => t.name === "propose_price_change")!.run(e, { item_id: "111", new_price: 40, reason: "Comps." });
     vi.unstubAllGlobals();
     expect(out.proposalId).toBeTruthy();
-    const p = await e.DB.prepare("SELECT reason FROM proposals").first<{ reason: string }>();
+    const [p] = await e.store.proposals.listByStatus("pending", "asc");
     expect(p!.reason).toMatch(/Engine: compete, recommended £40.00/);
   });
 });
@@ -90,16 +89,13 @@ describe("nightly price review", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("skips listings with a pending price change or a recent check, and reports what it did", async () => {
-    const e = { DB: fakeD1(), EBAY_ENV: "sandbox", WRITE_MODE: "approval" } as Env;
+    const e = { store: memoryStore(), EBAY_ENV: "sandbox", WRITE_MODE: "approval" } as Env;
     const now = Date.now();
-    await e.DB.batch(
-      ["1", "2", "3"].map((id) => e.DB.prepare("INSERT INTO listing_snapshots (item_id, taken_at, title, price) VALUES (?, ?, 'x', 40)").bind(id, now)),
-    );
-    await e.DB.prepare("INSERT INTO proposals (id, kind, item_id, payload, status, created_at, expires_at) VALUES ('p', 'price', '1', '{}', 'pending', ?, ?)").bind(now, now + 1e9).run();
-    // A pending listing edit doesn't hold back a price check.
-    await e.DB.prepare("INSERT INTO listing_snapshots (item_id, taken_at, title, price) VALUES ('4', ?, 'x', 40)").bind(now).run();
-    await e.DB.prepare("INSERT INTO proposals (id, kind, item_id, payload, status, created_at, expires_at) VALUES ('q', 'revise', '4', '{}', 'pending', ?, ?)").bind(now, now + 1e9).run();
-    await e.DB.prepare("INSERT INTO price_decisions (item_id, at, grp, strategy, result) VALUES ('2', ?, 'g', 'compete', '{}')").bind(now - 86_400_000).run();
+    // A pending listing edit (item 4) doesn't hold back a price check.
+    await seedSnapshot(e.store, now, ["1", "2", "3", "4"].map((id) => ({ item_id: id, price: 40 })));
+    await seedProposal(e.store, { id: "p", kind: "price", item_id: "1", status: "pending", created_at: now, expires_at: now + 1e9 });
+    await seedProposal(e.store, { id: "q", kind: "revise", item_id: "4", status: "pending", created_at: now, expires_at: now + 1e9 });
+    await e.store.pricing.recordDecision({ item_id: "2", at: now - 86_400_000, grp: "g", strategy: "compete", price: null, total: null, market_price: null, predicted_days: null, result: "{}" });
     // Item 3 is due; eBay isn't reachable here, so its check fails and is reported.
     vi.stubGlobal("fetch", vi.fn(async () => new Response("down", { status: 500 })));
     const out = await reviewPrices(e, now);

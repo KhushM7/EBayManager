@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
+import { setProposal, withEbayTokens } from "./fixtures";
 import type { Env } from "../src/env";
 import { createProposal, decide, getProposal } from "../src/proposals";
 import { callFor, ebayWrite, setWritesPaused, WriteRefused } from "../src/ebay/write";
@@ -14,7 +15,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 
 async function makeEnv(overrides: Partial<Env> = {}): Promise<Env> {
   const e = {
-    DB: fakeD1(),
+    store: memoryStore(),
     EBAY_ENV: "sandbox",
     WRITE_MODE: "approval",
     EBAY_SITE_ID: "3",
@@ -24,11 +25,7 @@ async function makeEnv(overrides: Partial<Env> = {}): Promise<Env> {
     ...overrides,
   } as Env;
   // A live token, so the Trading client never needs to refresh.
-  await e.DB.prepare(
-    "INSERT INTO ebay_tokens (id, access_token, access_expires_at, refresh_token, refresh_expires_at, scopes) VALUES (1, 't', ?, 'r', ?, 's')",
-  )
-    .bind(Date.now() + 3_600_000, Date.now() + 3_600_000)
-    .run();
+  await withEbayTokens(e.store);
   return e;
 }
 
@@ -38,10 +35,8 @@ const ebayCalls = () =>
     ([u, init]) => String(u).includes("ebay.com") && !String((init as any)?.headers?.["X-EBAY-API-CALL-NAME"] ?? "").startsWith("Get"),
   );
 const price = (e: Env, itemId = "111", newPrice = 9.99) => createProposal(e, { kind: "price", itemId, payload: { newPrice } });
-const setStatus = (e: Env, id: string, status: string) =>
-  e.DB.prepare("UPDATE proposals SET status = ? WHERE id = ?").bind(status, id).run();
-const auditOutcomes = async (e: Env) =>
-  (await e.DB.prepare("SELECT outcome FROM audit_log ORDER BY id").all<{ outcome: string }>()).results.map((r) => r.outcome);
+const setStatus = (e: Env, id: string, status: string) => setProposal(e.store, id, { status });
+const auditOutcomes = async (e: Env) => (await e.store.audit.recent(1000)).reverse().map((r) => r.outcome);
 
 beforeEach(async () => {
   fetchMock = vi.fn(async () => new Response(OK_XML));
@@ -92,7 +87,7 @@ describe("write gate", () => {
     expect(await decide(env, p.id, "approve")).toMatch(/Dry run/);
 
     // Even if the row were forced to approved and not a dry run, the gate checks WRITE_MODE.
-    await env.DB.prepare("UPDATE proposals SET status = 'approved', dry_run = 0 WHERE id = ?").bind(p.id).run();
+    await setProposal(env.store, p.id, { status: "approved", dry_run: 0 });
     await expect(ebayWrite(env, p.id)).rejects.toThrow(/Writes are off/);
     expect(ebayCalls()).toHaveLength(0);
   });
@@ -126,7 +121,7 @@ describe("write gate", () => {
 
   it("won't approve an expired proposal", async () => {
     const p = await price(env);
-    await env.DB.prepare("UPDATE proposals SET expires_at = ? WHERE id = ?").bind(Date.now() - 1, p.id).run();
+    await setProposal(env.store, p.id, { expires_at: Date.now() - 1 });
     expect(await decide(env, p.id, "approve")).toBe("Expired");
     expect(ebayCalls()).toHaveLength(0);
   });

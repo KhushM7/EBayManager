@@ -6,3 +6,6 @@ web/dist/
 .sandbox-buyer-token
 .prod.vars
 .owner-invite-*.txt
+dist/
+.d1-*.sql
+.parcel2go-sample.json

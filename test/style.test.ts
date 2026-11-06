@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import { fakeD1 } from "./d1";
+import { memoryStore } from "../src/store";
 import type { Env } from "../src/env";
 import type { MessagesApi } from "../src/claude";
 import { cleanGuide, editStyle, getStyle, learnStyle, saveStyle, scrub, styleText, withStyle } from "../src/style";
@@ -21,7 +21,7 @@ const reply = (text: string) =>
 
 let env: Env;
 beforeEach(() => {
-  env = { DB: fakeD1(), EBAY_ENV: "production", WRITE_MODE: "off" } as Env;
+  env = { store: memoryStore(), EBAY_ENV: "production", WRITE_MODE: "off" } as Env;
 });
 
 describe("reading K's past replies", () => {

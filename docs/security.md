@@ -37,7 +37,7 @@ A forwarded or screenshotted link is useless on another device, and a phone whos
 
 | Layer | What it stops |
 | --- | --- |
-| 1. Cloudflare Access (optional, recommended) | Hides the whole site from anyone not on a list of three email addresses, before the app even loads. K sets it up in the Cloudflare dashboard (free); the Worker then also checks Access's signed header |
+| 1. An identity gate (optional, not set up) | Would hide the whole site from anyone not among the three people before the app loads. On Azure this is App Service authentication with Entra ID (it replaced the Cloudflare Access idea at the move on 2026-11-05) |
 | 2. Passkey sign-in, per person | Everyone else. Passkeys can't be phished or reused on another site |
 | 3. Roles | Managers can't add users, resume changes or switch on auto-apply |
 | 4. The write gate | Any eBay change that isn't an approved proposal, whoever is signed in |
@@ -51,7 +51,8 @@ A forwarded or screenshotted link is useless on another device, and a phone whos
 - **Login protection:** at most 5 failed sign-ins per person per 15 minutes, and 20 per hour from any one network; then a pause. Invite links work once.
 - **Headers:** a strict content security policy (only the app's own code and its font), no framing, no referrer, and HTTPS only. Cookies are `__Host-`, `HttpOnly`, `Secure`, `SameSite=Strict`.
 - **CSRF:** every change needs the `X-EbayManager` header and a same-origin request.
-- **Secrets** live only as Worker secrets and in K's gitignored `.dev.vars` and `.prod.vars`. They are never in code, logs, notifications or chat. The eBay token is stored in D1 and never sent to the browser.
+- **Secrets** live only in each environment's Key Vault (read by the app's managed identity, never as plain app settings) and in K's gitignored `.dev.vars` and `.prod.vars`. They are never in code, logs, notifications or chat. The eBay token is stored in Cosmos DB and never sent to the browser.
+- **Azure:** HTTPS only, TLS 1.2, FTP and basic-auth publishing off, no CORS, the Functions host's `/admin` endpoints closed, Cosmos DB key access disabled (Entra ID only). K's own login has only Data Reader on production data. The client address for rate limits comes only from `Client-IP`, which the front end overwrites (other headers can be forged). `check-production.mjs` checks all of these.
 - **Buyer data:** the app keeps only what it needs (buyer usernames and question text for drafting replies, order totals and item IDs) and deletes a buyer's data when eBay sends a marketplace account deletion notification. Addresses are never stored.
 - **Dependencies:** few, pinned in `package-lock.json`, checked with `npm audit` before each production deploy.
 
@@ -63,16 +64,18 @@ Everything else is refused in code (`src/ebay/allowlist.ts`), and a test fails i
 | --- | --- |
 | Read | Trading `GetMyeBaySelling`, `GetItem`, `GetMemberMessages`, `GetMyMessages`, `GetBestOffers`, `GetUser`; Fulfillment `getOrders`; Analytics `getTrafficReport`; Account `get*Policies`; Browse `search`, `getItem`; Taxonomy `getCategorySuggestions`, `getItemAspectsForCategory`; Marketing `getCampaigns`, `getAds`; Recommendation `findListingRecommendations` (a read sent as POST; eBay requires the full `sell.inventory` scope for it, so it works only after go-live); Notification `getPublicKey` |
 | Check without changing | Trading `VerifyAddFixedPriceItem` |
-| Write, only through the gate after approval | Trading `ReviseFixedPriceItem`, `AddFixedPriceItem`, `EndFixedPriceItem`, `RelistFixedPriceItem`, `AddMemberMessageRTQ`, `RespondToBestOffer`; Marketing `createCampaign`, `bulkCreateAdsByListingId`, `bulkUpdateAdsBidByListingId`; Inventory and Media calls for publishing new listings (Phase 8) |
+| Write, only through the gate after approval | Trading `ReviseFixedPriceItem`, `AddFixedPriceItem`, `EndFixedPriceItem`, `RelistFixedPriceItem`, `AddMemberMessageRTQ`, `RespondToBestOffer`, `UploadSiteHostedPictures` (a new listing's photos, sent as bytes while applying its approved `create_listing` label, each upload audited; added 2026-11-05 with Add Listing); Marketing `createCampaign`, `bulkCreateAdsByListingId`, `bulkUpdateAdsBidByListingId` |
 | Never | Anything that changes account settings, payments, payouts, addresses, feedback, cancellations, refunds or other users |
 
-**Outside eBay**, the Worker may call only: Anthropic (Claude, including Anthropic's server-side web search used to look up published product specifications in `src/specs.ts`: the searching happens on Anthropic's side, and the only tool Claude has there records specs, which the code keeps only if their source page came from that search), the Web Push services, ntfy, and the two sold-data providers `api.trawl.dev` and `api.compsapi.com` (search words only, hard monthly caps, `src/solddata.ts`). A test fails if any other module makes network calls.
+**Outside eBay**, the Worker may call only: Anthropic (Claude, including Anthropic's server-side web search used to look up published product specifications in `src/specs.ts`: the searching happens on Anthropic's side, and the only tool Claude has there records specs, which the code keeps only if their source page came from that search), the Web Push services, ntfy, the two sold-data providers `api.trawl.dev` and `api.compsapi.com` (search words only, hard monthly caps, `src/solddata.ts`), and Parcel2Go (`www.parcel2go.com` or its sandbox) for postage quotes on new listings (`src/postage.ts`: a parcel's size, weight and value only, never an address; credentials in Key Vault). A test fails if any other module makes network calls.
+
+**Listing photos** (Add Listing, 2026-11-05) live in the private `photos` Blob container (no public access) and are served only to a signed-in person. Their location data is removed on the phone (re-encoding) and again on the server (metadata segments stripped). Claude receives them as image data and eBay as uploaded bytes, so they never get a public address. An abandoned draft's photos are deleted after 30 days, a published listing's 30 days after it went live.
 
 ## Threats and answers
 
 | Threat | Answer |
 | --- | --- |
-| Someone finds the web address | They see a sign-in page (or nothing, with Cloudflare Access). No data without a passkey |
+| Someone finds the web address | They see a sign-in page. No data without a passkey |
 | A manager's phone is stolen | It's locked by its own fingerprint or PIN; K removes that person's passkeys and signs them out everywhere |
 | A phishing page copies the sign-in | Passkeys only work on the real site's domain, so they can't be phished |
 | An approval link leaks | It also needs the receiving device's session, and it expires after 7 days |
@@ -80,4 +83,4 @@ Everything else is refused in code (`src/ebay/allowlist.ts`), and a test fails i
 | A cross-site request tries to approve something | Blocked: `SameSite=Strict` cookies plus a required custom header |
 | A bug tries an eBay call it shouldn't | The allowlist refuses it; the write gate refuses unapproved changes |
 | Claude is tricked by text in a buyer message | Claude can only draft. Its tools can't change eBay, and every draft needs a person's approval |
-| Cloudflare or a secret is compromised | K revokes the app in eBay's account settings, which cuts access instantly, then rotates secrets |
+| The Azure account or a secret is compromised | K revokes the app in eBay's account settings, which cuts access instantly, then rotates secrets |

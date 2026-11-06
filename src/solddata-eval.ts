@@ -1,4 +1,5 @@
 import type { Env } from "./env";
+import { orderLines } from "./store";
 import { getRecentOrders } from "./ebay/sell";
 import { inputFromItem, priceItem } from "./pricing/engine";
 import { getItem } from "./ebay/trading";
@@ -91,23 +92,7 @@ export async function evaluateProviders(env: Env): Promise<EvalResult> {
   for (const days of [730, 90]) {
     try {
       const orders = await getRecentOrders(env, days);
-      if (orders.length)
-        await env.DB.batch(
-          orders.flatMap((o) => [
-            env.DB.prepare(
-              "INSERT INTO orders (order_id, created_at, total, fees, currency, status) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(order_id) DO NOTHING",
-            ).bind(o.orderId, o.createdAt, o.total, o.fees, o.currency, o.status),
-            ...o.items.map((i) =>
-              env.DB.prepare("INSERT OR IGNORE INTO order_items (order_id, item_id, title, quantity, price) VALUES (?, ?, ?, ?, ?)").bind(
-                o.orderId,
-                i.itemId,
-                i.title,
-                i.quantity,
-                i.price,
-              ),
-            ),
-          ]),
-        );
+      if (orders.length) await env.store.orders.insertIfAbsent(orders);
       break;
     } catch {
       // Try the shorter window.
@@ -115,12 +100,19 @@ export async function evaluateProviders(env: Env): Promise<EvalResult> {
   }
 
   // Per-unit price, and the order total (with postage) when the order was just this one item.
-  const { results: rows } = await env.DB.prepare(
-    `SELECT i.item_id, i.title, i.price / MAX(i.quantity, 1) AS price, o.created_at,
-            CASE WHEN (SELECT COUNT(*) FROM order_items x WHERE x.order_id = o.order_id) = 1 AND MAX(i.quantity, 1) = 1 THEN o.total END AS total
-     FROM order_items i JOIN orders o ON o.order_id = i.order_id
-     WHERE o.status IS NULL OR o.status != 'CANCELLED' ORDER BY o.created_at DESC`,
-  ).all<{ item_id: string; title: string; price: number; created_at: number; total: number | null }>();
+  const rows = orderLines(await env.store.orders.all())
+    .filter((l) => l.status == null || l.status !== "CANCELLED")
+    .map((l) => {
+      const qty = Math.max(l.quantity ?? 0, 1);
+      return {
+        item_id: l.item_id,
+        title: l.title,
+        price: l.price == null ? (null as unknown as number) : l.price / qty,
+        created_at: l.created_at,
+        total: l.items_in_order === 1 && qty === 1 ? l.total : null,
+      };
+    })
+    .sort((a, b) => b.created_at - a.created_at);
   // The providers hold about a year of sales, so a backtest of an older sale has little to go on. Prefer
   // sales from the last 11 months; top up with older ones only if there aren't 5.
   const covered = rows.filter((r) => r.created_at > Date.now() - 330 * DAY);
@@ -206,7 +198,7 @@ export async function evaluateProviders(env: Env): Promise<EvalResult> {
   }
 
   const result: EvalResult = { at: Date.now(), items, ...score(items) };
-  await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('solddata_eval', ?)").bind(JSON.stringify(result)).run();
-  if (result.primary) await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('solddata_primary', ?)").bind(result.primary).run();
+  await env.store.kv.setJson("solddata_eval", result);
+  if (result.primary) await env.store.kv.set("solddata_primary", result.primary);
   return result;
 }

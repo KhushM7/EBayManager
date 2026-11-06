@@ -15,6 +15,7 @@ export const TRADING_WRITE = new Set([
   "RelistFixedPriceItem",
   "AddMemberMessageRTQ",
   "RespondToBestOffer",
+  "UploadSiteHostedPictures",
 ]);
 
 /** REST calls by method and path prefix. Reads (and the token endpoint) only; REST writes are added with Phase 9/10. */

@@ -129,13 +129,10 @@ export async function suggestBundles(env: Env, listings: ListingForAdvice[], api
 
 /** Nightly (weekly in effect: skipped if advice was made in the last 6 days). */
 export async function bundleAdvice(env: Env, now = Date.now(), api?: MessagesApi): Promise<string> {
-  const last = await env.DB.prepare("SELECT MAX(at) AS at FROM bundle_advice").first<{ at: number | null }>();
-  if (last?.at && now - last.at < 6 * DAY) return "skipped: made this week";
-  const { results } = await env.DB.prepare(
-    `SELECT s.item_id, s.title, s.price, s.watch_count, s.start_time,
-            (SELECT result FROM price_decisions d WHERE d.item_id = s.item_id ORDER BY at DESC LIMIT 1) AS result
-     FROM listing_snapshots s WHERE s.taken_at = (SELECT MAX(taken_at) FROM listing_snapshots)`,
-  ).all<{ item_id: string; title: string; price: number; watch_count: number | null; start_time: string | null; result: string | null }>();
+  const last = await env.store.pricing.lastBundleAt();
+  if (last && now - last < 6 * DAY) return "skipped: made this week";
+  const decisions = new Map((await env.store.pricing.latestDecisions()).map((d) => [d.item_id, d.result]));
+  const results = (await env.store.listings.latestSet()).map((s) => ({ ...s, result: decisions.get(s.item_id) ?? null }));
   const listings: ListingForAdvice[] = results
     .filter((r) => r.price > 0)
     .map((r) => {
@@ -153,12 +150,9 @@ export async function bundleAdvice(env: Env, now = Date.now(), api?: MessagesApi
     });
   if (listings.length < 2) return "skipped: fewer than 2 listings";
   const advice = await suggestBundles(env, listings, api);
-  await env.DB.prepare("UPDATE bundle_advice SET status = 'replaced' WHERE status = 'open'").run();
-  await env.DB.batch([
-    env.DB.prepare("INSERT INTO bundle_advice (at, kind, item_ids, detail, status) VALUES (?, 'run', '', '{}', 'done')").bind(now),
-    ...advice.map((a) =>
-      env.DB.prepare("INSERT INTO bundle_advice (at, kind, item_ids, detail, status) VALUES (?, ?, ?, ?, 'open')").bind(now, a.kind, a.itemIds.join(","), JSON.stringify(a)),
-    ),
-  ]);
+  await env.store.pricing.replaceBundleAdvice(
+    now,
+    advice.map((a) => ({ kind: a.kind, itemIds: a.itemIds, detail: JSON.stringify(a) })),
+  );
   return `${advice.length} suggestions`;
 }

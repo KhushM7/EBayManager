@@ -167,7 +167,7 @@ describe("identify and match", () => {
 describe("thin markets", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("prices from a few exact sales plus adjusted close ones instead of asking", async () => {
+  it("prices from same-condition sales, setting close ones aside when there are any (K, 2026-11-06)", async () => {
     const now = Date.now();
     const item = (title: string, p: number, daysAgo: number, id: string) => ({ title, price: p, native_price: p, native_currency: "GBP", last_sold: new Date(now - daysAgo * DAY).toISOString(), url: `https://www.ebay.co.uk/itm/${id}` });
     vi.stubGlobal(
@@ -196,12 +196,32 @@ describe("thin markets", () => {
     const r = await priceItem({ store: memoryStore(), EBAY_ENV: "sandbox", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" } as Env, { title: "Sensor bin 45L", postage: 0 }, api);
     const c = r.components[0];
     expect(c.matched).toMatchObject({ sold: 2, closeSold: 4 });
-    expect(c.market.effective).toBeCloseTo(3.4, 1);
-    expect(c.market.mNow).toBeGreaterThan(24);
-    expect(c.market.mNow).toBeLessThan(25); // exact sales weigh more than the adjusted close ones
+    // Only the two exact sales count; the close ones (another size) are set aside, and said so.
+    expect(c.market.effective).toBe(2);
+    expect(c.market.mNow).toBe(25);
     expect(r.decision.strategy).not.toBe("ask");
-    expect(r.decision.price).toBeGreaterThan(20);
+    expect(r.decision.price).toBe(24.99); // what buyers pay, nothing listed to undercut
+    expect(r.decision.why).toMatch(/4 close or different-condition sales set aside/);
     expect(r.decision.confidence).toBeLessThan(0.3);
+  });
+
+  it("uses close matches when there's nothing in the same condition", async () => {
+    const now = Date.now();
+    const item = (title: string, p: number, daysAgo: number, id: string) => ({ title, price: p, native_price: p, native_currency: "GBP", last_sold: new Date(now - daysAgo * DAY).toISOString(), url: `https://www.ebay.co.uk/itm/${id}` });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("compsapi") ? Response.json({ items: [1, 2, 3, 4].map((k) => item("Sensor bin 50L", 30, 10 + k, `20000000000${k}`)) }) : new Response("no", { status: 500 }),
+      ),
+    );
+    const { api } = fakeClaude((system, prompt) =>
+      system.includes("identify")
+        ? { product: "Sensor bin 45L", group: "bins", condition: "used", keyFacts: [], components: [{ name: "Sensor bin 45L", query: "sensor bin 45L", valued: true }], priceable: true, question: null }
+        : { exact: [], close: prompt.split("\n").filter((l) => /^\d+\. Sensor bin 50L/.test(l)).map((l) => ({ n: Number(l.split(".")[0]), factor: 0.8 })) },
+    );
+    const r = await priceItem({ store: memoryStore(), EBAY_ENV: "sandbox", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" } as Env, { title: "Sensor bin 45L", postage: 0 }, api);
+    expect(r.decision.strategy).not.toBe("ask");
+    expect(r.components[0].market.mNow).toBe(24); // £30 adjusted to K's smaller bin
   });
 });
 

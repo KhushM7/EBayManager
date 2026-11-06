@@ -201,3 +201,24 @@ From K's review of the first real labels:
 - **No comparable sales: K's price.** The engine asks "which model?" only when it can't tell what the item is (`reason: "unidentified"`). When it knows but nothing comparable has sold (`reason: "no_sales"`), the Inbox asks K for a price. The answer becomes the listing's own price (`own_price` in item settings, strategy `own`): recorded as the engine's decision, never re-proposed or moved, and cleared from the facts box on Listings. If the listing isn't at it, the usual price proposal (floor, step and engine checks) files a label. An own-priced listing isn't forgotten (K's request): about once a week, during the nightly review, the engine looks again for a market (`priceOwned`), and as soon as sales of the item or something close appear it lifts K's price, pushes "A market for your item appeared" and prices it again, so the review proposes its price the same night. After 30 days unsold the Inbox asks K to review the price ("Review your price: no sale in N days", with watchers and views); an answer sets a new own price with a label, and a dismissal brings it back after the next 30 days.
 - **Readable waits.** Estimates over a year are shown as "no reliable estimate" (`daysText`), and the weighted count of competing listings is rounded (`listed`).
 - **No repeats while changes are off.** An approved dry run doesn't change eBay, so the nightly would propose the same change again, or undo it (a triage edit put back specifics a review had removed). Triage no longer proposes a listing edit or a price change for a listing that had one in the last 7 days (waiting, approved, agreed as a dry run, or applied), and the nightly price review holds a listing with a price change agreed in the last 7 days.
+
+## Revision 4 (2026-11-06): K's seller rule
+
+K's first real item (an opened, never-used Silvercrest air fryer) showed the engine didn't price like a seller. Two new sales at £28.12 and £37.73 and one used sale at £12.79 came out at £10.99 to £21.99. Three causes, all in the code:
+
+- Live listings never set the price: `decide()` used them only as a count in the sale-rate model, never the cheapest one, and had no notion of an overpriced listing. So even on the real account it wouldn't have aimed under the cheapest competitor.
+- Close and different-condition matches always counted (at 0.35), so a used sale weighed on an unused item's price.
+- A trend was fitted through as few as 3 sales, and the most recent (the used one) dominated.
+
+K's rule, now `sellerTarget()` in `model.ts`, used for an ordinary sale (not a falling market, a temporary dip worth holding through, or spares with one known fault, which keep their rules):
+
+1. **What buyers pay** comes from same-condition sales (exact matches) only, when there are any. Under 6 such sales, the value is their middle and the range is lowest to dearest; from 6, the recent median and quartiles. No trend through fewer than 6.
+2. **Overpriced listings are ignored**: same-condition listings above 1.3 times the value, or 15% above the dearest sale. Nobody buys at £55 what sells at £28 to £37.
+3. **With realistic competition**: just under the cheapest (by the larger of 50p and 1.5%, at the nearest .49/.99 ending at least 25p under it), even above past sales.
+4. **Never below the lowest same-condition sale** (the lower quartile with many) to chase a cheap listing: then it holds there and says why.
+5. **No realistic competition**: priced at what buyers pay.
+6. **No sales but same-condition listings**: just under the cheapest realistic one, low confidence.
+
+The air fryer now prices at £32.49 (the middle of the two new sales), with the used sale set aside and the label saying so. Tests: `test/pricing-seller.test.ts`, one per case above, on the air fryer's numbers.
+
+The nightly price review applies the same rule to live listings every night: as competitors list, sell or change price, the target moves (within the 10% step and the 7-day rule), and the sale model keeps learning how fast K's items sell at each price.

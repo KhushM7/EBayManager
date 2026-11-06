@@ -135,7 +135,9 @@ export function marketState(salesIn: MarketSale[], active: ActiveListing[], opts
   // The trend comes from history before today's market, so a current dip isn't mistaken for depreciation
   // (and then explained away). With little history, all sales are used.
   const older = sales.filter((s) => ageDays(s) > 45);
-  const slope = theilSen((older.length >= 10 ? older : sales).map((s) => ({ x: -ageDays(s), y: Math.log(s.total) })));
+  // A trend through a handful of sales is noise (2026-11-06: three sales made a steep "trend" that put an air
+  // fryer under both of its new sales), so it needs at least 6 sales' worth of evidence.
+  const slope = sumW(sales) >= 6 ? theilSen((older.length >= 10 ? older : sales).map((s) => ({ x: -ageDays(s), y: Math.log(s.total) }))) : null;
   // Bring each sale to today's value: log price + slope * age.
   const today = (s: MarketSale) => s.total * Math.exp((slope ?? 0) * ageDays(s));
   const trend30 = slope == null ? null : Math.exp(slope * 30) - 1;
@@ -338,6 +340,8 @@ export interface DecideInput {
    * at the middle of spares sales instead of the cheaper end (K, 2026-11-05).
    */
   minorFault?: boolean;
+  /** Same-condition sales and listings, for the seller's rule (sellerTarget). */
+  evidence?: SellerEvidence;
 }
 
 /** The longest wait the engine will advise holding for. */
@@ -366,6 +370,19 @@ export function charmPrice(x: number): number {
 }
 
 /**
+ * A .99/.49 ending just under the listing being undercut (the ceiling), both item prices: the nearest ending
+ * above x when it's still at least 25p under the ceiling (under £36: £35.49, not £34.99), else the one below.
+ */
+export function charmBelow(x: number, ceiling: number): number {
+  const step = x < 20 ? 1 : 0.5;
+  const up = r2(Math.ceil((x + 0.01) / step) * step - 0.01);
+  if (up >= x && up <= ceiling - 0.25) return up;
+  let p = Math.min(charmPrice(x), x);
+  for (let i = 0; i < 6 && p >= ceiling - 0.005; i++) p = charmPrice(p - 0.5);
+  return p >= ceiling - 0.005 ? r2(ceiling - 0.01) : p;
+}
+
+/**
  * The price ending follows the strategy (Backus, Blake & Tadelis on eBay: round asking prices draw offers sooner
  * but sell 5-8% lower; precise ones signal a patient seller). Compete: the usual .99/.49 endings. Hold: a precise
  * price (e.g. £41.85). Clear: a round price (whole pounds, or fives above £50), never above the target.
@@ -382,6 +399,95 @@ export function endPrice(x: number, strategy: Strategy): number {
   return charmPrice(x);
 }
 
+// --- The seller's rule (K, 2026-11-06) ---
+//
+// How K prices, and the engine's anchor for an ordinary sale:
+// 1. What buyers pay comes from sales in the same condition only. Close or different-condition matches (a used
+//    sale against an unused item) count only when there's nothing else.
+// 2. With few such sales the value is their middle (two sales at £28 and £37: about £33); with many, the recent
+//    median. No trend is fitted through a handful of sales.
+// 3. Same-condition listings priced far above what buyers pay (more than OVERPRICED times the value, or 15% above
+//    the dearest sale) are ignored: nobody buys at £55 what sells at £28 to £37.
+// 4. With realistic competition, price just under the cheapest listing, to be the one bought next, even above
+//    past sales. Never below the lowest same-condition sale to chase a cheap listing: then it sits at that sale.
+// 5. With no realistic competition, price at what buyers pay.
+
+/** Listings above this multiple of what buyers pay are taken as overpriced and ignored. */
+export const OVERPRICED = 1.3;
+/** How far under the cheapest realistic listing to go (total, GBP): the larger of 50p and 1.5%. */
+export const undercut = (cheapest: number) => Math.max(0.5, cheapest * 0.015);
+/** Below this many same-condition sales, their middle is the value (no trend, no recency weighting). */
+export const FEW_SALES = 6;
+
+export interface SellerEvidence {
+  /** Same-condition sales (exact matches), totals the buyer paid. */
+  sold: { total: number; at: number }[];
+  /** Same-condition live listings (exact matches), totals. */
+  active: number[];
+}
+
+export interface SellerTarget {
+  /** The total to aim at (item + postage). */
+  total: number;
+  /** What buyers pay for it, and the range of same-condition sales. */
+  value: number | null;
+  low: number | null;
+  high: number | null;
+  /** The cheapest realistic same-condition listing, if any. */
+  cheapest: number | null;
+  /** The total below which it won't go to chase a listing. */
+  floor: number | null;
+  basis: "under_cheapest" | "sales" | "lowest_sale" | "listings_only";
+  why: string;
+}
+
+export function sellerTarget(ev: SellerEvidence, mk: MarketState): SellerTarget | null {
+  const gbp = (x: number) => `£${x.toFixed(2)}`;
+  const sold = ev.sold.map((x) => x.total).filter((x) => x > 0).sort((a, b) => a - b);
+  let value: number | null = null;
+  let low: number | null = null;
+  let high: number | null = null;
+  let floor: number | null = null;
+  if (sold.length) {
+    low = sold[0];
+    high = sold[sold.length - 1];
+    if (sold.length < FEW_SALES) {
+      value = median(sold);
+      floor = low;
+    } else {
+      value = mk.mNow ?? median(sold);
+      floor = mk.p25 ?? quantile(sold, 0.25);
+    }
+  }
+  const active = ev.active.filter((x) => x > 0).sort((a, b) => a - b);
+  const ceiling = value != null ? Math.max(value * OVERPRICED, (high ?? value) * 1.15) : active.length ? median(active)! * OVERPRICED : null;
+  const realistic = ceiling == null ? active : active.filter((x) => x <= ceiling);
+  const ignored = active.length - realistic.length;
+  const cheapest = realistic[0] ?? null;
+  const salesText = sold.length ? (sold.length === 1 ? `one sale in the same condition at ${gbp(sold[0])}` : `${sold.length} sales in the same condition at ${gbp(low!)} to ${gbp(high!)}`) : "";
+  const ignoredText = ignored ? ` ${ignored} listing${ignored === 1 ? "" : "s"} above ${gbp(ceiling!)} ignored as more than buyers pay.` : "";
+
+  if (cheapest != null) {
+    const under = cheapest - undercut(cheapest);
+    if (floor != null && under < floor)
+      return {
+        total: r2(floor), value, low, high, cheapest, floor, basis: "lowest_sale",
+        why: `Buyers paid: ${salesText}. The cheapest listing (${gbp(cheapest)}) is below ${sold.length < FEW_SALES ? "the lowest of those" : "the cheaper end of those"}, so this holds at ${gbp(floor)} rather than chasing it down.${ignoredText}`,
+      };
+    return {
+      total: r2(under), value, low, high, cheapest, floor, basis: value == null ? "listings_only" : "under_cheapest",
+      why: value == null
+        ? `No sales found, but ${realistic.length} listed in the same condition from ${gbp(cheapest)}: priced just under the cheapest to sell first. Low confidence until something sells.${ignoredText}`
+        : `Priced just under the cheapest of ${realistic.length} listing${realistic.length === 1 ? "" : "s"} in the same condition (${gbp(cheapest)}), to be the one bought next. Buyers paid: ${salesText}.${ignoredText}`,
+    };
+  }
+  if (value == null) return null;
+  return {
+    total: r2(value), value, low, high, cheapest: null, floor, basis: "sales",
+    why: `${salesText[0].toUpperCase()}${salesText.slice(1)}, and ${active.length ? "no realistically priced listing" : "nothing listed"} to compete with, so it's priced at what buyers pay${sold.length > 1 && sold.length < FEW_SALES ? ": the middle of those sales" : ""}.${ignoredText}`,
+  };
+}
+
 /**
  * Picks the strategy and price for one item. The grid runs from the value floor to above the usual price;
  * V(p) balances a faster sale against a higher price under today's market.
@@ -392,7 +498,23 @@ export function decide(input: DecideInput): Decision {
   const postage = costs.postage;
   const floorTotal = Math.max((input.floor ?? 0) + postage, mk.valueFloor ?? 0);
 
-  // Only with no usable evidence at all does it ask; a thin market still gets a (low-confidence) price.
+  const target = input.evidence ? sellerTarget(input.evidence, mk) : null;
+  // Only with no usable evidence at all does it ask; a thin market still gets a (low-confidence) price, and
+  // same-condition listings alone price it just under the cheapest.
+  if ((mk.mNow == null || mk.mLong == null || mk.effective < 1) && target?.basis === "listings_only") {
+    const m = target.cheapest!;
+    const price = Math.max(charmBelow(target.total - postage, m - postage), input.floor ?? 0);
+    const d0 = 1 / 90;
+    const chosen = option(price + postage, m, d0, input.evidence!.active.length, costs, params);
+    return {
+      strategy: "compete",
+      price: r2(price),
+      total: chosen.total,
+      options: [option(Math.max(floorTotal, chosen.total * 0.92), m, d0, input.evidence!.active.length, costs, params), chosen, option(chosen.total * 1.08, m, d0, input.evidence!.active.length, costs, params)],
+      why: target.why,
+      confidence: 0.15,
+    };
+  }
   if (mk.mNow == null || mk.mLong == null || mk.effective < 1) {
     return {
       strategy: "ask",
@@ -463,6 +585,11 @@ export function decide(input: DecideInput): Decision {
       const to = Math.max(from, mk.mNow + 0.5 * Math.max(0, (mk.p75 ?? mk.mNow) - mk.mNow));
       pick = best(mk.mNow, d, n, from, to);
       why += " One known fault with the rest working, so it's priced at the middle of spares sales, not the cheap end.";
+    } else if (target) {
+      // K's rule (sellerTarget): just under the cheapest realistic listing, or what buyers pay with none.
+      const t = Math.max(floorTotal, target.total);
+      pick = option(t, target.value ?? mk.mNow, d, n, costs, params);
+      why = target.why;
     } else {
       // Keep inside the cheaper half of current sales, so the listing is picked early, without harming value.
       const from = Math.max(floorTotal, Math.min(mk.p25 ?? mk.mNow, mk.mNow));
@@ -471,8 +598,9 @@ export function decide(input: DecideInput): Decision {
     }
   }
 
-  // The price ending suits the strategy; never below the floor.
+  // The price ending suits the strategy; never below the floor; and never up to the listing it undercuts.
   let price = Math.max(endPrice(pick.price, strategy), input.floor ?? 0);
+  if (target?.basis === "under_cheapest" && strategy === "compete" && !input.minorFault) price = Math.max(charmBelow(pick.price, target.cheapest! - postage), input.floor ?? 0);
   let capped = false;
   const step = input.maxStep ?? 0.1;
   if (input.current && Math.abs(price - input.current) / input.current > step) {

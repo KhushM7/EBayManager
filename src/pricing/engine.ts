@@ -186,23 +186,33 @@ async function priceComponent(env: Env, identity: Identity, c: Component, input:
   const typicalPostage = r2(median(knownPostage) ?? input.postage ?? 0);
   const total = (price: number, shipping: number | null) => r2(price + (shipping ?? typicalPostage));
 
+  // Same-condition evidence first (K, 2026-11-06): when there are exact sales, close and different-condition
+  // ones (a used sale against an unused item) are set aside; they count only when there's nothing else.
+  const exactSold = sold.filter((s) => s.g.grade === "exact");
+  const exactActive = active.filter((a) => a.g.grade === "exact");
+  const useSold = exactSold.length ? exactSold : sold;
+  const useActive = exactActive.length ? exactActive : active;
+  const setAside = sold.length - useSold.length;
+  const asOfSale = (s: { dateSold: string | null }) => (s.dateSold ? Date.parse(s.dateSold) || asOf - 30 * DAY : asOf - 30 * DAY);
   // Each comparable is adjusted to K's item (as a valuer adjusts a comparable sale) and weighted by how close it is.
-  const sales: MarketSale[] = sold.map((s) => ({
+  const sales: MarketSale[] = useSold.map((s) => ({
     total: r2(total(s.price, s.shipping) * s.g.factor),
-    at: s.dateSold ? Date.parse(s.dateSold) || asOf - 30 * DAY : asOf - 30 * DAY,
+    at: asOfSale(s),
     bestOffer: s.bestOffer === true,
     weight: weight(s.g),
   }));
   const market = marketState(
     sales,
-    active.map((a) => ({ total: r2(total(a.price, a.shipping) * a.g.factor), weight: weight(a.g) })),
+    useActive.map((a) => ({ total: r2(total(a.price, a.shipping) * a.g.factor), weight: weight(a.g) })),
     { now: marketAt },
   );
   const postage = pricingPostage(input.postage, typicalPostage);
   const costs: Costs = { postage };
   const single = identity.components.length === 1;
   const minorFault = identity.condition === "parts" && identity.fault === "minor";
-  const decision = decide({ market, costs, params, floor: single ? input.floor : null, current: single ? input.current : null, listedDays: input.listedDays, minorFault });
+  const evidence = { sold: exactSold.map((s) => ({ total: total(s.price, s.shipping), at: asOfSale(s) })), active: exactActive.map((a) => total(a.price, a.shipping)) };
+  const decision = decide({ market, costs, params, floor: single ? input.floor : null, current: single ? input.current : null, listedDays: input.listedDays, minorFault, evidence });
+  if (setAside) decision.why += ` ${setAside} close or different-condition sale${setAside === 1 ? "" : "s"} set aside, as there are sales in the same condition.`;
   if (single && input.postage != null && postage < input.postage) decision.why += postageNote(input.postage, postage);
 
   // Only exact matches teach the sale model which prices sell.

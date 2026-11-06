@@ -127,32 +127,36 @@ Tell Claude anything that reads badly and any photo wrongly flagged or missed, s
 | **"Your best past photos" reference** | Nothing | The plan's checklist mentions a thumbnail of K's best past photos as the background reference; not built |
 | **Straighten** | Nothing | Allowed in the tidy-up list, not implemented (crop, exposure, white balance and background are) |
 
-## Steps left before going live
+## Steps left before going live (updated end of 2026-11-06)
 
-In order. **(K)** is K, **(C)** is Claude.
+**(K)** is K, **(C)** is Claude. Done so far: the merge (`merge-redesign`), Sandbox deploys and checks, Parcel2Go (live credentials, quotes switched on, Sandbox settings and secrets uploaded), and every fix from K's first real item (condition first, titles, research, the seller's pricing rule, postage done for K).
 
-1. **(K)** If not done since the fix on 2026-11-05: deploy `azure-migration` to production (the identification fix `ede0bc4`) and re-run Settings → Sold data. The engine column should say "matched by Claude" and be back near 12.4% off. Tell Claude the result.
-2. ~~(K) Decide the Sell screen~~: the redesign's wizard (K, 2026-11-06).
-3. ~~(C) Merge~~: done on `merge-redesign` (above).
-4. ~~(C) Deploy to Sandbox and run the checks~~: done 2026-11-06, all pass. Approving the test label (`--approve`: the first real `UploadSiteHostedPictures`) waits for K's go-ahead, or happens in K's phone session.
-5. **(K)** The 15-minute Sandbox session above. **(C)** tunes the photo thresholds and wording from it.
-6. **(K)** Parcel2Go sandbox credentials in `.dev.vars` → **(C)** runs the probe, reports whether Parcel2Go is worth keeping, finishes quote reading, then the eBay service code mapping. Live credentials later.
-7. **(C)** Merge `merge-redesign` into `azure-migration` (a fast-forward). **(K)** opens the pull request from `azure-migration` to `main` and merges it: https://github.com/KhushM7/EBayManager/compare/main...azure-migration
-8. **(K)** Infrastructure update for the Parcel2Go settings once there are credentials: `$env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-infra.mjs production` (Claude does Sandbox), then `scripts/azure-secrets.mjs production`.
-9. **(K)** Deploy `main` to production (`$env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-deploy.mjs production`), then `node scripts/check-production.mjs`. **(C)** re-runs go-live A1 on that exact commit.
-10. **Remaining go-live tests** ([go-live-tests.md](go-live-tests.md); manager items N/A until a manager joins):
-    - **(C)**: C2 (stored scopes read-only), C4 (orders match), C5 (policies), C7 (eBay call volume), D1 to D4 (nothing can change the real account), E1 (audit covers everything), G1 (the 15-minute poll ran clean).
-    - **(K)**: the production session in "What K needs to test by hand".
-11. **Go live (section I)**:
-    1. **(K)** Sign in to eBay again through the production app, granting full permissions.
-    2. **(K)** Set `writeMode = 'approval'` in `infra/production.bicepparam` and remove the template's production override in `infra/main.bicep` (Claude prepares this change for K to review), then run the production infrastructure and deploy commands.
-    3. **(K)** First change: something small and reversible (a typo in one title), approved, then checked on eBay. The first 10 changes one at a time, each checked on eBay.
-    4. **(K)** One price change and one offer answer watched end to end.
-    5. **(K)** First real listing through New listing, approved and checked on eBay (photos, postage, collection, specifics).
-12. **(K)** About 2026-11-19 (M8): delete the Cloudflare Workers, D1 databases and R2 buckets, and the `.d1-*.sql` exports. **(C)** then removes `wrangler` and the old scripts.
+**A. Code to `main`**
+1. **(K)** Push `merge-redesign`, fast-forward `azure-migration` to it, push, then open and merge the pull request `azure-migration` → `main` (commands in the session notes; nothing in them deploys).
+2. **(C)** Small items before production, none needing K: the eBay shipping service sent for courier-sized parcels (now always Royal Mail 2nd Class, the placeholder until K switches to Simple Delivery); and re-run go-live A1 (typecheck, tests) on the merged `main` commit.
+
+**B. Production update (read-only still)**
+3. **(K)** Put the Parcel2Go credentials in `.prod.vars` (`PARCEL2GO_CLIENT_ID`, `PARCEL2GO_CLIENT_SECRET`; no `PARCEL2GO_SANDBOX`: they're live credentials). Then:
+   `$env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-infra.mjs production`
+   `$env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-secrets.mjs production`
+4. **(K)** Deploy `main` to production: `$env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-deploy.mjs production`, then `node scripts/check-production.mjs`.
+5. **(K)** Settings → Sold data: re-run the comparison. With the identification fix and the seller's rule, the engine should be at or better than the 12.4% off it scored before. Tell Claude the figure.
+
+**C. Go-live tests on production** ([go-live-tests.md](go-live-tests.md); manager items N/A until a manager joins). Let one nightly run (02:00) and a day of the 15-minute poll happen on the new code first.
+6. **(C)** C2 (stored scopes read-only), C4 (orders match), C5 (policies), C7 (eBay call volume), D1 to D4 (nothing can change the real account), E1 (audit covers everything), G1 (the poll ran clean), A1 on the deployed commit.
+7. **(K)** One session on the phone and computer: B13 (test a recovery code, add a new passkey), C1 (Settings shows production, read-only), C3 and D5 (spot-check 5 listings against Seller Hub, none revised), E2 and E3 (to-dos, style guide), F1 to F4 (10 dry-run labels make sense with evidence, no invented facts, floors set), G2 and G3 (message drafts and offer suggestions; a test question from another account if none arrived), H1 to H4 (push pop-up, a dry-run notification, every screen, pause and resume). Also one New listing on production up to "Send for approval": eBay's check there needs the full-permission sign-in, so on production it stops at that step until go-live.
+
+**D. Go live (section I)**
+8. **(K)** Sign in to eBay again through the production app, granting full permissions (I1).
+9. **(C)** Prepare the change: `writeMode = 'approval'` in `infra/production.bicepparam` and the template's production override removed in `infra/main.bicep`. **(K)** reviews it, then runs the production infrastructure and deploy commands (I2).
+10. **(K)** First changes, one at a time, each checked on eBay: a small reversible one (a typo in a title), then the first 10 (I3, I4); one price change and one offer answer end to end (I5).
+11. **(K)** First real listing through New listing: approve it, check it on eBay (photos, specifics, collection), then do its Inbox to-do: switch postage to Simple Delivery at the app's size in Seller Hub, and note whether eBay recommended the same size.
+
+**E. After**
+12. **(K)** About 2026-11-19 (M8): delete the Cloudflare Workers, D1 databases, R2 buckets and the `.d1-*.sql` exports. **(C)** then removes `wrangler` and the old scripts.
 
 ## Decisions for K
 
 1. ~~Sell screen~~: the redesign's wizard (2026-11-06).
 2. ~~Sandbox deploys~~: allowed once both branches were read and nothing lost (2026-11-06).
-3. **Parcel2Go**: sandbox credentials in `.dev.vars` (`PARCEL2GO_CLIENT_ID`, `PARCEL2GO_CLIENT_SECRET`, `PARCEL2GO_SANDBOX=true`). Step 6.
+3. ~~Parcel2Go~~: kept (live credentials; quotes checked 2026-11-06). Simple Delivery via Seller Hub after publishing, option (b) (2026-11-06).

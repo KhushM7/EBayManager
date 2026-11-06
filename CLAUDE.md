@@ -99,12 +99,14 @@ $env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-deploy.mjs production   #
 
 Production is read-only (`WRITE_MODE=off`, forced by the Bicep template). Claude can read production data for diagnosis (`node scripts/prod-query.mjs production <container> "SELECT ..."`: K's Azure login, which has only Data Reader on production), but K runs anything that changes production: infrastructure (`scripts/azure-infra.mjs`), deploys (`scripts/azure-deploy.mjs`) and secrets (`scripts/azure-secrets.mjs` from `.prod.vars`). Every production script refuses to run without `EBAY_CONFIRM_PRODUCTION=yes`. Never print secrets or `.prod.vars`.
 
-## Where things stand (2026-11-05)
+## Where things stand (2026-11-06)
 
 - Phases 0–6 are done, and the move to Azure is done (M0–M7; M8, deleting Cloudflare, is due about 2026-11-19). K's real eBay account is connected **read-only** to production: https://ebay-autopilot-production-wrpoyt.azurewebsites.net (Sandbox: https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net). K is the only user for now.
-- The pricing engine is built (`src/pricing/`, [pricing-engine.md](docs/pricing-engine.md)). It prices listings, Best Offers and counters, audits and a nightly price review, and the code enforces that prices come from it. In K's backtest against 5 real sales it was 12.4% off on average (4 priced), against CompsAPI 27.1% and Trawl 77%.
+- **Branches:** `merge-redesign` holds everything (Azure work, Add Listing, the redesigned app) and runs on Sandbox. It goes to `azure-migration` (a fast-forward), then `main` by pull request, then production. Production still runs older `azure-migration` code.
+- The pricing engine (`src/pricing/`, [pricing-engine.md](docs/pricing-engine.md)) follows K's seller rule (revision 4): same-condition sales set the value, just under the cheapest realistic listing, overpriced listings ignored. It prices listings, Best Offers and counters, audits and a nightly price review.
 - K's past sales (23, from 2025-03 to 2026-09) are imported from the Seller Hub orders report. eBay's APIs return only 90 days.
-- **Current phase: 7, read-only on the real account.** Built: the first-day audit (`src/firstday.ts`), the reply style guide (`src/style.ts`), promotion research (`src/promotion.ts`), and Inbox to-dos (`src/todos.ts`) for everything that needs K but isn't an eBay change. The audit and nightly cycle have run on Azure with no failed steps. Next: go-live tests A to H ([go-live-tests.md](docs/go-live-tests.md)), manager items N/A until a manager joins. See [roadmap.md](docs/roadmap.md).
+- Add Listing is built and tested on Sandbox with K's own items ([add-listing-handover.md](docs/add-listing-handover.md)): condition first, Claude's photo check and research (model, specs, other names), listing text, price, postage done for K (parcel worked out, Simple Delivery size, Parcel2Go quotes) and a Seller Hub to-do after publishing. eBay Sandbox's picture service is down, so photo upload is first proven on production.
+- **Current phase: 7, read-only on the real account.** Next: the steps in [add-listing-handover.md](docs/add-listing-handover.md#steps-left-before-going-live-updated-end-of-2026-11-06): code to `main`, production update, go-live tests C to H, then go live (section I).
 
 ## Open items
 

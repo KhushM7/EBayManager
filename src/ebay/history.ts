@@ -1,16 +1,12 @@
 import type { Env } from "../env";
 import { trading } from "./trading";
+import { list, num } from "../util";
 
 // Account history for the first-day audit (docs/listing-assistant.md), read with Trading read verbs only:
 // recently sold and ended-unsold listings, K's past answers to buyers, and the seller record. Buyer IDs are
 // used only in memory and never stored.
 
 const DAY = 86_400_000;
-const list = <T>(v: T | T[] | undefined): T[] => (v == null ? [] : Array.isArray(v) ? v : [v]);
-const num = (v: any): number | null => {
-  const n = Number(typeof v === "object" && v != null ? v["#text"] : v);
-  return v == null || !Number.isFinite(n) ? null : n;
-};
 
 export interface EndedListing {
   itemId: string;

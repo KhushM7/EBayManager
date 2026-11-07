@@ -7,8 +7,8 @@ import { hashId, pad13, seqId, type Doc, type DocStore, type PatchOp } from "./d
 const strip = ({ id, pk, type, _etag, ttl, ...r }: any) => r;
 const safeKey = (k: string) => /^[\w:.-]{1,200}$/.test(k);
 
-/** Document ids, shared with the D1 importer (src/store/migrate.ts) so both write the same shapes. */
-export const docIds = {
+/** Document ids for the documents this file writes. */
+const docIds = {
   setting: async (key: string) => `setting:${safeKey(key) ? key : await hashId(key)}`,
   question: async (id: string) => `q:${safeKey(id) ? id : await hashId(id)}`,
   offer: async (id: string) => `o:${safeKey(id) ? id : await hashId(id)}`,
@@ -16,6 +16,7 @@ export const docIds = {
   push: async (endpoint: string) => `push:${await hashId(endpoint)}`,
   solddata: async (key: string) => `sd:${await hashId(key)}`,
   identity: async (key: string) => `idn:${await hashId(key)}`,
+  grades: async (key: string) => `grd:${await hashId(key)}`,
   marketPk: (key: string) => hashId(key),
   usage: (provider: string, month: string) => `solddata_usage:${provider}:${month}`,
 };
@@ -124,6 +125,8 @@ export interface SnapshotRow {
   watch_count: number;
   view_count: number | null;
   start_time: string;
+  /** The listing's main picture on eBay (older snapshots have none). */
+  image_url?: string | null;
 }
 
 export interface LatestRow extends SnapshotRow {
@@ -252,6 +255,19 @@ export function listingsRepo(docs: DocStore) {
     },
     async putSpecs(itemId: string, title: string, at: number, lookup: string) {
       await docs.upsert(L, { id: "specs", pk: itemId, type: "product_specs", item_id: itemId, title, at, lookup });
+    },
+    /**
+     * After an approved title change: the stored lookup follows the listing to its new title (same item, same
+     * product), so the next review doesn't search the web again for specs it already has.
+     */
+    async retitleSpecs(itemId: string, title: string) {
+      const d = await docs.get<any>(L, "specs", itemId);
+      if (!d || d.title === title) return;
+      let lookup = d.lookup;
+      try {
+        lookup = JSON.stringify({ ...JSON.parse(d.lookup), title });
+      } catch {}
+      await docs.upsert(L, { id: "specs", pk: itemId, type: "product_specs", item_id: itemId, title, at: d.at, lookup });
     },
   };
 }
@@ -455,6 +471,17 @@ export function pricingRepo(docs: DocStore) {
     async putIdentity(key: string, itemId: string | null, identity: string, at: number) {
       const id = await docIds.identity(key);
       await docs.upsert("cache", { id, pk: id, type: "identity", key, item_id: itemId, identity, at });
+    },
+
+    // Claude's grades of comparable titles for one item and component, by title (container cache, 30 days like
+    // the sold data they grade). null marks a title Claude saw and didn't match.
+    async getGrades(key: string): Promise<Record<string, { grade: "exact" | "close"; factor: number } | null>> {
+      const id = await docIds.grades(key);
+      return (await docs.get<any>("cache", id, id))?.grades ?? {};
+    },
+    async putGrades(key: string, grades: Record<string, { grade: "exact" | "close"; factor: number } | null>, at: number) {
+      const id = await docIds.grades(key);
+      await docs.upsert("cache", { id, pk: id, type: "match_grades", key, grades, at, ttl: 30 * 86_400 });
     },
 
     // Daily matched active listings per search (container market, kept 180 days).

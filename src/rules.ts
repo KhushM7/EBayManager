@@ -18,9 +18,6 @@ export const LOCKED_KINDS = [
 /** A pending proposal expires after this many days, and so do its signed approval links. */
 export const PROPOSAL_TTL_DAYS = 7;
 
-/** Older fixed target (lower end of comparable sold prices). Prices now come from src/pricing (docs/pricing-engine.md). */
-export const TARGET_COMP_PERCENTILE = 0.3;
-
 /** Proposal guardrails: a proposed price change larger than this is flagged for a closer look. */
 export const MAX_PRICE_STEP = 0.1;
 export const MIN_DAYS_BETWEEN_PRICE_CHANGES = 7;
@@ -28,8 +25,12 @@ export const MIN_DAYS_BETWEEN_PRICE_CHANGES = 7;
 /** Returns: always accepted, buyer pays return postage (an eBay return policy). */
 export const RETURNS = { accepted: true, periodDays: 30, buyerPaysReturnPostage: true } as const;
 
-/** Shipping: assume K has a box and ships, unless the item is collection only. */
-export const DEFAULT_SHIPPING = "ship" as const;
+/**
+ * Shipping (K, 2026-11-07): assume K has a box and ships, and collection in person is offered as well by
+ * default (a second, free service on the listing). K can turn collection off per item, or make it collection only.
+ */
+export const DEFAULT_SHIPPING = "ship_and_collect" as const;
+export const COLLECTION_OFFERED_BY_DEFAULT = DEFAULT_SHIPPING === "ship_and_collect";
 
 /** Claude spend cap per UTC day. Runs refuse to start once it's reached (target is $3 to $6 a month). */
 export const CLAUDE_DAILY_BUDGET_USD = 1;

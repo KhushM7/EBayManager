@@ -197,10 +197,23 @@ export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
     const res = await tradingRequest(env, built.call, built.xml);
     const summary = (res.ItemID ? `${built.call} ok, item ${res.ItemID}` : `${built.call} ok`) + note;
     await audit(env, p.id, built.call, built.xml, "applied", JSON.stringify(res));
+    if (p.kind === "revise" && p.item_id) {
+      const a = JSON.parse(p.payload);
+      if (typeof a.title === "string" && a.title) await env.store.listings.retitleSpecs(p.item_id, a.title).catch(() => null);
+    }
     if (p.kind === "create_listing" && res.ItemID) {
       const a = JSON.parse(p.payload);
-      if (typeof a.draftId === "string")
+      if (typeof a.draftId === "string") {
         await env.store.drafts.setStatus(a.draftId, "published", Date.now(), { item_id: String(res.ItemID), published_at: Date.now() }).catch(() => null);
+        // The draft's published specs (looked up for the exact product) carry over to the live listing, so its
+        // first review doesn't pay for the same web search again.
+        const d = await env.store.drafts.get(a.draftId).catch(() => null);
+        if (d?.specs?.exact && d.specs.specs.length) {
+          const itemId = String(res.ItemID);
+          const title = String(a.title ?? "");
+          await env.store.listings.putSpecs(itemId, title, Date.now(), JSON.stringify({ itemId, title, at: Date.now(), ...d.specs, dropped: 0, costUsd: 0 })).catch(() => null);
+        }
+      }
       // What K does next in Seller Hub (Simple Delivery can't be set through the API): an Inbox to-do, not a write.
       const t = a.afterPublish;
       if (t && typeof t.code === "string" && typeof t.title === "string")

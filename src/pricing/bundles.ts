@@ -1,5 +1,6 @@
 import type { Env } from "../env";
 import { completeOnce, MODELS, type MessagesApi } from "../claude";
+import { r2 } from "../util";
 
 // Bundle advice across K's listings (docs/pricing-engine.md, "Bundles"). Claude Haiku suggests which listings
 // suit the same buyer; the numbers that decide whether a suggestion is worth showing are worked out here, from
@@ -7,7 +8,6 @@ import { completeOnce, MODELS, type MessagesApi } from "../claude";
 // is a normal proposal.
 
 const DAY = 86_400_000;
-const r2 = (x: number) => Math.round(x * 100) / 100;
 
 export interface ListingForAdvice {
   itemId: string;

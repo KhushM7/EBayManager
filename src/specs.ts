@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { Env } from "./env";
 import { client, logUsage, MODELS, type MessagesApi } from "./claude";
 import { categoryAspects } from "./ebay/browse";
+import { list, stripHtml as strip } from "./util";
 
 // Published specifications for an exactly identified product (docs/listing-assistant.md, "never assume"):
 // dimensions, weight, model number and other manufacturer facts, so K doesn't have to measure or look them
@@ -83,15 +84,6 @@ const WEB_SEARCH = { type: "web_search_20260209", name: "web_search", max_uses: 
 // Web fetch only opens URLs already in the conversation, so it can read a manual or spec sheet a search found.
 const WEB_FETCH = { type: "web_fetch_20260209", name: "web_fetch", max_uses: 4, max_content_tokens: 20000 } as const;
 
-const list = <T>(v: T | T[] | undefined): T[] => (v == null ? [] : Array.isArray(v) ? v : [v]);
-const strip = (html: string) =>
-  html
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/\s+/g, " ")
-    .trim();
 
 /** A URL as compared: scheme, host and path, without query, fragment or trailing slash. */
 export function sameSource(a: string): string | null {

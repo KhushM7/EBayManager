@@ -128,10 +128,33 @@ describe("identify and match", () => {
       },
     };
     const identity = { ...identifyByRules("Samsung SSG-4100GB"), by: "claude" as const };
-    const titles = Array.from({ length: 40 }, () => "Samsung SSG-4100GB 3D glasses");
+    const titles = Array.from({ length: 40 }, (_, i) => `Samsung SSG-4100GB 3D glasses ${i}`);
     const out = await matchTitles(env, identity, identity.components[0], titles, "Samsung SSG-4100GB Lot of 2", api);
     expect(out.by).toBe("claude");
     expect(out.matches.map((g) => g.i)).toEqual([0, 20]);
+  });
+
+  it("grades each title once per item: a second check sends only new titles", async () => {
+    const sent: string[] = [];
+    const api: MessagesApi = {
+      async create(p: any) {
+        const text = p.messages[0].content as string;
+        sent.push(text);
+        const lines = text.split("\n").filter((l: string) => /^\d+\. /.test(l));
+        return { content: [{ type: "text", text: JSON.stringify({ exact: lines.map((_: string, i: number) => i + 1), close: [] }) }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } } as any;
+      },
+    };
+    const identity = { ...identifyByRules("Samsung SSG-4100GB"), by: "claude" as const };
+    const first = await matchTitles(env, identity, identity.components[0], ["A one", "B two"], "Own", api);
+    expect(first.matches.map((g) => g.i)).toEqual([0, 1]);
+    const second = await matchTitles(env, identity, identity.components[0], ["C three", "A one", "B two"], "Own", api);
+    expect(second.matches.map((g) => g.i)).toEqual([0, 1, 2]);
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toContain("1. C three");
+    expect(sent[1]).not.toContain("A one");
+    // All known: no call at all.
+    await matchTitles(env, identity, identity.components[0], ["B two"], "Own", api);
+    expect(sent).toHaveLength(2);
   });
 
   it("shows Claude the listing photos and description, and never guesses the condition", async () => {
@@ -324,6 +347,25 @@ describe("pricing an item end to end", () => {
 
   const env = () =>
     ({ store: memoryStore(), EBAY_ENV: "sandbox", EBAY_MARKETPLACE: "EBAY_GB", EBAY_APP_ID: "a", EBAY_CERT_ID: "c", TRAWL_API_KEY: "tk", COMPSAPI_KEY: "ck", ANTHROPIC_API_KEY: "k" }) as Env;
+
+  it("searches eBay's live listings on every check, even when sold data and grades come from the cache", async () => {
+    market(Date.now());
+    const e = env();
+    const { api } = fakeClaude((system, prompt) =>
+      system.includes("identify")
+        ? { product: "Sony WH-1000XM4", group: "headphones", condition: "used", components: [{ name: "Sony WH-1000XM4", query: "Sony WH-1000XM4", valued: true }], priceable: true, question: null }
+        : { exact: prompt.split("\n").filter((l) => /^\d+\. Sony/.test(l)).map((l) => Number(l.split(".")[0])), close: [] },
+    );
+    const input = { itemId: "555555555555", title: "Sony WH-1000XM4 headphones", postage: 4, excludeItemIds: ["555555555555"] };
+    await priceItem(e, input, api);
+    const calls = () => (globalThis.fetch as any).mock.calls.map((c: any[]) => String(c[0]));
+    const live1 = calls().filter((u: string) => u.includes("item_summary")).length;
+    const sold1 = calls().filter((u: string) => u.includes("trawl") || u.includes("compsapi")).length;
+    const second = await priceItem(e, input, api);
+    expect(calls().filter((u: string) => u.includes("item_summary")).length).toBeGreaterThan(live1); // live: searched again
+    expect(calls().filter((u: string) => u.includes("trawl") || u.includes("compsapi")).length).toBe(sold1); // sold: from the cache
+    expect(second.components[0].matched.active).toBe(6);
+  });
 
   it("pools, matches with Claude, prices on totals, leaves K's own sale out, and records a snapshot", async () => {
     const now = Date.now();

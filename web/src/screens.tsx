@@ -2,8 +2,7 @@ import { AnimatePresence, LayoutGroup, motion, useMotionValue, useScroll, useTra
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, apiJob, SignedOut, type Activity as Row, type Device, type Listing, type Me, type Proposal } from "./api";
 import { DraftEditor, EDITABLE } from "./drafts";
-import { ago, daysSince, describe, money } from "./format";
-import { SoldDataCard } from "./solddata";
+import { ago, daysSince, describe, money, plural } from "./format";
 import { BundleAdvice, PriceCheck } from "./pricing";
 import { Todos } from "./todos";
 import { Facts, StyleCard } from "./report";
@@ -32,7 +31,6 @@ export function useData<T>(path: string, onSignedOut: () => void) {
   return { data, error, reload };
 }
 
-export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const usd = (n: number) => "$" + (n ?? 0).toFixed(2);
 
 const KIND: Record<string, { label: string; Icon: (p: { size?: number }) => any; tone: string }> = {
@@ -402,11 +400,13 @@ export function Inbox({ me, onSignedOut, onChanged }: ScreenProps) {
 
 // ---------------------------------------------------------------- Listings
 
-// The thumbnail: eBay's API isn't asked for pictures yet, so each listing gets a tile tinted from its own id,
-// with its initials; it drifts and zooms gently as the card scrolls past (parallax).
+// The thumbnail: the listing's main picture from eBay (read with the listings, no extra call). Without one, or if
+// it fails to load, the listing gets a tile tinted from its own id with its initials. Either drifts and zooms
+// gently as the card scrolls past (parallax).
 const HUES = [222, 158, 38, 352, 200, 268, 12, 120];
 function Thumb({ l }: { l: Listing }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [broken, setBroken] = useState(false);
   const { scrollYProgress } = useScroll({ target: ref as any, offset: ["start end", "end start"] });
   const scale = useTransform(scrollYProgress, [0, 1], [1.18, 1]);
   const y = useTransform(scrollYProgress, [0, 1], ["-6%", "6%"]);
@@ -415,12 +415,18 @@ function Thumb({ l }: { l: Listing }) {
   const initials = (words[0]?.[0] ?? "") + (words[1]?.[0] ?? "");
   return (
     <div ref={ref} class="relative aspect-[4/3] overflow-hidden rounded-xl">
+      {l.image_url && !broken ? (
+        <motion.div style={{ scale, y }} class="absolute inset-[-8%] bg-surface-3">
+          <img src={l.image_url} alt="" loading="lazy" decoding="async" onError={() => setBroken(true)} class="size-full object-cover" />
+        </motion.div>
+      ) : (
       <motion.div
         style={{ scale, y, background: `radial-gradient(120% 90% at 20% 10%, hsl(${hue} 90% 70% / .55), transparent 60%), radial-gradient(100% 80% at 90% 100%, hsl(${(hue + 50) % 360} 90% 60% / .45), transparent 60%), var(--surface-3)` }}
         class="absolute inset-[-8%] grid place-items-center"
       >
         <span class="text-5xl font-bold tracking-tighter text-white/90 drop-shadow-lg">{initials.toUpperCase()}</span>
       </motion.div>
+      )}
     </div>
   );
 }
@@ -631,19 +637,41 @@ export function Activity({ onSignedOut }: ScreenProps) {
 
 // ---------------------------------------------------------------- Settings
 
+interface Allowance {
+  id: string;
+  name: string;
+  left: number | null;
+  total: number | null;
+  unit: "usd" | "searches";
+  summary: string;
+  notes: string[];
+  level: "ok" | "low" | "out" | "unknown" | "off";
+}
+
 interface Usage {
   today: { usd: number; calls: number };
   month: { usd: number; calls: number };
   byJob: { job: string; calls: number; usd: number }[];
   dailyBudgetUsd: number;
   apiKeySet: boolean;
+  allowances?: Allowance[];
 }
 
 interface People {
   people: { id: string; name: string; role: string; email: string }[];
 }
 
-const JOB_NAMES: Record<string, string> = { audit: "Listing reviews", triage: "Nightly checks", reply: "Reply drafts", offer: "Offer suggestions" };
+const JOB_NAMES: Record<string, string> = {
+  audit: "Listing reviews",
+  triage: "Nightly checks",
+  reply: "Reply drafts",
+  offer: "Offer suggestions",
+  specs: "Specification lookups",
+  listing: "New listings",
+  pricing: "Pricing",
+  bundles: "Bundle advice",
+  style: "Reply style",
+};
 
 const keyBytes = (b64: string) => Uint8Array.from(atob(b64.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 
@@ -664,7 +692,102 @@ function Section({ title, sub, children, class: cls = "" }: { title: string; sub
   );
 }
 
-function PeopleCard({ onSignedOut }: ScreenProps) {
+type Run = (fn: () => Promise<string | void>) => void;
+type SectionId = "account" | "notifications" | "connection" | "style" | "usage";
+
+const SECTIONS: { id: SectionId; title: string; Icon: (p: { size?: number }) => any }[] = [
+  { id: "account", title: "Account", Icon: Icons.user },
+  { id: "notifications", title: "Notifications", Icon: Icons.bell },
+  { id: "connection", title: "eBay connection", Icon: Icons.link },
+  { id: "style", title: "Reply style", Icon: Icons.message },
+  { id: "usage", title: "Usage and APIs", Icon: Icons.gauge },
+];
+
+/** The open section, kept in the address (?s=) so the phone's back button closes it. */
+function useSettingsSection(): [SectionId | null, (s: SectionId | null) => void] {
+  const read = () => {
+    const s = new URLSearchParams(location.search).get("s");
+    return SECTIONS.some((x) => x.id === s) ? (s as SectionId) : null;
+  };
+  const [section, setSection] = useState<SectionId | null>(read);
+  useEffect(() => {
+    const on = () => setSection(read());
+    addEventListener("popstate", on);
+    return () => removeEventListener("popstate", on);
+  }, []);
+  const open = (s: SectionId | null) => {
+    if (s === section) return;
+    if (s && !section) history.pushState(null, "", `/settings?s=${s}`);
+    else history.replaceState(null, "", s ? `/settings?s=${s}` : "/settings");
+    setSection(s);
+  };
+  return [section, open];
+}
+
+function useWide() {
+  const q = typeof matchMedia === "undefined" ? null : matchMedia("(min-width: 1024px)");
+  const [wide, setWide] = useState(q?.matches ?? false);
+  useEffect(() => {
+    if (!q) return;
+    const on = () => setWide(q.matches);
+    q.addEventListener("change", on);
+    return () => q.removeEventListener("change", on);
+  }, []);
+  return wide;
+}
+
+/** At the top of Settings: whether changes reach eBay, and the switch to pause them all. */
+function ChangesCard({ me, reloadMe, run, busy, go }: { me: Me; reloadMe: () => void; run: Run; busy: boolean; go: (p: string) => void }) {
+  const owner = me.user.role === "owner";
+  const live = me.writeMode === "approval";
+  const state = !live ? "Read-only" : me.writesPaused ? "Paused" : "Applied after approval";
+  const tone = !live ? "var(--muted)" : me.writesPaused ? "var(--yellow)" : "var(--green)";
+  return (
+    <section class="card mb-5">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div class="flex min-w-0 items-center gap-3">
+          <span class="relative grid size-11 shrink-0 place-items-center rounded-2xl bg-surface-2">
+            <span class="size-3 rounded-full" style={{ background: tone, boxShadow: `0 0 14px ${tone}` }} />
+          </span>
+          <span class="min-w-0">
+            <span class="block text-sm text-muted">Changes to eBay</span>
+            <span class="block text-lg font-semibold tracking-tight">{state}</span>
+          </span>
+        </div>
+        {live &&
+          (me.writesPaused ? (
+            owner ? (
+              <motion.button whileTap={{ scale: 0.95 }} class="btn btn-primary" disabled={busy} onClick={() => run(async () => (await api("/settings/writes", { body: { paused: false } }), reloadMe(), "Changes resumed."))}>
+                <Icons.play size={16} /> Resume changes
+              </motion.button>
+            ) : (
+              <p class="text-sm text-muted">Only the owner can resume changes.</p>
+            )
+          ) : (
+            <motion.button whileTap={{ scale: 0.95 }} class="btn btn-danger" disabled={busy} onClick={() => run(async () => (await api("/settings/writes", { body: { paused: true } }), reloadMe(), "All changes paused."))}>
+              <Icons.pause size={16} /> Pause all changes
+            </motion.button>
+          ))}
+      </div>
+      {me.writesBlocked && (
+        <p class="mt-3 text-sm">
+          <span class="text-muted">Held because:</span> {me.writesBlocked}
+        </p>
+      )}
+      <p class="mt-3 text-xs text-muted">Anyone can pause. Approvals made while paused or read-only are recorded but don't reach eBay.</p>
+      <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+        <button class="btn-link" onClick={() => go("/activity")}>
+          Change history
+        </button>
+        <button class="btn-link" onClick={() => (location.href = "/?status=agreed")}>
+          Approvals recorded while read-only
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function PeopleCard({ onSignedOut }: { onSignedOut: () => void }) {
   const people = useData<People>("/people", onSignedOut);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -707,123 +830,240 @@ function PeopleCard({ onSignedOut }: ScreenProps) {
   );
 }
 
-/** Developer machinery, folded away: the write switch, Claude's spend, connection status, test push. */
-function Advanced({ me, reloadMe, run, busy, usage, devices, go }: { me: Me; reloadMe: () => void; run: (fn: () => Promise<string | void>) => void; busy: boolean; usage: Usage | null; devices: Device[]; go: (p: string) => void }) {
-  const [open, setOpen] = useState(false);
+function AccountSection({ me, onSignedOut, run, busy }: { me: Me; onSignedOut: () => void; run: Run; busy: boolean }) {
   const owner = me.user.role === "owner";
   return (
-    <section class="card span p-0">
-      <button class="flex w-full items-center justify-between gap-3 px-5 py-4 text-left" onClick={() => setOpen(!open)} aria-expanded={open}>
+    <div class="grid gap-4">
+      <Section title="Your account" sub="You sign in with your email and the code from your authenticator app.">
+        <dl class="figures">
+          <div>
+            <dt>Name</dt>
+            <dd>{me.user.name}</dd>
+          </div>
+          <div>
+            <dt>Role</dt>
+            <dd>{owner ? "Owner" : "Manager"}</dd>
+          </div>
+        </dl>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <motion.button whileTap={{ scale: 0.95 }} class="btn btn-secondary" disabled={busy} onClick={() => run(async () => (await api("/logout", { body: {} }), onSignedOut()))}>
+            Sign out of this device
+          </motion.button>
+          <motion.button whileTap={{ scale: 0.95 }} class="btn btn-secondary" disabled={busy} onClick={() => run(async () => (await api(`/people/${me.user.id}/signout`, { body: {} }), onSignedOut()))}>
+            Sign out on all my devices
+          </motion.button>
+        </div>
+      </Section>
+      {owner && <PeopleCard onSignedOut={onSignedOut} />}
+    </div>
+  );
+}
+
+function NotificationsSection({ me, run, busy, devices, permission, enablePush }: { me: Me; run: Run; busy: boolean; devices: ReturnType<typeof useData<Device[]>>; permission: string; enablePush: () => void }) {
+  const devs = devices.data ?? [];
+  return (
+    <Section title="Notifications" sub="Approve or reject straight from the notification on your phone.">
+      <div class="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3">
         <span>
-          <span class="block font-semibold">Advanced</span>
-          <span class="text-sm text-muted">Change switch, Claude spend, connection and diagnostics</span>
+          <span class="block font-semibold">This device</span>
+          <span class="text-sm text-muted">{permission === "granted" ? "Notifications on" : permission === "denied" ? "Blocked in the browser" : permission === "unsupported" ? "Not supported here" : "Off"}</span>
         </span>
-        <motion.span animate={{ rotate: open ? 180 : 0 }} class="text-muted">
-          <Icons.chevron />
-        </motion.span>
-      </button>
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.35, ease: EASE_OUT }} class="overflow-hidden">
-            <div class="grid gap-4 border-t border-line p-5 md:grid-cols-2">
-              <div>
-                <h3 class="mb-2 text-sm text-muted">Changes to eBay</h3>
-                <dl class="figures">
-                  <div>
-                    <dt>Mode</dt>
-                    <dd>{me.writeMode !== "approval" ? "Read-only" : me.writesPaused ? "Paused" : "Applied after approval"}</dd>
-                  </div>
-                  <div>
-                    <dt>Held because</dt>
-                    <dd>{me.writesBlocked ?? "Nothing"}</dd>
-                  </div>
-                </dl>
-                {me.writeMode === "approval" && (
-                  <div class="actions">
-                    {me.writesPaused ? (
-                      owner ? (
-                        <button class="btn btn-primary" disabled={busy} onClick={() => run(async () => (await api("/settings/writes", { body: { paused: false } }), reloadMe()))}>
-                          Resume changes
-                        </button>
-                      ) : (
-                        <p class="text-sm text-muted">Only the owner can resume changes.</p>
-                      )
-                    ) : (
-                      <button class="btn btn-danger" disabled={busy} onClick={() => run(async () => (await api("/settings/writes", { body: { paused: true } }), reloadMe()))}>
-                        Pause all changes
-                      </button>
-                    )}
-                  </div>
-                )}
-                <p class="mt-3 text-xs text-muted">Anyone can pause. Approvals made while paused or read-only are recorded but don't reach eBay.</p>
-                <button class="btn-link mt-2 text-sm" onClick={() => (location.href = "/?status=agreed")}>
-                  See approvals recorded while read-only
-                </button>
-              </div>
-              <div>
-                <h3 class="mb-2 text-sm text-muted">Claude</h3>
-                {usage ? (
-                  <dl class="figures">
-                    <div>
-                      <dt>API key</dt>
-                      <dd>{usage.apiKeySet ? "Set" : "Not set yet"}</dd>
-                    </div>
-                    <div>
-                      <dt>Today</dt>
-                      <dd>
-                        {usd(usage.today.usd)} of {usd(usage.dailyBudgetUsd)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>This month</dt>
-                      <dd>
-                        {usd(usage.month.usd)} · {plural(usage.month.calls, "call")}
-                      </dd>
-                    </div>
-                    {usage.byJob.map((j) => (
-                      <div key={j.job}>
-                        <dt>{JOB_NAMES[j.job] ?? j.job}</dt>
-                        <dd>{usd(j.usd)}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                ) : (
-                  <div class="skeleton h-24" />
-                )}
-              </div>
-              <div>
-                <h3 class="mb-2 text-sm text-muted">Connection</h3>
-                <dl class="figures">
-                  <div>
-                    <dt>eBay account</dt>
-                    <dd>{me.ebayEnv === "production" ? "Live" : "Sandbox"}</dd>
-                  </div>
-                  <div>
-                    <dt>eBay permissions</dt>
-                    <dd>{me.ebayConnected ? (me.ebayScopes === "read-only" ? "Read-only" : "Full") : "Not connected"}</dd>
-                  </div>
-                  <div>
-                    <dt>Last notification</dt>
-                    <dd>{ago(me.lastPushAt)}</dd>
-                  </div>
-                </dl>
-              </div>
-              <div>
-                <h3 class="mb-2 text-sm text-muted">Diagnostics</h3>
-                <div class="flex flex-wrap gap-2">
-                  <button class="btn btn-secondary" disabled={busy || !devices.length} onClick={() => run(async () => (await api("/push/test", { body: {} }), reloadMe(), "Sent. It should arrive within a few seconds."))}>
-                    Send a test notification
-                  </button>
-                  <button class="btn btn-secondary" onClick={() => go("/activity")}>
-                    Open activity log
-                  </button>
-                </div>
-              </div>
-            </div>
-          </motion.div>
+        {permission !== "unsupported" && permission !== "granted" && (
+          <motion.button whileTap={{ scale: 0.95 }} class="btn btn-primary" disabled={busy} onClick={enablePush}>
+            Turn on
+          </motion.button>
         )}
-      </AnimatePresence>
-    </section>
+        {permission === "granted" && <span class="state state-applied">On</span>}
+      </div>
+      {devs.length > 0 && (
+        <>
+          <h3 class="mt-5 mb-2 text-sm text-muted">Devices that get notifications</h3>
+          <ul class="grid gap-2 p-0">
+            {devs.map((d) => (
+              <li class="flex list-none items-center justify-between gap-3 px-1 text-sm" key={d.endpoint}>
+                <span>
+                  {deviceName(d.user_agent)} <span class="text-muted">· added {ago(d.created_at)}</span>
+                  {d.last_error && <span class="block text-xs text-red">Last error: {d.last_error}</span>}
+                </span>
+                <button class="btn-link" onClick={() => run(async () => (await api("/push/unsubscribe", { body: { endpoint: d.endpoint } }), await devices.reload()))}>
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <dl class="figures mt-4">
+        <div>
+          <dt>Last notification sent</dt>
+          <dd>{ago(me.lastPushAt)}</dd>
+        </div>
+      </dl>
+      <p class="mt-3 text-xs text-muted">On Android: open this site in Chrome, choose Install app, then turn notifications on here.</p>
+    </Section>
+  );
+}
+
+function ConnectionSection({ me }: { me: Me }) {
+  const owner = me.user.role === "owner";
+  return (
+    <Section title="eBay connection" sub="The eBay account this app reads, and what it's allowed to do there.">
+      <dl class="figures">
+        <div>
+          <dt>eBay account</dt>
+          <dd>{me.ebayEnv === "production" ? "Live" : "Sandbox"}</dd>
+        </div>
+        <div>
+          <dt>Connected</dt>
+          <dd>{me.ebayConnected ? "Yes" : "Not yet"}</dd>
+        </div>
+        <div>
+          <dt>Permissions</dt>
+          <dd>{me.ebayConnected ? (me.ebayScopes === "read-only" ? "Read-only" : "Full") : "None"}</dd>
+        </div>
+        <div>
+          <dt>Changes</dt>
+          <dd>{me.writeMode !== "approval" ? "Read-only" : "After approval"}</dd>
+        </div>
+      </dl>
+      {owner && !me.ebayConnected && (
+        <p class="mt-4">
+          <a class="btn btn-primary" href="/oauth/start">
+            Connect your eBay account
+          </a>
+        </p>
+      )}
+      {owner && me.ebayConnected && me.writeMode === "approval" && me.ebayScopes === "read-only" && (
+        <div class="evidence mt-4">
+          <p class="text-sm">Changes are switched on, but eBay is still connected read-only, so approved changes can't be sent yet. Sign in to eBay again and accept the full permission.</p>
+          <p class="mt-3">
+            <a class="btn btn-primary" href="/oauth/start">
+              Give eBay full permission
+            </a>
+          </p>
+        </div>
+      )}
+    </Section>
+  );
+}
+
+const LEVEL: Record<Allowance["level"], { word: string; cls: string; bar: string }> = {
+  ok: { word: "OK", cls: "state-applied", bar: "var(--green)" },
+  low: { word: "Running low", cls: "state-held", bar: "var(--yellow)" },
+  out: { word: "Used up", cls: "state-decide", bar: "var(--red)" },
+  unknown: { word: "Balance needed", cls: "state-info", bar: "var(--blue)" },
+  off: { word: "Not set up", cls: "state-off", bar: "var(--muted)" },
+};
+
+function AllowanceRow({ a }: { a: Allowance }) {
+  const l = LEVEL[a.level];
+  const share = a.left != null && a.total ? Math.max(0, Math.min(1, a.left / a.total)) : null;
+  return (
+    <li class="list-none rounded-xl border border-line bg-surface-2 px-4 py-3">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <span class="font-semibold">{a.name}</span>
+        <span class={`state ${l.cls}`}>{l.word}</span>
+      </div>
+      <p class="mt-1 text-lg font-bold tabular-nums tracking-tight">{a.summary}</p>
+      {share != null && (
+        <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-3" role="meter" aria-valuemin={0} aria-valuemax={a.total ?? 0} aria-valuenow={a.left ?? 0} aria-label={`${a.name} left`}>
+          <motion.div class="h-full rounded-full" style={{ background: l.bar }} initial={{ width: 0 }} animate={{ width: `${share * 100}%` }} transition={{ duration: 0.8, ease: EASE_OUT }} />
+        </div>
+      )}
+      {a.notes.map((n) => (
+        <p class="mt-1.5 text-xs text-muted">{n}</p>
+      ))}
+    </li>
+  );
+}
+
+function CreditForm({ usage, run, busy, reload }: { usage: Usage; run: Run; busy: boolean; reload: () => void }) {
+  const [value, setValue] = useState("");
+  const save = (usd: string | null) =>
+    run(async () => {
+      await api("/usage/credit", { body: { usd } });
+      setValue("");
+      reload();
+      return usd == null ? "Balance cleared." : "Saved. What's left counts down from here.";
+    });
+  const claude = usage.allowances?.find((a) => a.id === "claude");
+  return (
+    <form
+      class="mt-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (value.trim()) save(value.trim());
+      }}
+    >
+      <label class="block text-sm font-semibold" for="credit">
+        Claude credit balance
+      </label>
+      <p class="mt-1 text-xs text-muted">Enter the balance shown in the Claude Console (Billing) after each top-up. Anthropic doesn't share it with the app.</p>
+      <div class="mt-2 flex flex-wrap gap-2">
+        <input id="credit" class="max-w-40" inputMode="decimal" placeholder="e.g. 12.50" value={value} onInput={(e) => setValue((e.target as HTMLInputElement).value)} />
+        <motion.button whileTap={{ scale: 0.95 }} class="btn btn-primary" disabled={busy || !value.trim()} type="submit">
+          Save
+        </motion.button>
+        {claude?.total != null && (
+          <button type="button" class="btn btn-text" disabled={busy} onClick={() => save(null)}>
+            Clear
+          </button>
+        )}
+      </div>
+    </form>
+  );
+}
+
+function UsageSection({ me, usage, run, busy }: { me: Me; usage: ReturnType<typeof useData<Usage>>; run: Run; busy: boolean }) {
+  const owner = me.user.role === "owner";
+  const u = usage.data;
+  if (!u) return <div class="card">{usage.error ? <p class="error">{usage.error}</p> : <div class="skeleton h-40" />}</div>;
+  return (
+    <div class="grid gap-4">
+      <Section title="What's left" sub="Paid allowances the app uses. When one runs low or out, you get a to-do in the Inbox and a notification.">
+        <ul class="grid gap-2 p-0">
+          {(u.allowances ?? []).map((a) => (
+            <AllowanceRow a={a} key={a.id} />
+          ))}
+        </ul>
+        {owner && <CreditForm usage={u} run={run} busy={busy} reload={usage.reload} />}
+      </Section>
+      <Section title="Claude" sub="Claude Sonnet writes listings and reviews them; Claude Haiku does the nightly checks and reply drafts.">
+        <dl class="figures">
+          <div>
+            <dt>API key</dt>
+            <dd>{u.apiKeySet ? "Set" : "Not set yet"}</dd>
+          </div>
+          <div>
+            <dt>Today</dt>
+            <dd>
+              {usd(u.today.usd)} of {usd(u.dailyBudgetUsd)} · {plural(u.today.calls, "call")}
+            </dd>
+          </div>
+          <div>
+            <dt>This month</dt>
+            <dd>
+              {usd(u.month.usd)} · {plural(u.month.calls, "call")}
+            </dd>
+          </div>
+        </dl>
+        {u.byJob.length > 0 && (
+          <>
+            <h3 class="mt-5 mb-1 text-sm text-muted">This month, by job</h3>
+            <dl class="figures">
+              {u.byJob.map((j) => (
+                <div key={j.job}>
+                  <dt>{JOB_NAMES[j.job] ?? j.job}</dt>
+                  <dd>
+                    {usd(j.usd)} <span class="font-normal text-muted">· {plural(j.calls, "call")}</span>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </>
+        )}
+      </Section>
+    </div>
   );
 }
 
@@ -835,6 +1075,10 @@ export function Settings(props: ScreenProps) {
   const [permission, setPermission] = useState(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
   const owner = me.user.role === "owner";
   const toasts = useToasts();
+  const wide = useWide();
+  const [section, open] = useSettingsSection();
+  // On a wide screen a section is always showing (the first by default); on a phone the menu shows first.
+  const shown: SectionId | null = section ?? (wide ? "account" : null);
 
   const run = async (fn: () => Promise<string | void>) => {
     setBusy(true);
@@ -862,92 +1106,96 @@ export function Settings(props: ScreenProps) {
       return "This device will now get notifications.";
     });
 
-  const devs = devices.data ?? [];
+  // One line under each menu entry saying how things stand.
+  const claude = usage.data?.allowances?.find((a) => a.id === "claude");
+  const lowCount = (usage.data?.allowances ?? []).filter((a) => a.level === "low" || a.level === "out").length;
+  const status: Record<SectionId, string> = {
+    account: `${me.user.name}, ${owner ? "owner" : "manager"}`,
+    notifications: permission === "granted" ? `On · ${plural(devices.data?.length ?? 0, "device")}` : permission === "denied" ? "Blocked here" : "Off on this device",
+    connection: `${me.ebayEnv === "production" ? "Live" : "Sandbox"} · ${me.ebayConnected ? (me.ebayScopes === "read-only" ? "read-only" : "full permission") : "not connected"}`,
+    style: "How Claude's reply drafts sound",
+    usage: lowCount ? `${plural(lowCount, "allowance")} running low` : claude?.left != null ? `Claude ${usd(claude.left)} left` : "Claude spend and sold-data searches",
+  };
+
+  const body = (s: SectionId) =>
+    s === "account" ? (
+      <AccountSection me={me} onSignedOut={onSignedOut} run={run} busy={busy} />
+    ) : s === "notifications" ? (
+      <NotificationsSection me={me} run={run} busy={busy} devices={devices} permission={permission} enablePush={enablePush} />
+    ) : s === "connection" ? (
+      <ConnectionSection me={me} />
+    ) : s === "style" ? (
+      <StyleCard owner={owner} onSignedOut={onSignedOut} />
+    ) : (
+      <UsageSection me={me} usage={usage} run={run} busy={busy} />
+    );
+
+  const menu = (
+    <LayoutGroup id="settings-menu">
+      <motion.ul class="m-0 grid gap-2 p-0" variants={list} initial="hidden" animate="show">
+        {SECTIONS.map((s) => {
+          const active = wide && shown === s.id;
+          return (
+            <motion.li variants={item} class="list-none" key={s.id}>
+              <button
+                class={`card glow-hover relative flex w-full items-center gap-3 px-4 py-3 text-left ${active ? "border-accent" : ""}`}
+                aria-current={active ? "page" : undefined}
+                onClick={() => open(s.id)}
+              >
+                {active && <motion.span layoutId="settings-active" class="nav-active" transition={SPRING} />}
+                <span class="relative grid size-10 shrink-0 place-items-center rounded-xl bg-surface-2 text-accent">
+                  <s.Icon size={18} />
+                </span>
+                <span class="relative min-w-0 flex-1">
+                  <span class="block font-semibold">{s.title}</span>
+                  <span class={`block truncate text-sm ${s.id === "usage" && lowCount ? "text-yellow" : "text-muted"}`}>{status[s.id]}</span>
+                </span>
+                <span class="relative -rotate-90 text-muted">
+                  <Icons.chevron />
+                </span>
+              </button>
+            </motion.li>
+          );
+        })}
+      </motion.ul>
+    </LayoutGroup>
+  );
+
+  const panel = shown && (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div key={shown} initial={{ opacity: 0, x: wide ? 0 : 24, y: wide ? 8 : 0 }} animate={{ opacity: 1, x: 0, y: 0 }} exit={{ opacity: 0, x: wide ? 0 : -16 }} transition={{ duration: 0.28, ease: EASE_OUT }}>
+        {body(shown)}
+      </motion.div>
+    </AnimatePresence>
+  );
+
   return (
     <>
       <div class="page-head">
         <div>
-          <h1>Settings</h1>
+          {!wide && section ? (
+            <button class="btn-link mb-1 inline-flex items-center gap-1.5 text-sm" onClick={() => history.back()}>
+              <Icons.arrowLeft size={15} /> Settings
+            </button>
+          ) : null}
+          <h1>{!wide && section ? SECTIONS.find((s) => s.id === section)!.title : "Settings"}</h1>
           <p>
             Signed in as {me.user.name}, {me.user.role}.
           </p>
         </div>
       </div>
-      <div class="settings">
-        <Section title="Notifications" sub="Approve or reject straight from the notification on your phone.">
-          <div class="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3">
-            <span>
-              <span class="block font-semibold">This device</span>
-              <span class="text-sm text-muted">{permission === "granted" ? "Notifications on" : permission === "denied" ? "Blocked in the browser" : permission === "unsupported" ? "Not supported here" : "Off"}</span>
-            </span>
-            {permission !== "unsupported" && permission !== "granted" && (
-              <motion.button whileTap={{ scale: 0.95 }} class="btn btn-primary" disabled={busy} onClick={enablePush}>
-                Turn on
-              </motion.button>
-            )}
-            {permission === "granted" && <span class="state state-applied">On</span>}
-          </div>
-          {devs.length > 0 && (
-            <ul class="mt-3 grid gap-2 p-0">
-              {devs.map((d) => (
-                <li class="flex list-none items-center justify-between gap-3 px-1 text-sm" key={d.endpoint}>
-                  <span>
-                    {deviceName(d.user_agent)} <span class="text-muted">· added {ago(d.created_at)}</span>
-                    {d.last_error && <span class="block text-xs text-red">Last error: {d.last_error}</span>}
-                  </span>
-                  <button class="btn-link" onClick={() => run(async () => (await api("/push/unsubscribe", { body: { endpoint: d.endpoint } }), await devices.reload()))}>
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p class="mt-3 text-xs text-muted">On Android: open this site in Chrome, choose Install app, then turn notifications on here.</p>
-        </Section>
-
-        <Section title="Your account" sub="You sign in with your email and the code from your authenticator app.">
-          <motion.button whileTap={{ scale: 0.95 }} class="btn btn-secondary" disabled={busy} onClick={() => run(async () => (await api(`/people/${me.user.id}/signout`, { body: {} }), onSignedOut()))}>
-            Sign out on all my devices
-          </motion.button>
-          {owner && !me.ebayConnected && (
-            <p class="mt-4">
-              <a class="btn btn-primary" href="/oauth/start">
-                Connect your eBay account
-              </a>
-            </p>
-          )}
-          {owner && me.ebayConnected && me.writeMode === "approval" && me.ebayScopes === "read-only" && (
-            <div class="evidence mt-4">
-              <p class="text-sm">Changes are switched on, but eBay is still connected read-only, so approved changes can't be sent yet. Sign in to eBay again and accept the full permission.</p>
-              <p class="mt-3">
-                <a class="btn btn-primary" href="/oauth/start">
-                  Give eBay full permission
-                </a>
-              </p>
-            </div>
-          )}
-        </Section>
-
-        {owner && (
-          <div class="span">
-            <PeopleCard {...props} />
-          </div>
-        )}
-
-        <SoldDataCard owner={owner} onSignedOut={onSignedOut} />
-
-        <div class="span">
-          <StyleCard owner={owner} onSignedOut={onSignedOut} />
+      {/* On a phone the switch sits at the top of the main Settings page; a section opens on its own. */}
+      {(wide || !section) && <ChangesCard me={me} reloadMe={reloadMe} run={run} busy={busy} go={go} />}
+      {wide ? (
+        <div class="grid grid-cols-[300px_1fr] items-start gap-5">
+          <div class="sticky top-4">{menu}</div>
+          <div class="min-w-0">{panel}</div>
         </div>
-
-        <Advanced me={me} reloadMe={reloadMe} run={run} busy={busy} usage={usage.data} devices={devs} go={go} />
-
-        <section class="span flex justify-center pt-2">
-          <button class="btn btn-text" onClick={() => run(async () => (await api("/logout", { body: {} }), onSignedOut()))}>
-            Sign out of this device
-          </button>
-        </section>
-      </div>
+      ) : section ? (
+        panel
+      ) : (
+        menu
+      )}
       <AnimatePresence>
         <Toasts items={toasts.items} />
       </AnimatePresence>

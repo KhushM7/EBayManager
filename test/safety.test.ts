@@ -32,6 +32,7 @@ describe("write gate is the only path to eBay writes", () => {
       "src/deletion.ts",
       "src/ebay/auth.ts",
       "src/ebay/browse.ts",
+      "src/ebay/pictures.ts",
       "src/ebay/sell.ts",
       "src/ebay/trading.ts",
       "src/notify.ts",
@@ -39,6 +40,25 @@ describe("write gate is the only path to eBay writes", () => {
       "src/push.ts",
       "src/solddata.ts",
     ]);
+  });
+
+  it("listing pictures are fetched only from eBay's picture hosts, over https, with no redirects", async () => {
+    const { fetchListingPicture } = await import("../src/ebay/pictures");
+    const real = globalThis.fetch;
+    const calls: string[] = [];
+    globalThis.fetch = (async (u: any, init: any) => {
+      calls.push(String(u));
+      expect(init?.redirect).toBe("error");
+      return new Response(new Uint8Array([1, 2, 3]), { headers: { "Content-Type": "image/jpeg" } });
+    }) as typeof fetch;
+    try {
+      for (const bad of ["http://i.ebayimg.com/a.jpg", "https://evil.example/a.jpg", "https://i.ebayimg.com.evil.example/a.jpg", "not a url"])
+        expect(await fetchListingPicture(bad)).toBeNull();
+      expect(calls).toEqual([]);
+      expect(await fetchListingPicture("https://i.ebayimg.com/images/g/x/s-l500.jpg")).toMatchObject({ type: "image/jpeg" });
+    } finally {
+      globalThis.fetch = real;
+    }
   });
 
   it("eBay hosts are chosen in one place", () => {

@@ -37,7 +37,11 @@ Design docs: [roadmap](docs/roadmap.md), [design system](docs/design-system.md),
 
 ## Decisions (2026-11-05)
 
-- **Dashboard redesign** ([design-system.md](docs/design-system.md)): glass and glow, swipeable approval cards, a listings catalogue, Insights and Store Pulse (was Audit), and a New listing wizard, now on the drafts server (merged 2026-11-06). The environment shows as a pinned pill; the change switch, Claude spend and diagnostics are under Settings → Advanced. This supersedes the tasteskill rules for the app.
+- **Dashboard redesign** ([design-system.md](docs/design-system.md)): glass and glow, swipeable approval cards, a listings catalogue, Insights and Store Pulse (was Audit), and a New listing wizard, now on the drafts server (merged 2026-11-06). The environment shows as a pinned pill. This supersedes the tasteskill rules for the app.
+
+## Decisions (2026-11-07, Settings)
+
+- **Settings is organised** (K): the Changes to eBay switch (Pause all changes) leads the page; then Account, Notifications, eBay connection, Reply style, and Usage and APIs (Claude and sold-data allowances, Claude spend). On a phone each section is its own page; on a desktop the menu sits beside it. The sold-price provider comparison and the diagnostics (test notification) were development tools and are removed.
 
 ## Decisions (2026-11-07)
 
@@ -60,7 +64,8 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 - **Approval mode from Phase 8 (go-live, 2026-11-07).** The go-live tests passed (K) and production runs `WRITE_MODE=approval`: eBay writes happen only through `ebayWrite()` after a person approves the proposal. To go back to read-only, K sets `writeMode = 'off'` in `infra/production.bicepparam` and runs the infrastructure update.
 - **Pricing target (K's seller rule, 2026-11-06).** The pricing engine (`src/pricing/`, [pricing-engine.md](docs/pricing-engine.md)) prices like K: what buyers pay comes from sales in the same condition only (close or different-condition matches only when there's nothing else; with under 6 sales, their middle, no trend). With realistic competition it goes just under the cheapest same-condition listing; listings far above what buyers pay (over 1.3x the value, or 15% above the dearest sale) are ignored; it never goes below the lowest same-condition sale to chase a cheap listing. With no realistic competition it prices at what buyers pay. Temporary dips, falling markets and faults keep their own rules. K's floor is enforced in code; the engine moves at most 10% a step, and a bigger jump or a second change within 7 days is flagged on the label.
 - **Returns.** Always accepted, and the buyer pays return postage. This is set as an eBay business policy.
-- **Shipping.** Assume K has a box and ships the item, unless they say collection only.
+- **Shipping** (K, 2026-11-07). Assume K has a box and ships the item, and offer collection in person as well by default (`DEFAULT_SHIPPING` in `src/rules.ts`); K can turn collection off for an item, or make it collection only.
+- **Live listings every time** (K, 2026-11-07). Every price check (manual, nightly, Claude's reviews and triage, Best Offer answers) searches eBay's live listings afresh: what the item sells for now is the main benchmark. Only sold data (30-day cache) and title grades are reused. A stored result stands in only if the fresh check fails.
 - **Negotiation.** K leads it. Claude only drafts replies, and K approves each message and counter-offer.
 
 ## Layout
@@ -85,7 +90,10 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/claude.ts`, `src/jobs.ts` | Claude tool-use loop (allowlisted tools, cost log, daily budget) and the jobs that use it |
 | `src/nightly.ts`, `src/health.ts`, `src/ebay/sell.ts` | The 02:00 run: snapshot, orders and traffic sync, rule-based health flags, Haiku triage of flagged listings |
 | `src/pricing/` | The pricing engine: `model.ts` (maths, pure), `identify.ts` (Claude identify and match), `engine.ts`, `learn.ts`, `bundles.ts` |
-| `src/solddata.ts`, `src/solddata-eval.ts`, `src/salesreport.ts` | Trawl and CompsAPI sold data (capped, cached), K's comparison test, the Seller Hub orders report import |
+| `src/solddata.ts`, `src/salesreport.ts` | Trawl and CompsAPI sold data (capped, cached), the Seller Hub orders report import |
+| `src/allowance.ts` | What's left of Claude credit (K enters the Console balance; the app subtracts its logged spend) and the sold-data monthly searches; low or out opens an Inbox to-do with a notification (15-minute poll and nightly). Shown in Settings → Usage and APIs |
+| `src/ebay/pictures.ts` | Listing pictures for the Listings page, fetched from eBay's picture hosts only and served by the app (`/api/listings/:id/image`), so the CSP stays `'self'` |
+| `src/util.ts` | Small shared helpers (`r2`, `list`, `num`, `stripHtml`) |
 | `src/specs.ts` | Published specifications for an exactly identified product (Sonnet + web search), each with a verified source |
 | `src/firstday.ts`, `src/style.ts`, `src/promotion.ts`, `src/ebay/history.ts` | First-day audit report, K's reply style guide, Promoted Listings research, and the account-history reads they use |
 | `src/inbox.ts`, `src/ebay/inbox.ts` | The 15-minute poll: buyer questions and Best Offers, Haiku drafts, floor enforced in code |

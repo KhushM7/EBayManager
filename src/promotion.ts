@@ -4,6 +4,7 @@ import { getItem } from "./ebay/trading";
 import { DEFAULT_PARAMS, daysToSell, hazard, value, type MarketState, type SaleParams } from "./pricing/model";
 import { inputFromItem, paramsFor, type PriceResult } from "./pricing/engine";
 import { proposeAndNotify } from "./proposals";
+import { r2 } from "./util";
 
 // Promotion research (docs/pricing-and-promotion.md, "Promoted Listings"). Promoted Listings is proposed only
 // when the market is saturated, the listing needs to be seen, and a low "general" (cost per sale) rate pays
@@ -62,7 +63,6 @@ export interface PromotionAdvice {
   payback: { daysNow: number; daysPromoted: number; valueNow: number; valuePromoted: number; adFee: number } | null;
 }
 
-const r2 = (x: number) => Math.round(x * 100) / 100;
 const halfStep = (x: number) => Math.round(x * 2) / 2;
 
 /** Is the market crowded enough that promotion could matter? */

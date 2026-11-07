@@ -163,6 +163,13 @@ describe("planning the postage", () => {
     expect(worked.postage).toMatchObject({ mode: "simple_delivery", size: "small_parcel_1kg", sizeBy: "app" });
   });
 
+  it("offers collection as well as postage unless K turns it off", async () => {
+    const env = env0();
+    const id = await draft(env);
+    expect((await savePostage(env, id, { cost: 6, postcode: "SW1A 1AA" })).postage).toMatchObject({ collectionOffered: true, collectionOnly: false });
+    expect((await savePostage(env, id, { cost: 6, postcode: "SW1A 1AA", collectionOffered: false })).postage).toMatchObject({ collectionOffered: false });
+  });
+
   it("puts what K does in Seller Hub after publishing in the listing's label", async () => {
     const env = env0();
     const id = await draft(env);

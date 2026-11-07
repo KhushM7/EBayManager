@@ -1,7 +1,6 @@
 import type { Env } from "./env";
 import { gateClosedReason, setWritesPaused, writesPaused } from "./ebay/write";
 import { runNightly } from "./nightly";
-import { push } from "./notify";
 import { CLAUDE_DAILY_BUDGET_USD } from "./rules";
 import { pollInbox } from "./inbox";
 import { applyApproved, decide, editProposal } from "./proposals";
@@ -10,8 +9,6 @@ import { clearCookie, endSession, isKnownDevice, knownDeviceCookie, recordFailur
 import { listPeople } from "./auth/people";
 import { CSRF_HEADER, getSession, keyLogin } from "./session";
 import { snapshotListings } from "./snapshot";
-import { MONTHLY_CAP, providerEnabled, usedThisMonth, type Provider } from "./solddata";
-import { evaluateProviders } from "./solddata-eval";
 import { cleanSale } from "./salesreport";
 import { orderLines } from "./store";
 import { jobStatus, startJob } from "./background";
@@ -22,6 +19,8 @@ import { getAnsweredQuestions, getSentMessages } from "./ebay/history";
 import { editStyle, getStyle, learnStyle, saveStyle } from "./style";
 import { reviewPromotions } from "./promotion";
 import { handleDrafts } from "./drafts";
+import { fetchListingPicture } from "./ebay/pictures";
+import { allowances, checkAllowances, setClaudeCredit } from "./allowance";
 
 // JSON API for the dashboard. Everything except sign-in needs a signed-in person (docs/security.md); some
 // actions are owner-only. Sign-in failures are rate-limited per network.
@@ -164,6 +163,8 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
           view_count: s.view_count ?? null,
           quantity_available: s.quantity_available,
           start_time: s.start_time,
+          // Served through the app (below), so the dashboard's CSP stays 'self' only.
+          image_url: s.image_url ? `/api/listings/${s.item_id}/image` : null,
           taken_at: s.taken_at,
           floor_price: i?.floor_price ?? null,
           collection_only: i ? i.collection_only : null,
@@ -175,6 +176,17 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
   }
 
   if (path === "/listings/refresh" && method === "POST") return json(await snapshotListings(env));
+
+  // A listing's main picture, fetched from eBay's picture host and cached by the browser for a day.
+  const listingImage = path.match(/^\/listings\/(\d{6,20})\/image$/);
+  if (listingImage && method === "GET") {
+    const l = await env.store.listings.latest(listingImage[1]);
+    const pic = l?.image_url ? await fetchListingPicture(l.image_url) : null;
+    if (!pic) return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
+    return new Response(pic.bytes as unknown as BodyInit, {
+      headers: { "Content-Type": pic.type, "Cache-Control": "private, max-age=86400", "Content-Disposition": "inline" },
+    });
+  }
 
   // K's floor and facts for one listing. Facts are used by listing edits and reply drafts, cited "from K".
   const itemSettings = path.match(/^\/items\/(\d{6,20})\/settings$/);
@@ -250,11 +262,6 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
     return json(
       (await env.store.push.list()).map((d) => ({ endpoint: d.endpoint, user_agent: d.user_agent, created_at: d.created_at, last_ok_at: d.last_ok_at, last_error: d.last_error })),
     );
-  }
-
-  if (path === "/push/test" && method === "POST") {
-    await push(env, "Test notification", "Notifications from EBayManager reach this device.", undefined, "test");
-    return json({ ok: true, lastPushAt: Number(await setting(env, "last_push_at")) || null });
   }
 
   if (path === "/audit" && method === "POST") {
@@ -440,20 +447,24 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
       byJob,
       dailyBudgetUsd: CLAUDE_DAILY_BUDGET_USD,
       apiKeySet: Boolean(env.ANTHROPIC_API_KEY),
+      allowances: await allowances(env),
+    });
+  }
+
+  // K's Claude credit balance, from the Claude Console, so Settings can show what's left.
+  if (path === "/usage/credit" && method === "POST") {
+    if (!owner) return ownerOnly();
+    const b = await body(request);
+    return run(async () => {
+      await setClaudeCredit(env, b.usd == null || b.usd === "" ? null : Number(b.usd));
+      await checkAllowances(env);
+      return json({ allowances: await allowances(env) });
     });
   }
 
   if (path === "/nightly" && method === "POST") return json(await runNightly(env));
 
   if (path === "/metrics" && method === "GET") return json(await metrics(env));
-
-  if (path === "/solddata" && method === "GET") {
-    const providers = await Promise.all(
-      (["trawl", "compsapi"] as Provider[]).map(async (p) => ({ provider: p, enabled: providerEnabled(env, p), used: await usedThisMonth(env, p), cap: MONTHLY_CAP[p] })),
-    );
-    const last = await setting(env, "solddata_eval");
-    return json({ providers, primary: await setting(env, "solddata_primary"), lastEval: last ? JSON.parse(last) : null });
-  }
 
   // Past sales from Seller Hub's orders report (eBay's APIs only return 90 days). The browser has already
   // dropped every buyer column; the server re-validates each sale and stores only the sales fields.
@@ -477,12 +488,6 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
         },
       ]);
     return json({ received: sales.length, valid: clean.length, imported, alreadyThere: clean.length - imported });
-  }
-
-  // Spends up to 5 searches per provider, so owner only.
-  if (path === "/solddata/evaluate" && method === "POST") {
-    if (!owner) return ownerOnly();
-    return run(async () => json(await evaluateProviders(env)));
   }
 
   return json({ error: "Not found" }, 404);

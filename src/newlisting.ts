@@ -7,6 +7,7 @@ import { lookupSpecs } from "./specs";
 import { priceItem } from "./pricing/engine";
 import { proposeAndNotify } from "./proposals";
 import { getStyle } from "./style";
+import { COLLECTION_OFFERED_BY_DEFAULT } from "./rules";
 import { parcelQuotes, recommendSize, sizeByCode, sizeName, SIMPLE_DELIVERY_MAX_PRICE, type Parcel } from "./postage";
 
 // Add Listing, steps L2 to L5 (docs/add-listing.md). From a draft's photos to a `create_listing` label:
@@ -129,7 +130,14 @@ export async function reviewDraft(env: Env, id: string, api?: MessagesApi): Prom
   const aspects = category ? await categoryAspectDetails(env, category.id).catch(() => []) : [];
   // Published specs only for an exactly identified product, each kept only with a page search returned.
   let specs: DraftRow["specs"] = null;
-  if (review.exact) {
+  // A re-check of the same exact product in the same category keeps the specs already found (the same search
+  // would find the same pages), instead of paying for the web search again.
+  const same = (a: unknown, b: unknown) => String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+  const prev = d.review;
+  const unchanged =
+    review.exact && prev?.exact && d.specs?.exact && same(prev.product, review.product) && same(prev.brand, review.brand) && same(prev.model, review.model) && same(d.category?.id, category?.id);
+  if (unchanged) specs = d.specs!;
+  else if (review.exact) {
     const found = await lookupSpecs(env, { ItemID: id, Title: review.product, Description: review.visibleFacts.map((f) => f.fact).join(". ") }, aspects.map((a) => a.name), api).catch(() => null);
     if (found) specs = { product: found.product, exact: found.exact, note: found.note, specs: found.specs, aliases: found.aliases ?? [] };
   }
@@ -437,7 +445,8 @@ export async function savePostage(env: Env, id: string, b: any): Promise<DraftRo
     carrier: clip(b.carrier, 40) || null,
     service: clip(b.service, 80) || null,
     source: b.source === "parcel2go" ? ("parcel2go" as const) : ("you" as const),
-    collectionOffered: collectionOnly || b.collectionOffered === true,
+    // Collection is offered unless K turned it off (DEFAULT_SHIPPING).
+    collectionOffered: collectionOnly || (b.collectionOffered == null ? COLLECTION_OFFERED_BY_DEFAULT : b.collectionOffered === true),
     collectionOnly,
     postcode,
     ...postageChoice(b, parcel, d.price?.value ?? d.pricing?.price ?? null),
@@ -578,7 +587,7 @@ export async function planPostage(env: Env, id: string, api?: MessagesApi): Prom
           carrier: cheapest.carrier,
           service: cheapest.service,
           source: "parcel2go",
-          collectionOffered: d.postage?.collectionOffered ?? false,
+          collectionOffered: d.postage?.collectionOffered ?? COLLECTION_OFFERED_BY_DEFAULT,
           collectionOnly: false,
           postcode,
           mode,

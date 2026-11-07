@@ -234,7 +234,14 @@ export async function matchTitles(
   if (!titles.length) return { matches: [], by: identity.by };
   if (identity.by === "rules" || (!env.ANTHROPIC_API_KEY && !api)) return { matches: rules(), by: "rules" };
 
+  // Titles already graded for this exact item and component (same context Claude saw) aren't sent again: sold
+  // data is cached for 30 days, so the same titles come back on every price check.
+  const cacheKey = JSON.stringify([IDENTITY_VERSION, component.name, identity.product, identity.condition, identity.keyFacts ?? [], ownTitle]);
+  const known = await env.store.pricing.getGrades(cacheKey).catch(() => ({}) as Awaited<ReturnType<Env["store"]["pricing"]["getGrades"]>>);
+  const todo = [...new Set(titles)].filter((t) => !(t in known));
+
   const out: Grade[] = [];
+  const fresh: typeof known = {};
   let answered = 0;
   const grade = async (start: number, batch: string[]): Promise<boolean> => {
     const prompt = [
@@ -254,12 +261,13 @@ export async function matchTitles(
     ).catch((e) => (console.error(`pricing:match failed: ${(e instanceof Error ? e.message : String(e)).slice(0, 500)}`), null));
     if (!res) return false;
     const ok = (n: number) => Number.isInteger(n) && n >= 1 && n <= batch.length;
-    for (const n of res.exact ?? []) if (ok(n)) out.push({ i: start + n - 1, grade: "exact", factor: 1 });
-    for (const c of res.close ?? []) if (ok(c.n)) out.push({ i: start + c.n - 1, grade: "close", factor: Math.min(2, Math.max(0.3, Number(c.factor) || 1)) });
+    for (const t of batch) if (!(t in fresh)) fresh[t] = null;
+    for (const n of res.exact ?? []) if (ok(n)) fresh[batch[n - 1]] = { grade: "exact", factor: 1 };
+    for (const c of res.close ?? []) if (ok(c.n) && !fresh[batch[c.n - 1]]) fresh[batch[c.n - 1]] = { grade: "close", factor: Math.min(2, Math.max(0.3, Number(c.factor) || 1)) };
     return true;
   };
-  for (let start = 0; start < titles.length; start += MATCH_BATCH) {
-    const batch = titles.slice(start, start + MATCH_BATCH);
+  for (let start = 0; start < todo.length; start += MATCH_BATCH) {
+    const batch = todo.slice(start, start + MATCH_BATCH);
     if (await grade(start, batch)) answered++;
     else {
       const half = Math.ceil(batch.length / 2);
@@ -267,10 +275,16 @@ export async function matchTitles(
       if (await grade(start + half, batch.slice(half))) answered++;
     }
   }
-  // Only if Claude answered nothing at all (outage, budget used up) do the word rules stand in.
-  if (!answered) return { matches: rules(), by: "rules" };
-  const seen = new Set<number>();
-  return { matches: out.filter((g) => !seen.has(g.i) && seen.add(g.i)).sort((a, b) => a.i - b.i), by: "claude" };
+  // Only if Claude answered nothing at all (outage, budget used up) and nothing was graded before do the word
+  // rules stand in.
+  if (!answered && todo.length === [...new Set(titles)].length) return { matches: rules(), by: "rules" };
+  if (Object.keys(fresh).length) await env.store.pricing.putGrades(cacheKey, { ...known, ...fresh }, Date.now()).catch(() => null);
+  const all = { ...known, ...fresh };
+  titles.forEach((t, i) => {
+    const g = all[t];
+    if (g) out.push({ i, grade: g.grade, factor: g.factor });
+  });
+  return { matches: out, by: "claude" };
 }
 
 /**

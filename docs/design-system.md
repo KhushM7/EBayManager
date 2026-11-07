@@ -14,10 +14,10 @@ Stack: Preact, **Tailwind v4** (`@tailwindcss/vite`) and **Framer Motion** throu
 | Labels with a tear-off stub | Cards you can **swipe right to approve or left to reject**. Buttons too. Old → new price pills roll from the old figure to the new one when a card opens |
 | Text rows of listings | A **catalogue**: a thumbnail tile per listing (tinted from its id, parallax zoom on scroll), title on two lines, frosted badges for watchers, views, days listed, floor and collection |
 | Metrics as text | **Insights**: a bento grid with revenue counting up, a sell-through ring, sparklines that draw themselves, revenue per day and store health |
-| Claude spend, test push, the change switch and "dry run" on every screen | **Settings → Advanced**. Approvals recorded while read-only are listed from there (`/?status=agreed`) |
+| Claude spend and the change switch on every screen | The change switch leads **Settings**; Claude spend and allowances are in **Settings → Usage and APIs**. Approvals recorded while read-only are linked from the change switch (`/?status=agreed`) |
 | — | **New listing** wizard (`/new`, the centre "+" on the phone) |
 
-Navigation: a glass sidebar on desktop, and a floating tab bar on the phone with Inbox, Listings, **+**, Insights and Settings. Store Pulse is linked from Insights, and Activity from Settings → Advanced. `/audit` still opens Store Pulse.
+Navigation: a glass sidebar on desktop, and a floating tab bar on the phone with Inbox, Listings, **+**, Insights and Settings. Store Pulse is linked from Insights, and Activity (Change history) from the change switch at the top of Settings. `/audit` still opens Store Pulse.
 
 ## Colour
 

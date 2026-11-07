@@ -65,7 +65,7 @@ Nothing runs continuously. The app runs only when a request, a push decision, a 
 | **Insights** (`/metrics`) | See below, as a bento grid with store health | Run the nightly check now, open Store Pulse |
 | **New listing** (`/new`) | A five-step wizard: photos graded in the browser, facts, Claude's description, price, review | Send for approval (a `create_listing` proposal) |
 | **Activity** | The audit log: every eBay write, refusal and failure | Filter by outcome |
-| **Settings** | Notifications and devices, your account (sign out on all devices), people (the owner sees who can sign in and can sign anyone out), sold data, the reply style guide; **Advanced** holds Pause all writes, Claude spend, connection status, test push and approvals recorded while read-only | Toggle pause, manage devices, edit the style guide (owner) |
+| **Settings** | **Changes to eBay** at the top (Pause all changes, why changes are held, change history, approvals recorded while read-only); then sections: Account (sign out, people), Notifications (this device, devices, last sent), eBay connection, Reply style, Usage and APIs (what's left of Claude credit and sold-data searches, Claude spend) | Toggle pause, manage devices, edit the style guide and enter the Claude balance (owner) |
 
 A glowing pill is pinned to the top centre of every screen: **Sandbox · test account** (amber), **Live account · read-only** (blue), or none in full production (2026-11-05; it replaced the full-width banner). Push titles carry the same prefix, for example `[SANDBOX] Price: 24.99 → 22.50`.
 

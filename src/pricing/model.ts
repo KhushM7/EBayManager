@@ -1,8 +1,8 @@
+import { r2 } from "../util";
 // The pricing engine's maths (docs/pricing-engine.md). Pure functions only: no I/O, so every step is tested
 // and explainable. Prices here are totals the buyer pays (item + postage), GBP.
 
 const DAY = 86_400_000;
-const r2 = (x: number) => Math.round(x * 100) / 100;
 
 export interface MarketSale {
   /** Total paid: item price + postage. */

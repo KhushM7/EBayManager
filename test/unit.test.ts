@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTradingResponse, toActiveListing } from "../src/ebay/trading";
+import { listingImage, parseTradingResponse, toActiveListing } from "../src/ebay/trading";
 import { summarize } from "../src/ebay/browse";
 import { signDecision, verifyDecision } from "../src/proposals";
 import { handleRpc } from "../src/mcp";
@@ -13,6 +13,7 @@ describe("Trading parsing", () => {
 <ActiveList><ItemArray><Item><ItemID>123</ItemID><Title>Sony WH-1000XM4</Title>
 <SellingStatus><CurrentPrice currencyID="GBP">120.0</CurrentPrice></SellingStatus>
 <QuantityAvailable>1</QuantityAvailable><WatchCount>4</WatchCount>
+<PictureDetails><GalleryURL>https://i.ebayimg.com/images/g/abc/s-l140.jpg</GalleryURL></PictureDetails>
 <ListingDetails><StartTime>2026-08-01T10:00:00.000Z</StartTime><ViewItemURL>https://www.ebay.co.uk/itm/123</ViewItemURL></ListingDetails>
 </Item></ItemArray><PaginationResult><TotalNumberOfPages>1</TotalNumberOfPages></PaginationResult></ActiveList>
 </GetMyeBaySellingResponse>`;
@@ -20,7 +21,15 @@ describe("Trading parsing", () => {
   it("reads an active listing", () => {
     const doc = parseTradingResponse("GetMyeBaySelling", xml);
     const item = toActiveListing([doc.ActiveList.ItemArray.Item].flat()[0]);
-    expect(item).toMatchObject({ itemId: "123", price: 120, currency: "GBP", watchCount: 4, quantityAvailable: 1 });
+    expect(item).toMatchObject({ itemId: "123", price: 120, currency: "GBP", watchCount: 4, quantityAvailable: 1, imageUrl: "https://i.ebayimg.com/images/g/abc/s-l500.jpg" });
+  });
+
+  it("keeps only https pictures on eBay's picture hosts", () => {
+    expect(listingImage({ PictureDetails: { PictureURL: ["https://i.ebayimg.com/00/s/x/s-l1600.jpg"] } })).toBe("https://i.ebayimg.com/00/s/x/s-l500.jpg");
+    expect(listingImage({ PictureDetails: { GalleryURL: "http://i.ebayimg.com/a.jpg" } })).toBeNull();
+    expect(listingImage({ PictureDetails: { GalleryURL: "https://evil.example/ebayimg.com.jpg" } })).toBeNull();
+    expect(listingImage({ PictureDetails: { GalleryURL: "https://i.ebayimg.com.evil.example/a.jpg" } })).toBeNull();
+    expect(listingImage({})).toBeNull();
   });
 
   it("throws on Failure", () => {

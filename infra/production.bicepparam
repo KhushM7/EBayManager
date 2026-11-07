@@ -1,9 +1,10 @@
-// Production: K's real eBay account. Read-only until Phase 8 and the go-live tests: WRITE_MODE stays 'off'
-// (main.bicep forces it off for production regardless), no test sign-in, no /mcp. Only K deploys this.
+// Production: K's real eBay account. Writes are on in approval mode since go-live (Phase 8, 2026-11-07, after
+// the go-live tests): every eBay change still needs K's approval and passes the write gate. No test sign-in,
+// no /mcp. Only K deploys this. To go back to read-only, set writeMode = 'off' and redeploy the infrastructure.
 using 'main.bicep'
 
 param env = 'production'
 param location = readEnvironmentVariable('AZURE_LOCATION', 'francecentral')
-param writeMode = 'off'
+param writeMode = 'approval'
 param ownerObjectId = readEnvironmentVariable('AZURE_OWNER_OBJECT_ID', '')
 param sandboxConveniences = false

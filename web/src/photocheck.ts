@@ -23,6 +23,8 @@ export interface PhotoGrade {
   findings: Finding[];
   /** The item's estimated bounding box, as fractions of the frame, for the overlay. */
   box: { x: number; y: number; w: number; h: number };
+  /** The item's estimated centre (where the detail is), as fractions of the frame: what "offset" measures from. */
+  centre: { x: number; y: number };
 }
 
 export const SIZE = 320;
@@ -124,7 +126,8 @@ export function gradePixels(data: ArrayLike<number>, w: number, h: number, width
     }
   const box = maxX > minX ? { x: minX / w, y: minY / h, w: (maxX - minX) / w, h: (maxY - minY) / h } : { x: 0.25, y: 0.25, w: 0.5, h: 0.5 };
   const coverage = box.w * box.h;
-  const offset = wsum ? Math.hypot(cx / wsum / w - 0.5, cy / wsum / h - 0.5) / 0.7071 : 0;
+  const middlePoint = wsum ? { x: cx / wsum / w, y: cy / wsum / h } : { x: 0.5, y: 0.5 };
+  const offset = Math.hypot(middlePoint.x - 0.5, middlePoint.y - 0.5) / 0.7071;
   const clutter = middleN && borderN ? border / borderN / Math.max(1e-6, middle / middleN) : 0;
 
   // Even light: the four corners against the middle
@@ -155,7 +158,7 @@ export function gradePixels(data: ArrayLike<number>, w: number, h: number, width
   else if (sharpness < BLUR_SOFT) add("soft", "warn", "Focus is a little soft. Tap the item to focus before you shoot.");
   if (contrast < 0.07) add("flat", "warn", "Very low contrast: the item may be blending into the background.");
   if (coverage < 0.18) add("small", "warn", "The item is small in the frame. Move closer so it fills most of the photo.");
-  if (offset > 0.22) add("offcentre", "warn", "The item is off-centre. Line it up with the middle of the grid.");
+  if (offset > 0.22) add("offcentre", "warn", "The item is off-centre. Use Adjust to centre it, or line it up with the middle of the grid next time.");
   if (clutter > 0.85) add("busy", "warn", "Busy background. A plain white or light grey sheet makes the item stand out.");
   if (long < 500) add("tiny", "bad", `Only ${long}px on the long side: eBay needs at least 500px, and 1600px looks best.`);
   else if (long < 1600) add("lowres", "warn", `${long}px on the long side. 1600px or more lets buyers zoom in.`);
@@ -165,7 +168,7 @@ export function gradePixels(data: ArrayLike<number>, w: number, h: number, width
   const penalty = findings.reduce((s, f) => s + (f.tone === "bad" ? 30 : 12), 0);
   const score = Math.max(0, Math.min(100, 100 - penalty));
   if (!findings.length) add("ok", "good", "Great shot: well lit, sharp and well framed.");
-  return { width, height, brightness, contrast, sharpness, glare, coverage, offset, clutter, score, findings, box };
+  return { width, height, brightness, contrast, sharpness, glare, coverage, offset, clutter, score, findings, box, centre: middlePoint };
 }
 
 export const gradeWord = (score: number) => (score >= 85 ? "Great" : score >= 65 ? "Good" : score >= 40 ? "Retake suggested" : "Retake");

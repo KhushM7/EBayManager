@@ -2,9 +2,12 @@
 //
 //   node scripts/people.mjs sandbox add --email you@example.com --name K --role owner
 //   node scripts/people.mjs sandbox new-code --email you@example.com     (a lost or new phone)
+//   node scripts/people.mjs sandbox change-email --email typo@example.co --to you@example.com   (same authenticator)
 //   node scripts/people.mjs sandbox remove --email them@example.com
 //   node scripts/people.mjs sandbox list
 //   node scripts/people.mjs sandbox link                                 (the hidden sign-in address)
+//   node scripts/people.mjs sandbox new-link                             (a fresh address; the old one stops working)
+//   node scripts/people.mjs sandbox refresh                              (if the sign-in page only loads sometimes)
 //   Production: $env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/people.mjs production add ...
 //
 // add and new-code make a fresh authenticator secret and show it ONCE in this terminal as a QR code (and as a
@@ -79,8 +82,35 @@ function upload() {
   const r = spawnSync(process.execPath, ["scripts/azure-secrets.mjs", env], { stdio: "inherit", env: process.env });
   if (r.status !== 0) fail("Upload failed. The change is saved in " + file + "; run node scripts/azure-secrets.mjs " + env + " again.");
   const o = outputs(env);
+  // Azure caches Key Vault values on each running copy of the app (up to 24 hours), so a restart alone can
+  // leave some copies on the old values. Ask it to fetch them again first, then restart.
+  try {
+    const id = az(["functionapp", "show", "-g", o.resourceGroup, "-n", o.functionAppName, "--query", "id", "-o", "tsv"]);
+    az(["rest", "--method", "post", "--url", `${id}/config/configreferences/appsettings/refresh?api-version=2022-03-01`], { quiet: true });
+  } catch (e) {
+    console.log(`(Couldn't ask Azure to re-read Key Vault: ${String(e.message).split("\n")[0]}. Restarting anyway.)`);
+  }
   az(["functionapp", "restart", "-g", o.resourceGroup, "-n", o.functionAppName]);
-  console.log("App restarted: the change is live.");
+  console.log("App restarted.");
+}
+
+/** Waits until the sign-in page answers on every try (each copy of the app has the new settings). */
+async function waitForSignin() {
+  if (rest.includes("--no-upload") || !signinPath) return;
+  const url = signinUrl();
+  if (!url.startsWith("https://")) return;
+  process.stdout.write("Checking the sign-in page");
+  for (let round = 0; round < 18; round++) {
+    let ok = 0;
+    for (let i = 0; i < 8; i++) {
+      const r = await fetch(url, { redirect: "manual" }).catch(() => null);
+      if (r?.status === 200) ok++;
+    }
+    if (ok === 8) return console.log(" ready: it loads every time.");
+    process.stdout.write(".");
+    await new Promise((res) => setTimeout(res, 10_000));
+  }
+  console.log("\nThe sign-in page still fails on some tries. Run: node scripts/people.mjs " + env + " refresh");
 }
 
 function signinUrl() {
@@ -117,6 +147,19 @@ async function showSecret(person) {
 if (command === "list") {
   if (!people.length) console.log(`Nobody is set up for ${env} yet.`);
   for (const p of people) console.log(`${p.role.padEnd(8)} ${p.name}  <${p.email}>`);
+} else if (command === "new-link") {
+  // A fresh hidden sign-in address (the old one stops working), e.g. if it was shared by mistake.
+  signinPath = randomBytes(24).toString("base64url");
+  save();
+  upload();
+  await waitForSignin();
+  console.log(`
+New sign-in page (bookmark it; the old one now shows a blank page):
+  ${signinUrl()}`);
+} else if (command === "refresh") {
+  // Makes every copy of the app re-read its settings from Key Vault, then restarts it.
+  upload();
+  await waitForSignin();
 } else if (command === "link") {
   if (!signinPath) fail("No sign-in address yet: add someone first.");
   console.log(signinUrl());
@@ -138,8 +181,23 @@ if (command === "list") {
   save();
   await showSecret(person);
   upload();
+  await waitForSignin();
   console.log(`\nSign-in page (bookmark it; send it to ${name} privately):\n  ${signinUrl()}`);
   console.log("Everything else on the site shows a blank page to anyone not signed in.");
+} else if (command === "change-email") {
+  // Fixes a typo without a new authenticator: the same secret, under the new email. Sessions under the old
+  // email end, so sign in again with the new one.
+  needEmail();
+  const to = (flag("to") ?? "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) fail("Give --to name@example.com");
+  const p = people.find((x) => x.email === email);
+  if (!p) fail(`${email} isn't set up.`);
+  if (people.some((x) => x.email === to)) fail(`${to} is already set up.`);
+  p.email = to;
+  save();
+  console.log(`${p.name}: ${email} -> ${to}. Your authenticator entry stays the same; sign in again with ${to}.`);
+  upload();
+  await waitForSignin();
 } else if (command === "remove") {
   needEmail();
   const p = people.find((x) => x.email === email);
@@ -149,6 +207,7 @@ if (command === "list") {
   save();
   console.log(`${p.name} removed. Their sessions stop working once the app restarts.`);
   upload();
+  await waitForSignin();
 } else {
-  fail("Commands: add, new-code, remove, list, link. See the top of scripts/people.mjs.");
+  fail("Commands: add, new-code, change-email, remove, list, link, new-link, refresh. See the top of scripts/people.mjs.");
 }

@@ -176,10 +176,19 @@ describe("listing builder", () => {
 
 describe("title lock", () => {
   it("knows when eBay won't change a title or description", async () => {
-    const { titleLockReason } = await import("../src/ebay/trading");
-    expect(titleLockReason({ BestOfferDetails: { BestOfferCount: 1 } })).toMatch(/pending offer/);
+    const { titleLockReason, openOfferCount } = await import("../src/ebay/trading");
+    expect(titleLockReason({}, 1)).toMatch(/offer waiting/);
     expect(titleLockReason({ SellingStatus: { QuantitySold: "1" } })).toMatch(/sale/);
     expect(titleLockReason({ BestOfferDetails: { BestOfferCount: 0 }, SellingStatus: { QuantitySold: 0 } })).toBeNull();
+    // Old offers (declined, expired) don't lock: GetItem's BestOfferCount counts them too (the Maono listing).
+    expect(titleLockReason({ BestOfferDetails: { BestOfferCount: 3 } }, 0)).toBeNull();
+    const now = Date.parse("2026-11-07T12:00:00Z");
+    const offers = (list: { Status: string; ExpirationTime?: string }[]) => ({ ItemBestOffersArray: { ItemBestOffers: { BestOfferArray: { BestOffer: list } } } });
+    expect(openOfferCount(offers([{ Status: "Declined" }, { Status: "Expired" }, { Status: "Accepted" }]), now)).toBe(0);
+    expect(openOfferCount(offers([{ Status: "Active", ExpirationTime: "2026-11-08T12:00:00Z" }]), now)).toBe(1);
+    expect(openOfferCount(offers([{ Status: "Countered", ExpirationTime: "2026-11-09T12:00:00Z" }]), now)).toBe(1);
+    expect(openOfferCount(offers([{ Status: "Active", ExpirationTime: "2026-11-06T12:00:00Z" }]), now)).toBe(0);
+    expect(openOfferCount({}, now)).toBe(0);
   });
 
   it("keeps a title revision pending when an offer arrived after it was proposed", async () => {
@@ -187,10 +196,14 @@ describe("title lock", () => {
       const call = (init.headers as Record<string, string>)["X-EBAY-API-CALL-NAME"];
       if (call === "GetItem")
         return new Response(`<GetItemResponse><Ack>Success</Ack><Item><ItemID>111</ItemID><BestOfferDetails><BestOfferCount>1</BestOfferCount></BestOfferDetails></Item></GetItemResponse>`);
+      if (call === "GetBestOffers")
+        return new Response(
+          `<GetBestOffersResponse><Ack>Success</Ack><ItemBestOffersArray><ItemBestOffers><Item><ItemID>111</ItemID></Item><BestOfferArray><BestOffer><BestOfferID>9</BestOfferID><Status>Active</Status><ExpirationTime>2099-01-01T00:00:00Z</ExpirationTime></BestOffer></BestOfferArray></ItemBestOffers></ItemBestOffersArray></GetBestOffersResponse>`,
+        );
       return new Response(OK_XML);
     });
     const p = await createProposal(env, { kind: "revise", itemId: "111", payload: { title: "New title" } });
-    expect(await decide(env, p.id, "approve")).toMatch(/^Not approved yet: .*pending offer/);
+    expect(await decide(env, p.id, "approve")).toMatch(/^Not approved yet: .*offer waiting/);
     expect((await getProposal(env, p.id))?.status).toBe("pending");
     expect(ebayCalls().filter(([, i]) => (i as any).headers["X-EBAY-API-CALL-NAME"] === "ReviseFixedPriceItem")).toHaveLength(0);
   });

@@ -14,7 +14,7 @@ param env string
 param location string
 
 @allowed(['off', 'approval'])
-@description('The write gate. Production stays off until Phase 8 and the go-live tests.')
+@description('The write gate: off (read-only) or approval (every eBay change needs approval). Production is approval since go-live, 2026-11-07.')
 param writeMode string
 
 @description('Object ID of the owner (K) in Entra ID: az ad signed-in-user show --query id -o tsv')
@@ -64,7 +64,7 @@ module app 'modules/app.bicep' = {
     env: env
     location: location
     suffix: suffix
-    writeMode: env == 'production' ? 'off' : writeMode
+    writeMode: writeMode
     ownerObjectId: ownerObjectId
     sandboxConveniences: env == 'production' ? false : sandboxConveniences
     cosmosEndpoint: cosmos.outputs.endpoint

@@ -1,5 +1,5 @@
 import type { Env } from "./env";
-import { getItem, titleLockReason } from "./ebay/trading";
+import { titleLock } from "./ebay/trading";
 import { callFor, ebayWrite, WriteRefused } from "./ebay/write";
 import { push } from "./notify";
 import { snapshotListings } from "./snapshot";
@@ -181,6 +181,15 @@ export async function applyApproved(env: Env): Promise<{ id: string; result: str
 
 export const DRY_RUN_AGREED = "Dry run: recorded as approved. Nothing was sent to eBay, and it can't be.";
 
+/**
+ * Whether a proposal holds its listing against a repeat suggestion (the nightly triage and price review). While
+ * changes are off every proposal is a dry run and holds, so the same change isn't suggested night after night.
+ * Once writes are on (K, 2026-11-07), dry runs left over from the read-only days no longer hold: they never
+ * reached eBay, so the listing gets fresh, real suggestions straight away. Real proposals (waiting, approved or
+ * applied) still hold, so nothing repeats.
+ */
+export const holdsListing = (env: Pick<Env, "WRITE_MODE">, p: { dry_run?: number | null }) => !(env.WRITE_MODE === "approval" && Boolean(p.dry_run));
+
 export async function decide(env: Env, id: string, decision: "approve" | "reject", actor: string | null = null): Promise<string> {
   const p = await getProposal(env, id);
   if (!p) return "Not found";
@@ -210,7 +219,7 @@ export async function decide(env: Env, id: string, decision: "approve" | "reject
   if (p.kind === "revise" && p.item_id) {
     const a = JSON.parse(p.payload);
     if (a.title || a.description) {
-      const lock = titleLockReason(await getItem(env, p.item_id).catch(() => null));
+      const lock = await titleLock(env, p.item_id);
       if (lock) return `Not approved yet: ${lock}. Approve it again after that.`;
     }
   }

@@ -1,7 +1,7 @@
 import { XMLParser } from "fast-xml-parser";
 import type { Env } from "../env";
 import { userToken } from "./auth";
-import { assertTrading, TRADING_READ } from "./allowlist";
+import { assertRest, assertTrading, REST_WRITE, TRADING_READ } from "./allowlist";
 import { ebayHosts, PRODUCTION_HOSTS } from "./hosts";
 
 const COMPAT_LEVEL = "1349";
@@ -80,6 +80,44 @@ export async function tradingUpload(env: Env, call: string, innerXml: string, by
   return parseTradingResponse(call, await res.text());
 }
 
+/**
+ * Uploads one listing photo to eBay Picture Services through the Media API (its image-from-file upload: the
+ * JPEG as multipart form key "image") and returns its eBay address, for a Trading listing's PictureDetails.PictureURL.
+ * Needs the full sell.inventory permission. Only src/ebay/write.ts may call it (enforced by test), while
+ * applying an approved create_listing. It replaced the Trading picture upload on production, which eBay has
+ * retired there (src/ebay/write.ts, uploadPictures).
+ */
+export async function mediaUpload(env: Env, bytes: Uint8Array, filename: string): Promise<string> {
+  const host = ebayHosts(env).media;
+  if (!host) throw new Error("eBay's Media API has no Sandbox address");
+  const url = host + REST_WRITE[0].prefix;
+  assertRest("POST", url, "write");
+  const token = await userToken(env);
+  const form = new FormData();
+  form.append("image", new Blob([bytes as BlobPart], { type: "image/jpeg" }), filename.replace(/[^\w.-]/g, "") || "photo.jpg");
+  const res = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, body: form });
+  const text = await res.text();
+  let body: any = null;
+  try {
+    body = JSON.parse(text);
+  } catch {}
+  if (!res.ok) {
+    const why = [body?.errors ?? []].flat().map((e: any) => e?.longMessage ?? e?.message).filter(Boolean).join("; ") || text.slice(0, 200);
+    throw new Error(`eBay's picture upload failed (${res.status}): ${why}`);
+  }
+  let imageUrl = String(body?.imageUrl ?? "");
+  // The reply normally holds the address; if not, the Location header names the image to read it from.
+  const location = res.headers.get("Location");
+  if (!/^https:\/\//.test(imageUrl) && location) {
+    const read = new URL(location, host).toString();
+    assertRest("GET", read);
+    const got = await fetch(read, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } });
+    imageUrl = String(((await got.json().catch(() => null)) as any)?.imageUrl ?? "");
+  }
+  if (!/^https:\/\//.test(imageUrl)) throw new Error("eBay returned no picture address");
+  return imageUrl;
+}
+
 export function parseTradingResponse(call: string, xml: string): any {
   const doc = parser.parse(xml)[`${call}Response`];
   if (!doc) throw new Error(`Unexpected Trading response for ${call}: ${xml.slice(0, 300)}`);
@@ -134,13 +172,38 @@ export async function getActiveListings(env: Env): Promise<ActiveListing[]> {
 
 /**
  * Why eBay would refuse a title or description change right now, or null. eBay blocks both on a fixed-price
- * listing with a pending Best Offer (including K's own counter awaiting the buyer) or any quantity sold.
+ * listing with an open Best Offer (including K's own counter awaiting the buyer) or any quantity sold.
+ * `openOffers` is the count of offers still open (openOfferCount). GetItem's BestOfferCount is NOT used: it
+ * counts every offer the listing ever had, declined and expired ones too, so it locked listings with only old
+ * offers (K's Maono listing, 2026-11-07).
  */
-export function titleLockReason(item: any): string | null {
-  if (Number(item?.BestOfferDetails?.BestOfferCount ?? 0) > 0)
-    return "this listing has a pending offer, and eBay won't change its title or description until the offer is answered or expires";
+export function titleLockReason(item: any, openOffers = 0): string | null {
+  if (openOffers > 0)
+    return "this listing has an offer waiting for an answer, and eBay won't change its title or description until the offer is answered or expires";
   if (Number(item?.SellingStatus?.QuantitySold ?? 0) > 0) return "this listing has a sale, and eBay won't change its title or description";
   return null;
+}
+
+/** Offers on a listing that are still open: the buyer's waiting for K, or K's counter waiting for the buyer. */
+export function openOfferCount(doc: any, now = Date.now()): number {
+  const items = [doc?.ItemBestOffersArray?.ItemBestOffers ?? []].flat();
+  return items
+    .flatMap((ib: any) => [ib?.BestOfferArray?.BestOffer ?? []].flat())
+    .filter((o: any) => ["Active", "Pending", "Countered"].includes(String(o?.Status ?? o?.BestOfferStatus ?? "")))
+    .filter((o: any) => {
+      const exp = Date.parse(o?.ExpirationTime ?? "");
+      return !exp || exp > now;
+    }).length;
+}
+
+/**
+ * The title lock for one listing, asking eBay for its open offers (GetBestOffers, a read). If that call fails,
+ * no lock is assumed: eBay itself refuses a revision it can't make, and the refusal is recorded.
+ */
+export async function titleLock(env: Env, itemId: string, item?: any): Promise<string | null> {
+  const detail = item ?? (await getItem(env, itemId).catch(() => null));
+  const offers = await trading(env, "GetBestOffers", `<ItemID>${esc(itemId)}</ItemID><BestOfferStatus>All</BestOfferStatus>`).catch(() => null);
+  return titleLockReason(detail, offers ? openOfferCount(offers) : 0);
 }
 
 /** Full detail for one listing: description, item specifics, pictures, condition. */

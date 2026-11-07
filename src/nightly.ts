@@ -4,7 +4,7 @@ import { getRecentOrders, getTraffic7d } from "./ebay/sell";
 import { healthFlags, type Flag, type ListingFacts } from "./health";
 import { AUDIT_TOOLS } from "./jobs";
 import { push } from "./notify";
-import { expireStale } from "./proposals";
+import { expireStale, holdsListing } from "./proposals";
 import { snapshotListings } from "./snapshot";
 import { learnParams } from "./pricing/learn";
 import { bundleAdvice } from "./pricing/bundles";
@@ -33,7 +33,7 @@ export async function recentlyRevised(env: Env, now: number, kind: "revise" | "p
     { f: "status", op: "in", v: ["pending", "approved", "agreed", "applied"] },
     { f: "created_at", op: ">", v: now - REVISE_QUIET_DAYS * 86_400_000 },
   ]);
-  return new Set(rows.map((p) => p.item_id).filter((x): x is string => Boolean(x)));
+  return new Set(rows.filter((p) => holdsListing(env, p)).map((p) => p.item_id).filter((x): x is string => Boolean(x)));
 }
 
 export const TRIAGE_SYSTEM = `A nightly rule check flagged one of K's eBay UK listings. Decide whether one small change would help it sell, and if so propose it. You cannot change eBay: propose_* tools record proposals that K approves or rejects.

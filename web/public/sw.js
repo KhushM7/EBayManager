@@ -1,7 +1,7 @@
-// EBayManager service worker: shows approval pushes and acts on Approve / Reject from the notification,
+// The service worker: shows approval pushes and acts on Approve / Reject from the notification,
 // and keeps the app shell available offline. API data is never cached.
 
-const SHELL = "shell-v1";
+const SHELL = "shell-v2";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL).then((c) => c.addAll(["/", "/manifest.webmanifest", "/icon-192.png"])));
@@ -43,7 +43,7 @@ self.addEventListener("fetch", (event) => {
 });
 
 self.addEventListener("push", (event) => {
-  let msg = { title: "EBayManager", body: "" };
+  let msg = { title: "New update", body: "" };
   try {
     msg = event.data.json();
   } catch {}

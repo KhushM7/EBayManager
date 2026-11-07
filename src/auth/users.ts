@@ -8,6 +8,12 @@ import { matchStep } from "./totp";
 // (src/auth/people.ts). Sessions are random tokens stored hashed. A normal sign-in lasts 12 hours idle and
 // 7 days at most; "stay signed in" (the installed phone app, so notification approvals keep working) lasts
 // 30 days.
+//
+// The session cookie is SameSite=Lax, not Strict (K, 2026-11-07): an installed phone app opened from the home
+// screen counts as arriving from outside, and a Strict cookie isn't sent then, so every launch asked for a new
+// sign-in. Lax is sent only on top-level GET navigations from elsewhere, which change nothing. Every change
+// still needs the X-EbayManager header and a same-origin request (src/api.ts), the sign-in form checks its
+// origin, and a cross-site POST to an approval link carries no session, so the real account refuses it.
 
 export type { Role, User };
 
@@ -91,10 +97,10 @@ export async function createSession(env: Env, userId: string, request: Request, 
     user_agent: (request.headers.get("User-Agent") ?? "").slice(0, 200),
     revoked: 0,
   });
-  return `${COOKIE}=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${max / 1000}`;
+  return `${COOKIE}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${max / 1000}`;
 }
 
-export const clearCookie = `${COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`;
+export const clearCookie = `${COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
 
 const tokenFrom = (request: Request) => (request.headers.get("Cookie") ?? "").match(new RegExp(`${COOKIE}=([\\w-]{20,})`))?.[1];
 

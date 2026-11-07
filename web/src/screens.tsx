@@ -916,6 +916,16 @@ export function Settings(props: ScreenProps) {
               </a>
             </p>
           )}
+          {owner && me.ebayConnected && me.writeMode === "approval" && me.ebayScopes === "read-only" && (
+            <div class="evidence mt-4">
+              <p class="text-sm">Changes are switched on, but eBay is still connected read-only, so approved changes can't be sent yet. Sign in to eBay again and accept the full permission.</p>
+              <p class="mt-3">
+                <a class="btn btn-primary" href="/oauth/start">
+                  Give eBay full permission
+                </a>
+              </p>
+            </div>
+          )}
         </Section>
 
         {owner && (

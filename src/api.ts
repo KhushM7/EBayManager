@@ -61,7 +61,7 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
 
   if (method !== "GET" && request.headers.get(CSRF_HEADER) !== "1") return json({ error: "Missing request header" }, 403);
 
-  // Same-origin only for anything that changes state (with the header above and SameSite=Strict cookies).
+  // Same-origin only for anything that changes state (with the header above; the session cookie is SameSite=Lax).
   const origin = request.headers.get("Origin");
   if (method !== "GET" && origin && origin !== new URL(env.PUBLIC_URL).origin && origin !== url.origin)
     return json({ error: "Wrong origin" }, 403);

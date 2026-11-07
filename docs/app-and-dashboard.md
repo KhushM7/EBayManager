@@ -49,7 +49,7 @@ Nothing runs continuously. The app runs only when a request, a push decision, a 
 | --- | --- |
 | `/` and other app paths | Signed-in people only; everyone else gets a blank 404 (a known device is sent to the sign-in page) |
 | `/s/<SIGNIN_PATH>` | The hidden sign-in page: email and authenticator code (`src/signin.ts`) |
-| `/api/*` | A person's session: a signed `__Host-` cookie (`HttpOnly`, `Secure`, `SameSite=Strict`) set after signing in on the hidden page. State changes also need the `X-EbayManager: 1` header (CSRF). See [security.md](security.md) |
+| `/api/*` | A person's session: a signed `__Host-` cookie (`HttpOnly`, `Secure`, `SameSite=Lax`) set after signing in on the hidden page. State changes also need the `X-EbayManager: 1` header (CSRF). See [security.md](security.md) |
 | `/decide/:id` | HMAC-signed link with expiry, POST only (see [approvals.md](approvals.md)) |
 | `/mcp` | Bearer `MCP_TOKEN` |
 | `/oauth/start` | `MCP_TOKEN` query key, unchanged from Phase 0 |

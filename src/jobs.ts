@@ -13,7 +13,7 @@ K's rules, also enforced in code:
 - Item specifics: fill only those that apply to this item and that the listing, FactsFromK or PublishedSpecs states. Skip ones that don't apply (a corded vacuum has no charge time).
 
 How to work:
-1. Call get_listing for the item, and list_proposals so you don't repeat one that's already pending. If BestOfferDetails.BestOfferCount is above 0 or SellingStatus.QuantitySold is above 0, eBay won't accept a new title or description, so don't propose them; mention it in your note.
+1. Call get_listing for the item, and list_proposals so you don't repeat one that's already pending. If get_listing's TitleLock is set (an offer waiting for an answer, or a sale), eBay won't accept a new title or description, so don't propose them; mention it in your note. Ignore BestOfferDetails.BestOfferCount: it counts old offers too.
 2. Call price_check for the item. Use search_active_comps only to see how competing titles are worded.
 3. Propose only changes that clearly help a buyer find or trust the listing:
    - Title (propose_listing_revision): up to 80 characters, brand, model and key specifics first, words buyers search for, sentence case, no filler or symbols.

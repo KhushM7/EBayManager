@@ -1,5 +1,5 @@
 import type { Env } from "./env";
-import { getActiveListings, getItem, titleLockReason } from "./ebay/trading";
+import { getActiveListings, getItem, titleLock } from "./ebay/trading";
 import { snapshotListings } from "./snapshot";
 import { searchActiveComps } from "./ebay/browse";
 import { listProposals, proposeAndNotify } from "./proposals";
@@ -35,6 +35,8 @@ export const tools: Tool[] = [
       const published = await specsFor(env, item);
       return {
         ...item,
+        // Whether eBay would refuse a title or description change now (an open offer or a sale), or null.
+        TitleLock: await titleLock(env, a.item_id, item),
         FactsFromK: s?.notes ?? null,
         PublishedSpecs: published?.exact ? { product: published.product, specs: published.specs } : null,
       };
@@ -143,7 +145,7 @@ export const tools: Tool[] = [
     ),
     run: async (env, a) => {
       if (a.title || a.description) {
-        const lock = titleLockReason(await getItem(env, a.item_id));
+        const lock = await titleLock(env, a.item_id);
         if (lock) throw new Error(`Not proposed: ${lock}. Item specifics and the Best Offer setting can still change.`);
       }
       const bestOffer = typeof a.best_offer_enabled === "boolean" ? a.best_offer_enabled : undefined;

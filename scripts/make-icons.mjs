@@ -1,78 +1,45 @@
-// Draws the PWA icons (a white tick on the accent teal) and the monochrome notification badge as PNGs.
-// Run: node scripts/make-icons.mjs  (writes into web/public)
+// Draws the installed app's icons from the same logo as the app's top-left mark (web/src/logo.tsx): the blue
+// tile with the white parcel tag, its tick and eBay's four-colour stripe. Keep the drawing below in step with
+// logo.tsx. Writes into web/public:
+//   icon-192.png, icon-512.png    the logo as is (rounded tile)
+//   icon-maskable-512.png         full-bleed blue, for Android's adaptive icon shapes (the tag sits inside the
+//                                 central 80% "safe zone", so no shape crops it)
+//   apple-touch-icon.png          180 px, full-bleed (iOS rounds the corners itself)
+//   badge-96.png                  white tag silhouette with the tick cut out, for Android's status bar
+// Run: node scripts/make-icons.mjs   (needs the dev dependency @resvg/resvg-js)
 import { writeFileSync } from "node:fs";
-import { deflateSync } from "node:zlib";
+import { Resvg } from "@resvg/resvg-js";
 
-const TEAL = [0x0d, 0x74, 0x80];
+const GRADIENT = `<defs><linearGradient id="t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6d97ff"/><stop offset="1" stop-color="#2f5bff"/></linearGradient></defs>`;
+const TAG = `
+  <path d="M17 10h12l7 7v17a3 3 0 0 1-3 3H17a3 3 0 0 1-3-3V13a3 3 0 0 1 3-3z" fill="#fff"/>
+  <circle cx="29.5" cy="16.5" r="2" fill="#2f5bff"/>
+  <path d="M18.5 24.5l4 4 7.5-7.5" fill="none" stroke="#2f5bff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="14" y="32" width="5.5" height="5" fill="#e53238"/>
+  <rect x="19.5" y="32" width="5.5" height="5" fill="#0064d2"/>
+  <rect x="25" y="32" width="5.5" height="5" fill="#f5af02"/>
+  <rect x="30.5" y="32" width="5.5" height="5" fill="#86b817"/>`;
 
-function crc32(buf) {
-  let c, crc = 0xffffffff;
-  for (const b of buf) {
-    c = (crc ^ b) & 0xff;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    crc = (crc >>> 8) ^ c;
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
+const svg = (body) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">${GRADIENT}${body}</svg>`;
 
-function png(size, pixel) {
-  const raw = Buffer.alloc(size * (size * 4 + 1));
-  for (let y = 0; y < size; y++) {
-    raw[y * (size * 4 + 1)] = 0;
-    for (let x = 0; x < size; x++) raw.set(pixel(x + 0.5, y + 0.5), y * (size * 4 + 1) + 1 + x * 4);
-  }
-  const chunk = (type, data) => {
-    const len = Buffer.alloc(4);
-    len.writeUInt32BE(data.length);
-    const td = Buffer.concat([Buffer.from(type), data]);
-    const crc = Buffer.alloc(4);
-    crc.writeUInt32BE(crc32(td));
-    return Buffer.concat([len, td, crc]);
-  };
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(size, 0);
-  ihdr.writeUInt32BE(size, 4);
-  ihdr.set([8, 6, 0, 0, 0], 8);
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk("IHDR", ihdr),
-    chunk("IDAT", deflateSync(raw)),
-    chunk("IEND", Buffer.alloc(0)),
-  ]);
-}
+// The logo exactly as in the app: a rounded tile with a fine light edge.
+const logo = svg(`<rect width="48" height="48" rx="13" fill="url(#t)"/><rect x="0.5" y="0.5" width="47" height="47" rx="12.5" fill="none" stroke="rgba(255,255,255,.28)"/>${TAG}`);
+// Full-bleed square: the platform cuts its own shape. The tag is drawn a little smaller, centred, to keep a margin.
+const square = svg(`<rect width="48" height="48" fill="url(#t)"/><g transform="translate(24 23.5) scale(0.86) translate(-25 -23.5)">${TAG}</g>`);
+// Status-bar badge: Android uses only its alpha, so a white tag with the tick and hole cut out.
+const badge = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <mask id="m"><rect width="48" height="48" fill="#fff"/><circle cx="29.5" cy="16.5" r="2.2" fill="#000"/>
+    <path d="M18.5 24.5l4 4 7.5-7.5" fill="none" stroke="#000" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></mask>
+  <path d="M17 8h12l8 8v19a3 3 0 0 1-3 3H17a3 3 0 0 1-3-3V11a3 3 0 0 1 3-3z" fill="#fff" mask="url(#m)"/></svg>`;
 
-// Distance from a point to a segment, for an anti-aliased stroke.
-function segDist(px, py, ax, ay, bx, by) {
-  const dx = bx - ax, dy = by - ay;
-  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-}
+const render = (src, size) => new Resvg(src, { fitTo: { mode: "width", value: size } }).render().asPng();
 
-/** Coverage of a tick, drawn in a box of the given scale (fraction of the icon) centred in it. */
-function tick(size, scale) {
-  const s = size * scale, o = (size - s) / 2, w = s * 0.11;
-  const a = [o + s * 0.18, o + s * 0.53], b = [o + s * 0.42, o + s * 0.76], c = [o + s * 0.84, o + s * 0.27];
-  return (x, y) => {
-    const d = Math.min(segDist(x, y, ...a, ...b), segDist(x, y, ...b, ...c));
-    return Math.max(0, Math.min(1, w - d + 0.5));
-  };
-}
-
-const icon = (size, scale) => {
-  const t = tick(size, scale);
-  return png(size, (x, y) => {
-    const k = t(x, y);
-    return [...TEAL.map((v) => Math.round(v + (255 - v) * k)), 255];
-  });
-};
-
-const badge = (size) => {
-  const t = tick(size, 0.9);
-  return png(size, (x, y) => [255, 255, 255, Math.round(255 * t(x, y))]);
-};
-
-writeFileSync("web/public/icon-192.png", icon(192, 0.72));
-writeFileSync("web/public/icon-512.png", icon(512, 0.72));
-writeFileSync("web/public/icon-maskable-512.png", icon(512, 0.5));
-writeFileSync("web/public/badge-96.png", badge(96));
-console.log("icons written");
+const out = [
+  ["web/public/icon-192.png", logo, 192],
+  ["web/public/icon-512.png", logo, 512],
+  ["web/public/icon-maskable-512.png", square, 512],
+  ["web/public/apple-touch-icon.png", square, 180],
+  ["web/public/badge-96.png", badge, 96],
+];
+for (const [file, src, size] of out) writeFileSync(file, render(src, size));
+console.log(`Wrote ${out.map(([f]) => f.split("/").pop()).join(", ")}`);

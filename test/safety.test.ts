@@ -15,15 +15,15 @@ function sourceFiles(dir = "src"): string[] {
 const filesMatching = (re: RegExp) => sourceFiles().filter((f) => re.test(readFileSync(f, "utf8")));
 
 const WRITE_VERBS =
-  /\b(ReviseFixedPriceItem|ReviseItem|ReviseInventoryStatus|AddFixedPriceItem|AddItem|AddItems|EndFixedPriceItem|EndItem|EndItems|RelistFixedPriceItem|RelistItem|AddMemberMessageRTQ|AddMemberMessageAAQToPartner|RespondToBestOffer|SetUserPreferences|SetNotificationPreferences|UploadSiteHostedPictures|CompleteSale|LeaveFeedback|publishOffer|createOffer|updateOffer|bulkCreateAdsByListingId|bulkUpdateAdsBidByListingId|sendOfferToInterestedBuyers|sendMessage)\b/;
+  /\b(ReviseFixedPriceItem|ReviseItem|ReviseInventoryStatus|AddFixedPriceItem|AddItem|AddItems|EndFixedPriceItem|EndItem|EndItems|RelistFixedPriceItem|RelistItem|AddMemberMessageRTQ|AddMemberMessageAAQToPartner|RespondToBestOffer|SetUserPreferences|SetNotificationPreferences|UploadSiteHostedPictures|createImageFromFile|create_image_from_file|CompleteSale|LeaveFeedback|publishOffer|createOffer|updateOffer|bulkCreateAdsByListingId|bulkUpdateAdsBidByListingId|sendOfferToInterestedBuyers|sendMessage)\b/;
 
 describe("write gate is the only path to eBay writes", () => {
   it("only src/ebay/write.ts (and the allowlist that names them) names eBay write calls", () => {
     expect(filesMatching(WRITE_VERBS).sort()).toEqual(["src/ebay/allowlist.ts", "src/ebay/write.ts"]);
   });
 
-  it("only the Trading client and the write gate use tradingRequest and tradingUpload", () => {
-    expect(filesMatching(/\btrading(Request|Upload)\b/).sort()).toEqual(["src/ebay/trading.ts", "src/ebay/write.ts"]);
+  it("only the Trading client and the write gate use tradingRequest, tradingUpload and mediaUpload", () => {
+    expect(filesMatching(/\b(tradingRequest|tradingUpload|mediaUpload)\b/).sort()).toEqual(["src/ebay/trading.ts", "src/ebay/write.ts"]);
   });
 
   it("network calls happen only in reviewed modules", () => {

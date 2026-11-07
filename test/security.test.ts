@@ -100,7 +100,7 @@ describe("signing in", () => {
     const r = await signIn("  K@Example.com ", await codeNow(K_SECRET));
     expect(r.status).toBe(303);
     expect(r.location).toBe("/");
-    expect(r.setCookie).toMatch(/__Host-sid=.+HttpOnly; Secure; SameSite=Strict/);
+    expect(r.setCookie).toMatch(/__Host-sid=.+HttpOnly; Secure; SameSite=Lax/);
     const me = await api("/me", undefined, r.cookie);
     expect(me.json.user).toMatchObject({ name: "K", role: "owner" });
     // The first /me marks this browser as known.
@@ -218,6 +218,14 @@ describe("the hidden site", () => {
     expect((await fetchWorker("/api/me", { headers: { Cookie: known } })).status).toBe(401);
     // A forged mark gets nothing.
     expect((await fetchWorker("/", { headers: { Cookie: known.replace(/.$/, (c) => (c === "A" ? "B" : "A")) } })).status).toBe(404);
+  });
+
+  it("serves the app icons and service worker to anyone (the browser fetches them without cookies), but not the manifest", async () => {
+    env = { ...env, ASSETS: { serve: async (r: Request) => new Response(`file ${new URL(r.url).pathname}`) } } as Env;
+    for (const path of ["/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/badge-96.png", "/sw.js"]) expect((await fetchWorker(path)).status, path).toBe(200);
+    expect((await fetchWorker("/manifest.webmanifest")).status).toBe(404);
+    const { owner } = await team();
+    expect((await fetchWorker("/manifest.webmanifest", { headers: { Cookie: owner.cookie } })).status).toBe(200);
   });
 
   it("answers /health to a signed-in person or K's key only", async () => {
@@ -370,7 +378,7 @@ describe("connecting eBay", () => {
     const state = new URL(start.headers.get("Location")!).searchParams.get("state")!;
     const stateCookie = (start.headers.get("Set-Cookie") ?? "").split(";")[0];
 
-    // eBay's redirect back: no session cookie (SameSite=Strict), only the state cookie.
+    // eBay's redirect back, without the session cookie: only the state cookie counts.
     const callback = (s: string) => fetchWorker(`/oauth/callback?code=c&state=${s}`, { headers: { Cookie: stateCookie } });
     expect((await callback(state)).status).toBe(200);
     expect(await env.store.kv.getEbayTokens()).not.toBeNull();

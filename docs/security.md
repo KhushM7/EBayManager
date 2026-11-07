@@ -34,6 +34,7 @@ The limit of three people, with exactly one owner, is enforced in code. Every ap
    - "Stay signed in on this device for 30 days" is ticked by default; untick it on a shared computer.
    - It keeps the installed phone app signed in, so notification approvals keep working.
 5. **A lost or new phone:** the authenticator app's own cloud backup restores the codes. Otherwise K runs `people.mjs … new-code --email …`, which gives a new QR code; the old authenticator stops working. Removing a person (`… remove --email …`) ends their sessions at once.
+6. **Other commands:** `change-email` fixes a typo and keeps the same authenticator entry. `new-link` makes a fresh sign-in address if the old one was shared, and the old one then shows a blank page. `refresh` makes every running copy of the app re-read Key Vault: Azure caches its values for up to 24 hours, which once left the sign-in page loading only on some tries (2026-11-07). Every command that uploads does this refresh, restarts the app and checks the page loads every time.
 
 `DASHBOARD_KEY` signs in as a test owner only on Sandbox (`ALLOW_KEY_LOGIN`), for scripts and checks, never in production. On production it only reads `/health` (`X-Health-Key`).
 
@@ -49,6 +50,7 @@ Only these answer:
 - the sign-in page at `/s/<SIGNIN_PATH>` (at least 16 random characters; a shorter value turns it off);
 - `/ebay/account-deletion`, which eBay calls;
 - `/privacy.html`, which eBay's developer settings link to;
+- the app icons and the service worker script (`/sw.js`), because browsers fetch them without cookies when installing the app and showing notifications. They hold no data and no app name. The manifest stays private: the page asks for it with the session cookie (`crossorigin="use-credentials"`), so "Install app" works only once signed in;
 - `/health` with K's `X-Health-Key`, for `scripts/check-production.mjs`.
 
 The secret address only hides the site: the email and code are the security.
@@ -82,7 +84,9 @@ A forwarded or screenshotted link is useless on another device, and a phone whos
 - **Connecting eBay** (`/oauth/start`) needs the owner's signed-in session, not a token in the URL.
 - **Login protection:** after at most 5 failed sign-ins per person (or per unknown email) per 15 minutes, or 20 per hour from any one network, there's a pause. Each authenticator code works once. The sign-in form only accepts a POST from its own page (checked with `Sec-Fetch-Site` or `Origin`).
 - **People and their authenticator secrets** live only in Key Vault (`PEOPLE`) and K's gitignored vars file. The app reads them, never writes them, and never sends a secret to a browser.
-- **Headers:** a strict content security policy (only the app's own code and its font), no framing, no referrer, and HTTPS only. Cookies are `__Host-`, `HttpOnly`, `Secure`, `SameSite=Strict`.
+- **Headers:** a strict content security policy (only the app's own code and its font; images may also be `data:` or `blob:`, which only the page's own code can make, for photo previews), no framing, no referrer, and HTTPS only. Cookies are `__Host-`, `HttpOnly`, `Secure` and `SameSite=Lax`.
+  - The session cookie was `Strict` until 2026-11-07, when K approved the change. Under `Strict` the installed phone app asked for a sign-in on every launch: an app opened from the home screen counts as arriving from outside, and `Strict` cookies aren't sent then.
+  - `Lax` is sent from elsewhere only on top-level GETs, which change nothing.
 - **CSRF:** every change needs the `X-EbayManager` header and a same-origin request.
 - **Secrets** live only in each environment's Key Vault (read by the app's managed identity, never as plain app settings) and in K's gitignored `.dev.vars` and `.prod.vars`. They are never in code, logs, notifications or chat. The eBay token is stored in Cosmos DB and never sent to the browser.
 - **Azure:** HTTPS only, TLS 1.2, FTP and basic-auth publishing off, no CORS, the Functions host's `/admin` endpoints closed, Cosmos DB key access disabled (Entra ID only). K's own login has only Data Reader on production data. The client address for rate limits comes only from `Client-IP`, which the front end overwrites (other headers can be forged). `check-production.mjs` checks all of these.
@@ -95,9 +99,9 @@ Everything else is refused in code (`src/ebay/allowlist.ts`), and a test fails i
 
 | Kind | Calls |
 | --- | --- |
-| Read | Trading `GetMyeBaySelling`, `GetItem`, `GetMemberMessages`, `GetMyMessages`, `GetBestOffers`, `GetUser`; Fulfillment `getOrders`; Analytics `getTrafficReport`; Account `get*Policies`; Browse `search`, `getItem`; Taxonomy `getCategorySuggestions`, `getItemAspectsForCategory`; Marketing `getCampaigns`, `getAds`; Recommendation `findListingRecommendations` (a read sent as POST; eBay requires the full `sell.inventory` scope for it, so it works only after go-live); Notification `getPublicKey` |
+| Read | Trading `GetMyeBaySelling`, `GetItem`, `GetMemberMessages`, `GetMyMessages`, `GetBestOffers`, `GetUser`; Fulfillment `getOrders`; Analytics `getTrafficReport`; Account `get*Policies`; Browse `search`, `getItem`; Taxonomy `getCategorySuggestions`, `getItemAspectsForCategory`; Marketing `getCampaigns`, `getAds`; Recommendation `findListingRecommendations` (a read sent as POST; eBay requires the full `sell.inventory` scope for it, so it works only after go-live); Notification `getPublicKey`; Media `getImage` (a new listing photo's eBay address, after the gate uploaded it) |
 | Check without changing | Trading `VerifyAddFixedPriceItem` |
-| Write, only through the gate after approval | Trading `ReviseFixedPriceItem`, `AddFixedPriceItem`, `EndFixedPriceItem`, `RelistFixedPriceItem`, `AddMemberMessageRTQ`, `RespondToBestOffer`, `UploadSiteHostedPictures` (a new listing's photos, sent as bytes while applying its approved `create_listing` label, each upload audited; added 2026-11-05 with Add Listing); Marketing `createCampaign`, `bulkCreateAdsByListingId`, `bulkUpdateAdsBidByListingId` |
+| Write, only through the gate after approval | Trading `ReviseFixedPriceItem`, `AddFixedPriceItem`, `EndFixedPriceItem`, `RelistFixedPriceItem`, `AddMemberMessageRTQ`, `RespondToBestOffer`, `UploadSiteHostedPictures` (Sandbox only since 2026-11-07); Media `createImageFromFile` (a new listing's photos on production, sent as bytes to `apim.ebay.com` while applying its approved `create_listing` label, each upload audited; it replaced `UploadSiteHostedPictures`, which eBay retired on production and which answered "Resource not found" for K's first real listing on 2026-11-07); Marketing `createCampaign`, `bulkCreateAdsByListingId`, `bulkUpdateAdsBidByListingId` |
 | Never | Anything that changes account settings, payments, payouts, addresses, feedback, cancellations, refunds or other users |
 
 **Outside eBay**, the Worker may call only: Anthropic (Claude, including Anthropic's server-side web search used to look up published product specifications in `src/specs.ts`: the searching happens on Anthropic's side, and the only tool Claude has there records specs, which the code keeps only if their source page came from that search), the Web Push services, ntfy, the two sold-data providers `api.trawl.dev` and `api.compsapi.com` (search words only, hard monthly caps, `src/solddata.ts`), and Parcel2Go (`www.parcel2go.com` or its sandbox) for postage quotes on new listings (`src/postage.ts`: a parcel's size, weight and value only, never an address; credentials in Key Vault). A test fails if any other module makes network calls.
@@ -114,7 +118,7 @@ Everything else is refused in code (`src/ebay/allowlist.ts`), and a test fails i
 | Someone guesses codes | 5 tries per person per 15 minutes and 20 per network per hour, against a million possible codes |
 | An approval link leaks | It also needs the receiving device's session, and it expires after 7 days |
 | Someone brute-forces sign-in | There are no passwords to guess, and attempts are rate-limited |
-| A cross-site request tries to approve something | Blocked: `SameSite=Strict` cookies plus a required custom header |
+| A cross-site request tries to approve something | Blocked: a cross-site POST carries no `SameSite=Lax` session, so the real account refuses it; API changes need the custom header and a same-origin request; the sign-in form checks its origin |
 | A bug tries an eBay call it shouldn't | The allowlist refuses it; the write gate refuses unapproved changes |
 | Claude is tricked by text in a buyer message | Claude can only draft. Its tools can't change eBay, and every draft needs a person's approval |
 | The Azure account or a secret is compromised | K revokes the app in eBay's account settings, which cuts access instantly, then rotates secrets |

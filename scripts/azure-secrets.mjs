@@ -38,4 +38,4 @@ console.log(`Uploaded to ${vault}: ${uploaded.join(", ") || "nothing"}`);
 if (unknown.length) console.log(`Not secrets, left out: ${unknown.join(", ")}`);
 const missing = SECRETS.filter((k) => !vars[k]);
 if (missing.length) console.log(`Not in ${file} (the app treats them as unset): ${missing.join(", ")}`);
-console.log("The Function App picks up new secret values within 24 hours, or at once after: az functionapp restart");
+console.log(`Azure caches secret values for up to 24 hours. To apply them now on every copy of the app: node scripts/people.mjs ${env} refresh`);

@@ -117,6 +117,25 @@ describe("no repeated proposals while changes are off", () => {
     expect([...(await recentlyRevised(env, NOW))]).toEqual(["maono"]);
     expect([...(await recentlyRevised(env, NOW, "price"))]).toEqual(["dyson"]);
   });
+
+  it("once writes are on, leftover dry runs stop holding a listing, but real suggestions still do", async () => {
+    const env = { store: memoryStore(), WRITE_MODE: "approval" } as Env;
+    const p = (id: string, kind: string, item: string, status: string, dry: number) =>
+      seedProposal(env.store, { id, kind, item_id: item, status, created_at: NOW - DAY, expires_at: NOW + DAY, dry_run: dry });
+    // From the read-only days: agreed as dry runs, never sent to eBay.
+    await p("a", "revise", "maono", "agreed", 1);
+    await p("b", "price", "dyson", "agreed", 1);
+    // Real ones since go-live: waiting, approved, applied.
+    await p("c", "revise", "lamp", "pending", 0);
+    await p("d", "revise", "dock", "applied", 0);
+    await p("e", "price", "kettle", "approved", 0);
+    await p("f", "revise", "mug", "rejected", 0);
+    expect([...(await recentlyRevised(env, NOW))].sort()).toEqual(["dock", "lamp"]);
+    expect([...(await recentlyRevised(env, NOW, "price"))]).toEqual(["kettle"]);
+    // While writes are off, the same dry runs hold as before.
+    const off = { ...env, WRITE_MODE: "off" } as Env;
+    expect([...(await recentlyRevised(off, NOW))].sort()).toEqual(["dock", "lamp", "maono"]);
+  });
 });
 
 describe("a listing on K's own price isn't forgotten", () => {

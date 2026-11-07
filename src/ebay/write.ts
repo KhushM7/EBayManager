@@ -1,7 +1,8 @@
 import type { Env } from "../env";
 import type { Proposal } from "../proposals";
 import { RETURNS } from "../rules";
-import { esc, tradingRequest, tradingUpload } from "./trading";
+import { esc, mediaUpload, tradingRequest, tradingUpload } from "./trading";
+import { ebayHosts } from "./hosts";
 import { seqId } from "../store/doc";
 
 // The write gate. This is the only module that may send an eBay write (enforced by test/safety.test.ts).
@@ -215,9 +216,13 @@ export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
 }
 
 /**
- * Uploads a new listing's photos to eBay's picture service (UploadSiteHostedPictures, sent as the image bytes)
- * and returns eBay's addresses for them, in order. Only called while applying an approved create_listing,
- * after the gate's claim. Each upload is in the audit log.
+ * Uploads a new listing's photos to eBay's picture service, sent as the image bytes, and returns eBay's
+ * addresses for them, in order. Only called while applying an approved create_listing, after the gate's claim.
+ * Each upload is in the audit log.
+ *
+ * Production uses the Media API (createImageFromFile): eBay retired Trading's UploadSiteHostedPictures there
+ * (it answered "Resource not found" for K's first real listing, 2026-11-07, and its reference page is gone).
+ * eBay publishes no Media API host for Sandbox, so Sandbox keeps UploadSiteHostedPictures and its fallback.
  */
 async function uploadPictures(env: Env, proposalId: string, keys: string[]): Promise<{ urls: string[]; sandboxDown?: boolean }> {
   if (!env.photos) throw new Error("Photo storage isn't set up, so the listing's photos can't be sent to eBay");
@@ -225,16 +230,23 @@ async function uploadPictures(env: Env, proposalId: string, keys: string[]): Pro
   for (const [i, key] of keys.slice(0, 24).entries()) {
     const bytes = await env.photos.get(key);
     if (!bytes) throw new Error(`Photo ${i + 1} is missing from storage`);
+    const media = ebayHosts(env).media !== null;
+    const call = media ? "createImageFromFile" : "UploadSiteHostedPictures";
     const xml = `<PictureName>photo-${i + 1}</PictureName><PictureSet>Supersize</PictureSet>`;
+    const sent = media ? `photo-${i + 1}.jpg (${bytes.length} bytes)` : xml;
     try {
-      const res = await tradingUpload(env, "UploadSiteHostedPictures", xml, bytes, `photo-${i + 1}.jpg`);
-      const url = String(res?.SiteHostedPictureDetails?.FullURL ?? "");
+      let url: string;
+      if (media) url = await mediaUpload(env, bytes, `photo-${i + 1}.jpg`);
+      else {
+        const res = await tradingUpload(env, "UploadSiteHostedPictures", xml, bytes, `photo-${i + 1}.jpg`);
+        url = String(res?.SiteHostedPictureDetails?.FullURL ?? "");
+      }
       if (!/^https:\/\//.test(url)) throw new Error("eBay returned no picture address");
       urls.push(url);
-      await audit(env, proposalId, "UploadSiteHostedPictures", xml, "applied", url);
+      await audit(env, proposalId, call, sent, "applied", url);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      await audit(env, proposalId, "UploadSiteHostedPictures", xml, "failed", msg);
+      await audit(env, proposalId, call, sent, "failed", msg);
       // eBay Sandbox's picture service has been down since 2025 (eBay's API status page: "The
       // UploadSiteHostedPictures API call in the Sandbox environment is not working"), answering every upload with
       // error 10007. On Sandbox only, the first photo failing that way lists the item without photos, so the rest

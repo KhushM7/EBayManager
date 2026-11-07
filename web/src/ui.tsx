@@ -4,18 +4,64 @@
 
 import { animate, motion, useInView, useMotionValue, useReducedMotion, type Variants } from "framer-motion";
 import type { ComponentChildren } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 
 // ---------------------------------------------------------------- Motion presets
 
 export const EASE_OUT: [number, number, number, number] = [0.16, 1, 0.3, 1];
+
+/**
+ * Sets --tabbar to the space the phone's floating tab bar really takes (its height plus its gap from the
+ * bottom), so the bars and padding above it never overlap it, whatever the text size or navigation bar. Zero
+ * when it's hidden (desktop, or during a step-by-step flow).
+ */
+export function syncTabbar() {
+  const bar = document.querySelector<HTMLElement>(".tabbar");
+  const r = bar?.getBoundingClientRect();
+  const space = r && r.height > 0 ? Math.ceil(r.height + (window.innerHeight - r.bottom)) : 0;
+  document.documentElement.style.setProperty("--tabbar", `${space}px`);
+}
+
+/**
+ * Keeps --tabbar right as the tab bar or the window changes size. Returns a ref for the tab bar itself, so
+ * measuring starts when it appears (it isn't there while the app is still loading).
+ */
+export function useTabbarSync() {
+  const ro = useRef<ResizeObserver | null>(null);
+  useEffect(() => {
+    addEventListener("resize", syncTabbar);
+    return () => (ro.current?.disconnect(), removeEventListener("resize", syncTabbar));
+  }, []);
+  return useCallback((el: HTMLElement | null) => {
+    ro.current?.disconnect();
+    if (!el) return;
+    ro.current = new ResizeObserver(() => syncTabbar());
+    ro.current.observe(el);
+    syncTabbar();
+  }, []);
+}
+
+/**
+ * Hides the phone's tab bar while a step-by-step flow is open (as checkout flows do), so the flow's own
+ * Back / Next bar takes its place and nothing covers it.
+ */
+export function useFocusFlow() {
+  useEffect(() => {
+    document.body.classList.add("focus-flow");
+    syncTabbar();
+    return () => (document.body.classList.remove("focus-flow"), syncTabbar());
+  }, []);
+}
 export const SPRING = { type: "spring", stiffness: 420, damping: 32, mass: 0.9 } as const;
 export const SPRING_SOFT = { type: "spring", stiffness: 260, damping: 30 } as const;
 
 /** Page enter/exit: a short fade and a 12px rise, like a native push. */
 export const page: Variants = {
   initial: { opacity: 0, y: 12, filter: "blur(4px)" },
-  enter: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.42, ease: EASE_OUT } },
+  // After the fade-in the filter is removed, not left at blur(0px): any filter makes the page the anchor for
+  // "fixed" bars inside it (the New listing Back / Next bar, the Inbox batch bar, toasts), so they scrolled with
+  // the page and slid under the phone's tab bar (2026-11-07).
+  enter: { opacity: 1, y: 0, filter: "blur(0px)", transition: { duration: 0.42, ease: EASE_OUT }, transitionEnd: { filter: "none" } },
   exit: { opacity: 0, y: -6, filter: "blur(2px)", transition: { duration: 0.18, ease: [0.4, 0, 1, 1] as [number, number, number, number] } },
 };
 

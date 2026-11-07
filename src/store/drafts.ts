@@ -22,8 +22,11 @@ export interface DraftPhoto {
   /** The phone's 64-bit fingerprint of the shot (hex), to spot the same shot twice across sessions. */
   hash: string | null;
   added_at: number;
-  /** A tidied copy (ordinary edits only: crop, exposure, white balance, background to white); the original is kept. */
-  edited?: { key: string; bytes: number; width: number; height: number; at: number; edits: string[] } | null;
+  /**
+   * An edited copy (ordinary edits only: crop and position, exposure, white balance, background to white); the
+   * original is kept. `issues` are the phone's photo checks run again on the edited copy.
+   */
+  edited?: { key: string; bytes: number; width: number; height: number; at: number; edits: string[]; issues?: string[] } | null;
   /** Which version goes on the listing. */
   use_edited?: boolean;
 }
@@ -72,6 +75,8 @@ export interface DraftRow {
   updated_at: number;
   /** K's own words for what it is, before anything is identified. */
   title: string | null;
+  /** K's name for the draft in the drafts list only (never shown to Claude or eBay). */
+  name?: string | null;
   photos: DraftPhoto[];
   review?: DraftReview | null;
   facts?: DraftFacts | null;
@@ -151,7 +156,7 @@ export function draftsRepo(docs: DocStore) {
     },
     list: async (status: DraftStatus): Promise<DraftRow[]> =>
       (await docs.query<any>(C, { pk: PK, where: [{ f: "status", op: "=", v: status }] })).map(strip).sort((a, b) => b.updated_at - a.updated_at),
-    update: (id: string, fields: { title?: string | null }, now: number) =>
+    update: (id: string, fields: { title?: string | null; name?: string | null }, now: number) =>
       change(id, (d) => (d.status !== "open" ? null : { ...d, ...fields, updated_at: now })),
     /** A step's results (open drafts only). */
     patch: (id: string, fields: DraftPatch, now: number) => change(id, (d) => (open(d), { ...d, ...fields, updated_at: now })),

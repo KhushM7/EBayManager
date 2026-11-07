@@ -23,7 +23,8 @@ const APP_CSP = [
   "default-src 'self'",
   "style-src 'self'",
   "font-src 'self'",
-  "img-src 'self' data:",
+  // blob: is for photos the page itself holds in memory (new-photo previews); only the page's own code can make one.
+  "img-src 'self' data: blob:",
   "connect-src 'self'",
   "frame-ancestors 'none'",
   "base-uri 'none'",
@@ -76,7 +77,7 @@ export default { fetch: handle };
  * when its session ends.
  */
 const blank = () => new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
-const PUBLIC_FILES = new Set(["/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/badge-96.png", "/sw.js"]);
+const PUBLIC_FILES = new Set(["/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/apple-touch-icon.png", "/badge-96.png", "/sw.js"]);
 
 const route = async (request: Request, env: Env, url: URL): Promise<Response> => {
   const path = url.pathname;

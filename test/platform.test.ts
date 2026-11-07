@@ -52,6 +52,13 @@ describe("security headers on every response", () => {
       expect(csp, p).not.toMatch(/script-src[^;]*unsafe-inline/);
     }
   });
+
+  it("lets the app show photos it holds in memory (blob:), for images only", async () => {
+    const csp = (await handle(new Request(`${ORIGIN}/`), env())).headers.get("Content-Security-Policy")!;
+    expect(csp).toMatch(/img-src 'self' data: blob:/);
+    // Nothing else may load from blob: (scripts, styles and connections stay on the app's own address).
+    expect(csp.split(";").filter((d) => /blob:/.test(d)).map((d) => d.trim().split(" ")[0])).toEqual(["img-src"]);
+  });
 });
 
 describe("static files", () => {

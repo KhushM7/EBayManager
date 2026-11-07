@@ -4,11 +4,13 @@ export interface EbayHosts {
   auth: string;
   api: string;
   web: string;
+  /** eBay's Media API (listing photos). eBay publishes no Sandbox host for it, so Sandbox has none. */
+  media: string | null;
 }
 
 const HOSTS: Record<"sandbox" | "production", EbayHosts> = {
-  sandbox: { auth: "https://auth.sandbox.ebay.com", api: "https://api.sandbox.ebay.com", web: "https://www.sandbox.ebay.com" },
-  production: { auth: "https://auth.ebay.com", api: "https://api.ebay.com", web: "https://www.ebay.co.uk" },
+  sandbox: { auth: "https://auth.sandbox.ebay.com", api: "https://api.sandbox.ebay.com", web: "https://www.sandbox.ebay.com", media: null },
+  production: { auth: "https://auth.ebay.com", api: "https://api.ebay.com", web: "https://www.ebay.co.uk", media: "https://apim.ebay.com" },
 };
 
 /** eBay hosts for this deployment. An unset or misspelt EBAY_ENV throws rather than defaulting to production. */

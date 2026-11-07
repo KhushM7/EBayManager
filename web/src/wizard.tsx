@@ -15,9 +15,11 @@ import { ago, money } from "./format";
 import { bitsToHex, CHECKLIST, hexToBits } from "./listing/checks";
 import { blocking, issueCodes, processPhoto, type Processed } from "./listing/photos";
 import { tidy } from "./listing/tidy";
-import type { PhotoGrade } from "./photocheck";
+import { PhotoAdjust } from "./listing/adjust";
+import { ArrangePhotos } from "./listing/arrange";
+import { gradePhoto, type PhotoGrade } from "./photocheck";
 import type { ScreenProps } from "./screens";
-import { EASE_OUT, Icons, SPRING, Toasts, useToasts } from "./ui";
+import { EASE_OUT, Icons, SPRING, Toasts, useFocusFlow, useToasts } from "./ui";
 
 // ---- The draft, as the server sends it (src/drafts.ts, view) ----
 
@@ -29,7 +31,7 @@ interface DraftPhoto {
   height: number;
   issues: string[];
   hash: string | null;
-  edited?: { at: number; edits: string[] } | null;
+  edited?: { at: number; edits: string[]; issues?: string[] } | null;
   use_edited?: boolean;
 }
 interface Review {
@@ -66,6 +68,10 @@ interface Draft {
   created_at: number;
   updated_at: number;
   title: string | null;
+  /** The person's name for the draft, in the drafts list only. */
+  name?: string | null;
+  /** A submitted draft's label: waiting, approved, applied, failed (with eBay's answer), rejected… */
+  label?: { status: string; result: string | null } | null;
   photos: DraftPhoto[];
   missing: string[];
   review?: Review | null;
@@ -103,7 +109,7 @@ const ISSUE_WORD: Record<string, string> = {
   crop: "Odd shape",
   duplicate: "Same as another",
 };
-const EDIT_WORD: Record<string, string> = { white_balance: "white balance", exposure: "exposure", background: "background to white", crop: "cropped" };
+const EDIT_WORD: Record<string, string> = { white_balance: "white balance", exposure: "exposure", background: "background to white", crop: "cropped", rotate: "rotated" };
 const CONDITIONS = [
   ["new", "New", "Sealed, never opened"],
   ["opened", "Opened, never used", "The box has been opened, the item hasn't been used"],
@@ -156,6 +162,11 @@ function reached(d: Draft): number {
   if (!d.postage) return 4;
   return 5;
 }
+
+/** What the drafts list calls a draft: the person's name for it, else the listing title, else their words. */
+const draftName = (d: Draft) => d.name || d.listing?.title || d.title || "Untitled";
+/** The photo-check findings for the version going on the listing. */
+const photoIssues = (p: DraftPhoto) => (p.use_edited && p.edited?.issues ? p.edited.issues : p.issues);
 
 const num = (s: string) => (s.trim() === "" ? NaN : Number(s));
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -232,20 +243,83 @@ export function NewListing(props: ScreenProps) {
   return id ? <Wizard key={id} {...props} id={id} /> : <Drafts {...props} />;
 }
 
-function DraftCard({ d }: { d: Draft }) {
-  const status = d.status === "submitted" ? "Waiting for approval" : d.status === "published" ? `Listed, item ${d.item_id}` : `Step ${reached(d) + 1} of ${STEPS.length}`;
+function DraftCard({ d, onChanged, onError }: { d: Draft; onChanged?: () => void; onError?: (e: unknown) => void }) {
+  const status =
+    d.status === "submitted"
+      ? d.label?.status === "failed"
+        ? "eBay refused it: open to send again"
+        : "Waiting for approval"
+      : d.status === "published"
+        ? `Listed, item ${d.item_id}`
+        : `Step ${reached(d) + 1} of ${STEPS.length}`;
+  const [mode, setMode] = useState<"view" | "rename" | "delete">("view");
+  const [name, setName] = useState(d.name ?? "");
+  const [busy, setBusy] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (mode === "rename") nameRef.current?.select();
+  }, [mode]);
+  const editable = d.status === "open" && onChanged;
+  const act = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await fn();
+      setMode("view");
+      onChanged?.();
+    } catch (e) {
+      onError?.(e);
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <motion.li class="list-none" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ease: EASE_OUT }}>
-      <a class="card flex items-center gap-4 no-underline" href={`/new?draft=${d.id}`} onClick={(e) => (e.preventDefault(), openDraft(d.id))}>
+    <motion.li class="card list-none" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -30 }} transition={{ ease: EASE_OUT }}>
+      <a class="flex items-center gap-4 no-underline" href={`/new?draft=${d.id}`} onClick={(e) => (e.preventDefault(), openDraft(d.id))}>
         {d.photos[0] ? <img src={photoSrc(d.photos[0])} alt="" loading="lazy" class="size-16 flex-none rounded-xl object-cover" /> : <span class="grid size-16 flex-none place-items-center rounded-xl bg-surface-3 text-muted"><Icons.camera size={22} /></span>}
         <span class="min-w-0 flex-1">
-          <span class="block truncate font-semibold text-ink">{d.listing?.title || d.title || "Untitled"}</span>
+          <span class="block truncate font-semibold text-ink">{draftName(d)}</span>
           <span class="text-sm text-muted">
             {status} · {plural(d.photos.length, "photo")} · {d.created_by} · {ago(d.updated_at)}
           </span>
         </span>
         <Icons.arrowRight size={16} />
       </a>
+      {editable && mode === "view" && (
+        <div class="mt-3 flex gap-4 border-t border-line pt-2 text-sm">
+          <button class="btn-link" onClick={() => (setName(d.name ?? ""), setMode("rename"))}>
+            Rename
+          </button>
+          <button class="btn-link text-red" onClick={() => setMode("delete")}>
+            Delete
+          </button>
+        </div>
+      )}
+      {editable && mode === "rename" && (
+        <form class="mt-3 flex flex-wrap items-end gap-2 border-t border-line pt-3" onSubmit={(e) => (e.preventDefault(), act(() => api(`/drafts/${d.id}`, { body: { name } })))}>
+          <label class="grid min-w-0 flex-1 gap-1 text-sm font-semibold text-ink-2">
+            Draft name
+            <input ref={nameRef} value={name} maxLength={80} placeholder={draftName(d)} onInput={(e) => setName(e.currentTarget.value)} />
+          </label>
+          <button class="btn btn-primary" disabled={busy}>
+            Save
+          </button>
+          <button type="button" class="btn btn-text" disabled={busy} onClick={() => setMode("view")}>
+            Cancel
+          </button>
+          <p class="w-full text-xs text-muted">Only for this list. It doesn't change the listing title.</p>
+        </form>
+      )}
+      {editable && mode === "delete" && (
+        <div class="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
+          <p class="w-full text-sm">Delete this draft and its {plural(d.photos.length, "photo")}? This can't be undone.</p>
+          <button class="btn btn-danger" disabled={busy} onClick={() => act(() => api(`/drafts/${d.id}/delete`, { body: {} }))}>
+            {busy ? "Deleting…" : "Delete draft"}
+          </button>
+          <button class="btn btn-text" disabled={busy} onClick={() => setMode("view")}>
+            Cancel
+          </button>
+        </div>
+      )}
     </motion.li>
   );
 }
@@ -256,8 +330,9 @@ function Drafts({ onSignedOut }: ScreenProps) {
   const [busy, setBusy] = useState(false);
   const toasts = useToasts();
   const fail = (e: unknown) => (e instanceof SignedOut ? onSignedOut() : toasts.push("bad", (e as Error).message, 5200));
+  const reload = () => api<Draft[]>("/drafts").then(setRows).catch(fail);
   useEffect(() => {
-    api<Draft[]>("/drafts").then(setRows).catch(fail);
+    reload();
     api<Draft[]>("/drafts/submitted").then(setSent).catch(() => {});
   }, []);
   const create = async () => {
@@ -279,8 +354,10 @@ function Drafts({ onSignedOut }: ScreenProps) {
       {rows && rows.length > 0 && (
         <section class="mt-10">
           <h2 class="mb-3 text-lg">Drafts</h2>
-          <ul class="grid gap-3 p-0">{rows.map((d) => <DraftCard key={d.id} d={d} />)}</ul>
-          <p class="mt-2 text-sm text-muted">Drafts nobody touches for 30 days are deleted, with their photos.</p>
+          <ul class="grid gap-3 p-0">
+            <AnimatePresence>{rows.map((d) => <DraftCard key={d.id} d={d} onChanged={reload} onError={fail} />)}</AnimatePresence>
+          </ul>
+          <p class="mt-2 text-sm text-muted">Drafts save as you go. Ones nobody touches for 30 days are deleted, with their photos.</p>
         </section>
       )}
       {sent.length > 0 && (
@@ -309,6 +386,7 @@ const emptyFacts = (): Facts => ({ condition: null, works: null, marks: null, in
 const sameFacts = (a: Facts, b: Facts) => JSON.stringify(a) === JSON.stringify(b);
 
 function Wizard({ id, onSignedOut, onChanged, go }: ScreenProps & { id: string }) {
+  useFocusFlow();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState(1);
@@ -482,8 +560,8 @@ function Wizard({ id, onSignedOut, onChanged, go }: ScreenProps & { id: string }
   return (
     <div class="pb-28">
       <div class="mb-4 flex items-center justify-between gap-3">
-        <button class="btn-link inline-flex items-center gap-1 text-sm" onClick={() => openDraft(null)}>
-          <Icons.arrowLeft size={14} /> All drafts
+        <button class="btn-link inline-flex items-center gap-1 text-sm" disabled={busy !== null} onClick={() => ((document.activeElement as HTMLElement | null)?.blur(), setTimeout(() => openDraft(null), 0))}>
+          <Icons.arrowLeft size={14} /> {open ? "Save and close" : "All drafts"}
         </button>
         <span class="text-sm text-muted">
           {draft.status === "submitted" ? "Waiting for approval" : draft.status === "published" ? `Listed, item ${draft.item_id}` : `Started by ${draft.created_by} ${ago(draft.created_at)}`}
@@ -533,6 +611,10 @@ function Wizard({ id, onSignedOut, onChanged, go }: ScreenProps & { id: string }
                 onKeep={send}
                 onDrop={drop}
                 onMove={order}
+                onArrange={async (ids) => {
+                  if (!(await run("order", () => post("/order", { order: ids }), "Order saved"))) throw new Error("Couldn't save the order. Try again.");
+                }}
+                onGraded={(pid, g) => setGrades((cur) => ({ ...cur, [pid]: g }))}
                 onRemove={(pid) => run("remove", () => post(`/photos/${pid}/remove`))}
                 onChanged={take}
                 onError={fail}
@@ -573,6 +655,15 @@ function Wizard({ id, onSignedOut, onChanged, go }: ScreenProps & { id: string }
                 confirmDelete={confirmDelete}
                 onSubmit={submit}
                 onReopen={() => run("reopen", () => post("/reopen"), "Back to editing")}
+                onRetry={() =>
+                  run("submit", async () => {
+                    // The same draft, unchanged: back to editing, then eBay's check and a fresh label in the Inbox.
+                    await post("/reopen");
+                    const out = await post("/submit");
+                    onChanged();
+                    return out;
+                  })
+                }
                 onDelete={() => (confirmDelete ? run("delete", async () => (await post("/delete"), openDraft(null), {})) : setConfirmDelete(true))}
                 onInbox={() => go("/")}
               />
@@ -582,7 +673,7 @@ function Wizard({ id, onSignedOut, onChanged, go }: ScreenProps & { id: string }
       </AnimatePresence>
 
       {/* The step bar: always reachable with a thumb */}
-      <div class="fixed inset-x-0 z-40 px-4 min-[861px]:pl-[calc(var(--sidebar)+16px)]" style={{ bottom: "calc(var(--tabbar) + 16px)" }}>
+      <div class="fixed inset-x-0 z-40 px-4 min-[861px]:pl-[calc(var(--sidebar)+16px)]" style={{ bottom: "calc(var(--tabbar) + max(16px, env(safe-area-inset-bottom)))" }}>
         <div class="mx-auto flex max-w-3xl items-center justify-between gap-3 rounded-2xl border border-line-strong bg-glass p-2 shadow-float backdrop-blur-xl">
           <motion.button whileTap={{ scale: 0.95 }} class="btn btn-text" disabled={step === 0 || busy !== null} onClick={() => go2(step - 1)}>
             <Icons.arrowLeft size={16} /> Back
@@ -671,11 +762,14 @@ function PhotosStep(props: {
   onKeep: (p: Pending) => void;
   onDrop: (key: string) => void;
   onMove: (photoId: string, by: number) => void;
+  onArrange: (order: string[]) => Promise<void>;
+  onGraded: (photoId: string, grade: PhotoGrade) => void;
   onRemove: (photoId: string) => void;
   onChanged: (d: Draft) => void;
   onError: (e: unknown) => void;
 }) {
   const { draft, open, pending, camRef, fileRef } = props;
+  const [arranging, setArranging] = useState(false);
   const count = draft.photos.length;
   const full = count + pending.length >= MAX_PHOTOS;
   const inputs = (
@@ -717,6 +811,11 @@ function PhotosStep(props: {
   return (
     <>
       {inputs}
+      {open && count >= 2 && (
+        <motion.button whileTap={{ scale: 0.95 }} class="btn btn-secondary mb-4" disabled={props.busy !== null} onClick={() => setArranging(true)}>
+          <Icons.grid size={16} /> Arrange photos
+        </motion.button>
+      )}
       <div class="grid gap-5 sm:grid-cols-2">
         <AnimatePresence>
           {pending.map((p) => (
@@ -744,11 +843,21 @@ function PhotosStep(props: {
           ))}
           {draft.photos.map((ph, i) => (
             <motion.div key={ph.id} layout initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} transition={{ duration: 0.35, ease: EASE_OUT }}>
-              <PhotoCard ph={ph} i={i} last={i === count - 1} open={open} busy={props.busy} draftId={draft.id} grade={props.grades[ph.id] ?? null} onMove={(by) => props.onMove(ph.id, by)} onRemove={() => props.onRemove(ph.id)} onChanged={props.onChanged} onError={props.onError} />
+              <PhotoCard ph={ph} i={i} last={i === count - 1} open={open} busy={props.busy} draftId={draft.id} grade={props.grades[ph.id] ?? null} onMove={(by) => props.onMove(ph.id, by)} onGraded={(g) => props.onGraded(ph.id, g)} onRemove={() => props.onRemove(ph.id)} onChanged={props.onChanged} onError={props.onError} />
             </motion.div>
           ))}
         </AnimatePresence>
       </div>
+      {arranging && (
+        <ArrangePhotos
+          photos={draft.photos.map((ph) => ({ id: ph.id, src: photoSrc(ph) }))}
+          onCancel={() => setArranging(false)}
+          onDone={async (ids) => {
+            await props.onArrange(ids);
+            setArranging(false);
+          }}
+        />
+      )}
       {open && (
         <div class="mt-5 flex flex-wrap items-center gap-2">
           <motion.button whileTap={{ scale: 0.95 }} class="btn btn-secondary" disabled={full} onClick={() => camRef.current?.click()}>
@@ -776,12 +885,22 @@ function PhotoCard(props: {
   draftId: string;
   grade: PhotoGrade | null;
   onMove: (by: number) => void;
+  onGraded: (grade: PhotoGrade) => void;
   onRemove: () => void;
   onChanged: (d: Draft) => void;
   onError: (e: unknown) => void;
 }) {
   const { ph, i, last, open, draftId } = props;
   const [preview, setPreview] = useState<{ url: string; blob: Blob; edits: string[] } | null>(null);
+  const [adjusting, setAdjusting] = useState(false);
+  /** Edits already on the version in use, so a second edit (a crop after a tidy) keeps both in the record. */
+  const priorEdits = ph.use_edited && ph.edited ? ph.edited.edits : [];
+  const saveEdited = async (blob: Blob, edits: string[], grade?: PhotoGrade) => {
+    const q = new URLSearchParams({ edits: [...new Set([...priorEdits, ...edits])].join(",") });
+    if (grade) q.set("issues", issueCodes(grade).join(","));
+    props.onChanged(await sendJpeg(`/drafts/${draftId}/photos/${ph.id}/edited?${q}`, blob));
+    if (grade) props.onGraded(grade);
+  };
   const [refused, setRefused] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
 
@@ -789,8 +908,9 @@ function PhotoCard(props: {
     setWorking(true);
     setRefused(null);
     try {
+      // Tidies the version in use (which may already be cropped).
       const img = new Image();
-      img.src = ph.originalUrl;
+      img.src = photoSrc(ph);
       await img.decode();
       const c = document.createElement("canvas");
       c.width = img.naturalWidth;
@@ -815,7 +935,7 @@ function PhotoCard(props: {
     if (!preview) return;
     setWorking(true);
     try {
-      props.onChanged(await sendJpeg(`/drafts/${draftId}/photos/${ph.id}/edited?edits=${preview.edits.join(",")}`, preview.blob));
+      await saveEdited(preview.blob, preview.edits, await gradePhoto(preview.blob).catch(() => undefined));
       setPreview(null);
     } catch (e) {
       props.onError(e);
@@ -837,8 +957,8 @@ function PhotoCard(props: {
       <CameraAssistant url={photoSrc(ph)} grade={props.grade} scanning={false} label={`Photo ${i + 1}`} onRemove={open ? props.onRemove : undefined} />
       <div class="mt-2 flex flex-wrap gap-1.5">
         {i === 0 && <Chip tone="accent">Main photo</Chip>}
-        {ph.use_edited && ph.edited && <Chip tone="good">Tidied</Chip>}
-        {!props.grade && ph.issues.map((code) => <Chip key={code} tone="warn">{ISSUE_WORD[code] ?? code}</Chip>)}
+        {ph.use_edited && ph.edited && <Chip tone="good">Edited: {ph.edited.edits.map((e) => EDIT_WORD[e] ?? e).join(", ")}</Chip>}
+        {!props.grade && photoIssues(ph).map((code) => <Chip key={code} tone="warn">{ISSUE_WORD[code] ?? code}</Chip>)}
       </div>
       {props.grade && props.grade.findings.some((f) => f.tone !== "good") && <Findings grade={props.grade} />}
       {preview && (
@@ -864,16 +984,30 @@ function PhotoCard(props: {
           <button class="btn-link" disabled={last || disabled} onClick={() => props.onMove(1)} aria-label={`Move photo ${i + 1} later`}>
             Later →
           </button>
-          {ph.edited ? (
-            <button class="btn-link" disabled={disabled} onClick={() => choose(!ph.use_edited)}>
-              {ph.use_edited ? "Use original" : "Use tidied"}
-            </button>
-          ) : (
+          <button class="btn-link" disabled={disabled} onClick={() => setAdjusting(true)}>
+            Adjust (rotate, crop, centre)
+          </button>
+          {!(ph.use_edited && ph.edited?.edits.includes("background")) && (
             <button class="btn-link" disabled={disabled} onClick={runTidy}>
               {working ? "Tidying…" : "Tidy background"}
             </button>
           )}
+          {ph.edited && (
+            <button class="btn-link" disabled={disabled} onClick={() => choose(!ph.use_edited)}>
+              {ph.use_edited ? "Use original" : "Use edited"}
+            </button>
+          )}
         </div>
+      )}
+      {adjusting && (
+        <PhotoAdjust
+          src={photoSrc(ph)}
+          onCancel={() => setAdjusting(false)}
+          onSave={async (blob, grade, edits) => {
+            await saveEdited(blob, edits, grade);
+            setAdjusting(false);
+          }}
+        />
       )}
     </>
   );
@@ -1447,12 +1581,35 @@ function PostageStep(props: {
 
 // ---- Step 6: review and send ----
 
-function ReviewStep(props: { draft: Draft; busy: string | null; confirmDelete: boolean; onSubmit: () => void; onReopen: () => void; onDelete: () => void; onInbox: () => void }) {
+function ReviewStep(props: { draft: Draft; busy: string | null; confirmDelete: boolean; onSubmit: () => void; onReopen: () => void; onRetry: () => void; onDelete: () => void; onInbox: () => void }) {
   const { draft, busy } = props;
   const l = draft.listing;
   const open = draft.status === "open";
   const post = draft.postage;
   const condition = CONDITIONS.find((c) => c[0] === draft.facts?.condition)?.[1];
+
+  // eBay didn't take it: say so, and offer to send the same draft again (nothing to redo).
+  if (draft.status === "submitted" && draft.label?.status === "failed")
+    return (
+      <div class="grid place-items-center gap-5 py-6 text-center">
+        <span class="grid size-24 place-items-center rounded-full bg-yellow-soft text-yellow">
+          <Icons.alert size={40} />
+        </span>
+        <div>
+          <h2 class="text-2xl">eBay didn't take it</h2>
+          <p class="mt-2 max-w-md text-muted">It was approved, but eBay refused it, so nothing was listed. Everything you entered is kept: send it again and a fresh label goes to the Inbox.</p>
+          {draft.label.result && <p class="mx-auto mt-3 max-w-md rounded-xl bg-surface-2 px-3 py-2 text-left text-sm text-muted">eBay said: {draft.label.result}</p>}
+        </div>
+        <div class="flex flex-wrap justify-center gap-2">
+          <motion.button whileTap={{ scale: 0.95 }} class="btn btn-primary" disabled={busy !== null} onClick={props.onRetry}>
+            {busy === "submit" ? "eBay is checking…" : "Send for approval again"}
+          </motion.button>
+          <button class="btn btn-text" disabled={busy !== null} onClick={props.onReopen}>
+            Edit it first
+          </button>
+        </div>
+      </div>
+    );
 
   if (draft.status === "submitted" || draft.status === "published")
     return (
@@ -1474,7 +1631,7 @@ function ReviewStep(props: { draft: Draft; busy: string | null; confirmDelete: b
             </button>
           </div>
         )}
-        {draft.status === "submitted" && <p class="max-w-sm text-sm text-muted">"Edit it again" works once the label is rejected, has expired, or was recorded as a dry run while changes are off.</p>}
+        {draft.status === "submitted" && <p class="max-w-sm text-sm text-muted">"Edit it again" works once the label is rejected, has expired or failed, or was recorded as a dry run while changes are off.</p>}
       </div>
     );
 

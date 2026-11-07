@@ -82,8 +82,9 @@ Sign-in changed on 2026-11-07 from passkeys to email and authenticator code, wit
 
 2026-11-07: K reported that every remaining (K) item in sections B to H passes, including C4 and C7 (orders match Seller Hub, call volume within limits). C prepared the switch: `writeMode = 'approval'` in `infra/production.bicepparam`, the production override removed from `infra/main.bicep`, A1 re-run (typecheck, 319 tests, `npm audit --omit=dev` 0 vulnerabilities). From go-live, dry runs left over from the read-only days no longer hold a listing, so the first nightly run makes fresh, real suggestions; real ones still hold for 7 days, so nothing repeats (`holdsListing` in src/proposals.ts).
 
-- [ ] I1. K signs in to eBay again through the production app, this time granting full permissions.
-- [ ] I2. `WRITE_MODE` set to `approval` and deployed (R). Production proposals created from now on are real. (2026-11-07, C: change prepared; K deploys it, then `check-production.mjs` shows `writeMode: approval`)
-- [ ] I3. The first change is something small and reversible (a typo fix in one title). K approves it, then checks it on eBay.
-- [ ] I4. The first 10 changes are made one at a time, each checked on eBay before the next.
-- [ ] I5. One price change and one offer answer are watched end to end.
+- [x] I1. K signs in to eBay again through the production app, this time granting full permissions. (2026-11-07, K)
+- [x] I2. `WRITE_MODE` set to `approval` and deployed (R). Production proposals created from now on are real. (2026-11-07, K deployed; `check-production.mjs` shows `writeMode: approval`)
+- [x] I3. The first change is something small and reversible (a typo fix in one title). K approves it, then checks it on eBay. (2026-11-07, K)
+- [ ] I4. The first 10 changes are made one at a time, each checked on eBay before the next. (2026-11-07: 6 applied and checked by K, including the Maono title once the false offer lock was fixed; 4 to go)
+- [ ] I5. One price change and one offer answer are watched end to end. (2026-11-07: the price change is done, K; the offer answer waits for a real Best Offer)
+- [x] I6. The first real New listing: approved, live with its photos, its Seller Hub to-do filed. (2026-11-07: the air fryer, item 880091332933, 12 photos. The first attempt failed at the photo upload: eBay has retired Trading's UploadSiteHostedPictures on production ("Resource not found"); photos now go through the Media API's createImageFromFile, and the same draft was sent again with one tap)

@@ -69,6 +69,17 @@ The screens are built in the current design. K's UI update, which is coming, the
    - Never: generative fill, AI background replacement, removing or adding objects, retouching marks, scratches or wear, or changing the item's colour or shape. Flaws must stay visible (eBay requires photos to show the actual item).
    - Done with plain image operations (no image-generation model), the original kept, a before-and-after shown, and K chooses per photo. Off for a photo where the selection would touch the item.
 
+## Photo tools and drafts (K, 2026-11-07)
+
+- **Adjust (rotate, crop, centre)** on each photo: Rotate left and Rotate right (quarter turns), then drag to move, pinch, scroll or slider to zoom, a thirds grid with a centre cross, and the shapes Square, 4:3 or Original (`web/src/listing/adjust.tsx`, maths in `frame.ts`).
+  - **Centre on item:** puts the item's estimated centre in the middle, zoomed so the item fills about two thirds of the frame. It never cuts the item off, and never goes under eBay's 500 px minimum.
+  - **It's an ordinary crop:** nothing is added or painted. It saves an edited copy (the original is kept, with Use original to switch back), and the photo checks run again on it, so a fixed "off-centre" warning disappears.
+  - **Tidy background and Adjust stack:** each works on the version in use, and both edits are recorded.
+- **Arrange photos:** every photo as a small tile, dragged into order (or moved with the arrow keys). The first is the main photo; Done saves the order (`arrange.tsx`).
+- **Drafts:** save as you go ("Save and close" at the top). In the drafts list, each open draft has **Rename** and **Delete**.
+  - **Rename:** sets a name for the list only (`name`). It never changes "What is it, in your words?", which Claude reads, or the listing title.
+  - **Delete:** asks first, then deletes the draft and its photos.
+
 ## Postage rate source (K, 2026-11-05)
 
 The **Parcel2Go Quoting API**, matching eBay's Simple Delivery carriers:

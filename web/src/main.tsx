@@ -8,7 +8,7 @@ import { Metrics } from "./metrics";
 import { NewListing } from "./wizard";
 import { Report } from "./report";
 import { Activity, Inbox, Listings, Settings } from "./screens";
-import { Icons, page, SPRING } from "./ui";
+import { Icons, page, SPRING, useTabbarSync } from "./ui";
 import "./style.css";
 
 // Desktop shows every destination in the sidebar; the phone's floating tab bar keeps five, with "Sell" in the
@@ -60,6 +60,7 @@ function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [signedOut, setSignedOut] = useState(false);
   const [waiting, setWaiting] = useState(0);
+  const tabbarRef = useTabbarSync();
 
   const load = () =>
     api<Me>("/me")
@@ -129,7 +130,7 @@ function App() {
         </AnimatePresence>
       </div>
 
-      <nav class="tabbar" aria-label="Sections">
+      <nav class="tabbar" ref={tabbarRef} aria-label="Sections">
         <LayoutGroup id="tabs">
           {ROUTES.filter((r) => r.tab).map((r) =>
             r.path === "/new" ? (

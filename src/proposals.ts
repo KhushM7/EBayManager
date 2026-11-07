@@ -1,5 +1,5 @@
 import type { Env } from "./env";
-import { getItem, titleLockReason } from "./ebay/trading";
+import { titleLock } from "./ebay/trading";
 import { callFor, ebayWrite, WriteRefused } from "./ebay/write";
 import { push } from "./notify";
 import { snapshotListings } from "./snapshot";
@@ -219,7 +219,7 @@ export async function decide(env: Env, id: string, decision: "approve" | "reject
   if (p.kind === "revise" && p.item_id) {
     const a = JSON.parse(p.payload);
     if (a.title || a.description) {
-      const lock = titleLockReason(await getItem(env, p.item_id).catch(() => null));
+      const lock = await titleLock(env, p.item_id);
       if (lock) return `Not approved yet: ${lock}. Approve it again after that.`;
     }
   }

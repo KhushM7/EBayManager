@@ -16,7 +16,7 @@ export const MAX_OPEN_DRAFTS = 50;
 export const DRAFT_ABANDON_DAYS = 30;
 export const PUBLISHED_PHOTO_DAYS = 30;
 /** The ordinary edits a tidied copy may record (docs/add-listing.md, decision 4): nothing generative. */
-export const ALLOWED_EDITS = ["crop", "straighten", "exposure", "contrast", "white_balance", "background"];
+export const ALLOWED_EDITS = ["rotate", "crop", "straighten", "exposure", "contrast", "white_balance", "background"];
 
 const photoKey = (draftId: string, photoId: string, suffix = "") => `drafts/${draftId}/${photoId}${suffix}.jpg`;
 
@@ -44,8 +44,18 @@ export async function handleDrafts(env: Env, request: Request, url: URL, path: s
   const now = Date.now();
 
   if (path === "/drafts" && method === "GET") return json((await env.store.drafts.list("open")).map(view));
-  if (path === "/drafts/submitted" && method === "GET")
-    return json([...(await env.store.drafts.list("submitted")), ...(await env.store.drafts.list("published"))].slice(0, 30).map(view));
+  if (path === "/drafts/submitted" && method === "GET") {
+    const rows = [...(await env.store.drafts.list("submitted")), ...(await env.store.drafts.list("published"))].slice(0, 30);
+    // Each submitted one says how its label is doing (a failed one shows as such in the list).
+    return json(
+      await Promise.all(
+        rows.map(async (d) => {
+          const p = d.status === "submitted" && d.proposal_id ? await env.store.proposals.get(d.proposal_id) : null;
+          return { ...view(d), label: p ? { status: p.status, result: p.result ?? null } : null };
+        }),
+      ),
+    );
+  }
   if (path === "/drafts/defaults" && method === "GET") return json({ postcode: await env.store.kv.get("seller_postcode") });
   if (path === "/drafts" && method === "POST") {
     if ((await env.store.drafts.list("open")).length >= MAX_OPEN_DRAFTS) return json({ error: `There are already ${MAX_OPEN_DRAFTS} drafts open. Finish or delete some first.` }, 400);
@@ -67,7 +77,11 @@ export async function handleDrafts(env: Env, request: Request, url: URL, path: s
     if (!bytes) return json({ error: "Not found" }, 404);
     return new Response(bytes as unknown as BodyInit, { headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=3600", "Content-Disposition": "inline" } });
   }
-  if (!isPhotos && !action && method === "GET") return json(view(draft));
+  if (!isPhotos && !action && method === "GET") {
+    // A submitted draft also says how its label is doing, so a failed one can be sent again from the draft.
+    const p = draft.status === "submitted" && draft.proposal_id ? await env.store.proposals.get(draft.proposal_id) : null;
+    return json({ ...view(draft), label: p ? { status: p.status, result: p.result ?? null } : null });
+  }
   if (method !== "POST") return json({ error: "Not found" }, 404);
 
   // Upload one photo: the JPEG bytes as the body; what the phone's checks found and the shot's fingerprint in
@@ -109,12 +123,16 @@ export async function handleDrafts(env: Env, request: Request, url: URL, path: s
       if (photoAction === "edited") {
         // A tidied copy made on the phone with ordinary edits only; the original is kept and stays selectable.
         if (!env.photos) return json({ error: "Photo storage isn't set up here." }, 503);
-        const edits = (url.searchParams.get("edits") ?? "").split(",").filter((x) => ALLOWED_EDITS.includes(x));
+        const edits = [...new Set((url.searchParams.get("edits") ?? "").split(",").filter((x) => ALLOWED_EDITS.includes(x)))];
         if (!edits.length) return json({ error: "Say which edits were made." }, 400);
+        const issues = (url.searchParams.get("issues") ?? "").split(",").filter((x) => /^[a-z_]{1,20}$/.test(x)).slice(0, 8);
         const photo = acceptPhoto(new Uint8Array(await request.arrayBuffer()));
-        const key = photoKey(id, photoId, "-tidy");
+        // A new key for each edit, so a second edit (a crop after a tidy) never serves the old one from cache.
+        const key = photoKey(id, photoId, `-edit-${now.toString(36)}`);
         await env.photos.put(key, photo.bytes, "image/jpeg");
-        return json(view((await env.store.drafts.setEdited(id, photoId, { key, bytes: photo.bytes.length, width: photo.width, height: photo.height, at: now, edits }, true, now))!));
+        const d = (await env.store.drafts.setEdited(id, photoId, { key, bytes: photo.bytes.length, width: photo.width, height: photo.height, at: now, edits, issues }, true, now))!;
+        if (p.edited && p.edited.key !== key) await env.photos.delete(p.edited.key); // the edit it replaces
+        return json(view(d));
       }
       if (photoAction === "use") {
         const b = await readJson(request);
@@ -137,7 +155,12 @@ export async function handleDrafts(env: Env, request: Request, url: URL, path: s
     switch (action) {
       case undefined: {
         const title = typeof b.title === "string" ? b.title.trim().slice(0, 120) || null : undefined;
-        return json(view((await env.store.drafts.update(id, title === undefined ? {} : { title }, now))!));
+        // A name for the drafts list only; it changes nothing Claude or eBay sees.
+        const name = typeof b.name === "string" ? b.name.trim().slice(0, 80) || null : undefined;
+        const fields = { ...(title === undefined ? {} : { title }), ...(name === undefined ? {} : { name }) };
+        const d = await env.store.drafts.update(id, fields, now);
+        if (!d) return json({ error: "This draft has been submitted and can't be changed." }, 409);
+        return json(view(d));
       }
       case "order":
         if (!Array.isArray(b.order) || !b.order.every((x: unknown) => typeof x === "string")) return json({ error: "Send the photo order" }, 400);

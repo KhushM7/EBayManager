@@ -4,6 +4,7 @@ import type { Env } from "../src/env";
 import { handleApi } from "../src/api";
 import { acceptPhoto, jpegSize, memoryPhotoStore, stripJpegMetadata, MAX_PHOTOS } from "../src/photos";
 import { cleanUpDrafts } from "../src/drafts";
+import { seedProposal } from "./fixtures";
 
 /** A minimal JPEG: JFIF, an EXIF block holding a "GPS" marker, a comment, a frame header of w×h, and scan data. */
 function jpeg(w: number, h: number, withExif = true): Uint8Array {
@@ -110,6 +111,45 @@ describe("drafts API", () => {
     const removed = (await (await call(`/drafts/${d.id}/photos/${b}/remove`, { json: {} })).json()) as any;
     expect(removed.photos.map((p: any) => p.id)).toEqual([a]);
     expect(photos.keys()).toHaveLength(1);
+  });
+
+  it("says when a submitted draft's listing failed, and lets it go back to editing to send again", async () => {
+    const d = (await (await call("/drafts", { json: {} })).json()) as any;
+    await seedProposal(env.store, { id: "none_x", kind: "create_listing", item_id: null, status: "failed", created_at: 1, expires_at: Date.now() + 86_400_000 });
+    await env.store.docs.patch("proposals", "none_x", "none", [{ op: "set", path: "/result", value: "Resource not found" }]);
+    await env.store.drafts.setStatus(d.id, "submitted", Date.now(), { proposal_id: "none_x" });
+    const got = (await (await call(`/drafts/${d.id}`)).json()) as any;
+    expect(got.label).toEqual({ status: "failed", result: "Resource not found" });
+    const listed = (await (await call("/drafts/submitted")).json()) as any[];
+    expect(listed[0].label.status).toBe("failed");
+    const reopened = (await (await call(`/drafts/${d.id}/reopen`, { json: {} })).json()) as any;
+    expect(reopened).toMatchObject({ status: "open", proposal_id: null });
+  });
+
+  it("names a draft for the list without changing what Claude reads", async () => {
+    const d = (await (await call("/drafts", { json: {} })).json()) as any;
+    await call(`/drafts/${d.id}`, { json: { title: "Dyson vacuum" } });
+    const named = (await (await call(`/drafts/${d.id}`, { json: { name: "  Hallway cupboard Dyson  " } })).json()) as any;
+    expect(named).toMatchObject({ name: "Hallway cupboard Dyson", title: "Dyson vacuum" });
+    const cleared = (await (await call(`/drafts/${d.id}`, { json: { name: "" } })).json()) as any;
+    expect(cleared.name).toBeNull();
+  });
+
+  it("keeps an edited copy (crop after tidy) with its own checks, replacing the previous edit's file", async () => {
+    const d = (await (await call("/drafts", { json: {} })).json()) as any;
+    const up = (await (await upload(d.id, jpeg(1600, 1200), "offcentre")).json()) as any;
+    const pid = up.photos[0].id;
+    const tidied = (await (await call(`/drafts/${d.id}/photos/${pid}/edited?edits=background`, { body: jpeg(1600, 1200) as unknown as BodyInit })).json()) as any;
+    const firstKey = photos.keys().find((k) => k.includes("-edit-"));
+    await new Promise((r) => setTimeout(r, 5)); // a later edit gets a new file name
+    const cropped = (await (await call(`/drafts/${d.id}/photos/${pid}/edited?edits=background,crop,crop&issues=lowres`, { body: jpeg(1200, 1200) as unknown as BodyInit })).json()) as any;
+    expect(tidied.photos[0].edited.edits).toEqual(["background"]);
+    expect(cropped.photos[0]).toMatchObject({ use_edited: true, issues: ["offcentre"], edited: expect.objectContaining({ edits: ["background", "crop"], issues: ["lowres"], width: 1200, height: 1200 }) });
+    // The original and only the newest edit are kept.
+    expect(photos.keys()).toHaveLength(2);
+    expect(photos.keys()).not.toContain(firstKey);
+    const served = await call(`/drafts/${d.id}/photos/${pid}`);
+    expect(served.status).toBe(200);
   });
 
   it("stops at eBay's 24 photos", async () => {

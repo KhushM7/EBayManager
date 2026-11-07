@@ -104,14 +104,14 @@ $env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-deploy.mjs production   #
 
 Production runs in approval mode (`WRITE_MODE=approval`, set in `infra/production.bicepparam`) since go-live on 2026-11-07. Claude can read production data for diagnosis (`node scripts/prod-query.mjs production <container> "SELECT ..."`: K's Azure login, which has only Data Reader on production), but K runs anything that changes production: infrastructure (`scripts/azure-infra.mjs`), deploys (`scripts/azure-deploy.mjs`) and secrets (`scripts/azure-secrets.mjs` from `.prod.vars`). Every production script refuses to run without `EBAY_CONFIRM_PRODUCTION=yes`. Never print secrets or `.prod.vars`.
 
-## Where things stand (2026-11-06)
+## Where things stand (2026-11-07)
 
 - Phases 0–6 are done, and the move to Azure is complete (M0–M8; Cloudflare deleted 2026-11-07). K's real eBay account is connected to production (full permission granted at go-live, in approval mode): https://ebay-autopilot-production-wrpoyt.azurewebsites.net (Sandbox: https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net). K is the only user for now.
-- **Branches:** `merge-redesign` holds everything (Azure work, Add Listing, the redesigned app) and runs on Sandbox. It goes to `azure-migration` (a fast-forward), then `main` by pull request, then production. Production still runs older `azure-migration` code.
+- **Branches:** `azure-migration` holds everything and is what runs on Sandbox and production. It goes to `main` by pull request.
 - The pricing engine (`src/pricing/`, [pricing-engine.md](docs/pricing-engine.md)) follows K's seller rule (revision 4): same-condition sales set the value, just under the cheapest realistic listing, overpriced listings ignored. It prices listings, Best Offers and counters, audits and a nightly price review.
 - K's past sales (23, from 2025-03 to 2026-09) are imported from the Seller Hub orders report. eBay's APIs return only 90 days.
-- Add Listing is built and tested on Sandbox with K's own items ([add-listing-handover.md](docs/add-listing-handover.md)): condition first, Claude's photo check and research (model, specs, other names), listing text, price, postage done for K (parcel worked out, Simple Delivery size, Parcel2Go quotes) and a Seller Hub to-do after publishing. eBay Sandbox's picture service is down, so photo upload is first proven on production.
-- **Current phase: 8, live in approval mode** (2026-11-07). Go-live tests A to H passed. Next: [go-live-tests.md](docs/go-live-tests.md) section I: the first changes one at a time, each checked on eBay, then one price change and one offer end to end, and the first real New listing.
+- Add Listing is built and tested on Sandbox with K's own items ([add-listing-handover.md](docs/add-listing-handover.md)): condition first, Claude's photo check and research (model, specs, other names), listing text, price, postage done for K (parcel worked out, Simple Delivery size, Parcel2Go quotes) and a Seller Hub to-do after publishing. On production, photos go to eBay through the Media API (`createImageFromFile`; Trading's `UploadSiteHostedPictures` is retired there), proven with the first real listing on 2026-11-07. Photo tools: Adjust (rotate, crop, centre), Arrange (drag to reorder), Tidy background; drafts can be renamed and deleted, and a failed listing is sent again with one tap.
+- **Current phase: 8, live in approval mode** (2026-11-07). Go-live tests A to H passed; I1 to I3 and I6 done (the first real listing is live). Left: the rest of the first 10 changes (I4) and one real Best Offer answer (I5); managers when they join (README, "Adding a manager"). Costs so far: Claude $1.39 on production in 5 days; Azure inside its free allowances (README, "Costs").
 
 ## Open items
 

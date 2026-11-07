@@ -32,7 +32,16 @@ const REST: { method: string; prefix: string }[] = [
   { method: "GET", prefix: "/sell/marketing/v1/ad_campaign" },
   { method: "POST", prefix: "/sell/recommendation/v1/find" },
   { method: "GET", prefix: "/commerce/notification/v1/public_key/" },
+  // Media API getImage: a listing photo's eBay address and expiry, after the gate uploaded it.
+  { method: "GET", prefix: "/commerce/media/v1_beta/image/" },
 ];
+
+/**
+ * REST calls that change eBay. Only the write gate sends these, after approval (src/ebay/write.ts).
+ * createImageFromFile (Media API): a new listing's photo, uploaded as bytes to eBay Picture Services while applying an
+ * approved create_listing (2026-11-07: eBay retired Trading's UploadSiteHostedPictures on production).
+ */
+export const REST_WRITE: { method: string; prefix: string }[] = [{ method: "POST", prefix: "/commerce/media/v1_beta/image/create_image_from_file" }];
 
 export class CallNotAllowed extends Error {}
 
@@ -41,8 +50,10 @@ export function assertTrading(verb: string, kind: "read" | "any") {
   if (!ok) throw new CallNotAllowed(`eBay call ${verb} is not on the allowlist${kind === "read" ? " of read calls" : ""}`);
 }
 
-export function assertRest(method: string, url: string) {
+/** A REST call must be on the read list, or on the write list when the write gate asks with kind "write". */
+export function assertRest(method: string, url: string, kind: "read" | "write" = "read") {
   const path = new URL(url).pathname;
-  if (!REST.some((r) => r.method === method.toUpperCase() && path.startsWith(r.prefix)))
-    throw new CallNotAllowed(`eBay call ${method.toUpperCase()} ${path} is not on the allowlist`);
+  const list = kind === "write" ? REST_WRITE : REST;
+  if (!list.some((r) => r.method === method.toUpperCase() && path.startsWith(r.prefix)))
+    throw new CallNotAllowed(`eBay call ${method.toUpperCase()} ${path} is not on the allowlist${kind === "write" ? " of write calls" : ""}`);
 }

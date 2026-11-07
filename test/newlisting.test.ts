@@ -348,8 +348,74 @@ describe("a new listing, end to end", () => {
     expect((await reopenDraft(env, d.id)).status).toBe("open");
   });
 
+  /** A finished draft with one photo, ready to submit. */
+  async function readyDraft(env: Env, photos: ReturnType<typeof memoryPhotoStore>) {
+    const d = await env.store.drafts.create("K", Date.now());
+    await photos.put("k", jpeg(2400, 1800), "image/jpeg");
+    await env.store.drafts.addPhoto(d.id, { id: "p", key: "k", width: 2400, height: 1800, bytes: 1, issues: [], hash: null, added_at: 1 }, 24, 1);
+    await env.store.drafts.patch(
+      d.id,
+      {
+        review: cleanReview({ product: "x" }, 1, 1),
+        facts: cleanFacts({ condition: "used" }, null),
+        category: { id: "1", name: "Thing", path: "" },
+        aspects: [],
+        listing: { title: "Thing", description: "Used.", specifics: [], dropped: [], at: 1, editedByK: false },
+        price: { value: 10, kind: "own", floor: null, bestOffer: true },
+        postage: { cost: 3, carrier: null, service: null, source: "you", collectionOffered: false, collectionOnly: false, postcode: "SW1A 1AA", mode: "simple_delivery", size: "medium_parcel_10kg", sizeBy: "app" },
+        parcel: { lengthCm: 42, widthCm: 33, heightCm: 30, weightKg: 4.4 },
+      },
+      1,
+    );
+    return d;
+  }
+
+  // Production: eBay retired Trading's picture upload there ("Resource not found", 2026-11-07); photos go
+  // through the Media API's image-from-file upload, and its address goes in the listing's PictureURL.
+  for (const ok of [true, false])
+    it(`on production, uploads photos through the Media API and ${ok ? "lists with eBay's picture address" : "never lists if the upload fails"}`, async () => {
+      const seen: { url: string; call: string; body?: unknown }[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (u: string, init?: RequestInit) => {
+          const call = String((init?.headers as any)?.["X-EBAY-API-CALL-NAME"] ?? "rest");
+          seen.push({ url: String(u), call, body: init?.body });
+          if (String(u).includes("/identity/v1/oauth2/token")) return Response.json({ access_token: "t", expires_in: 7200 });
+          if (String(u).startsWith("https://apim.ebay.com/commerce/media/v1_beta/image/create_image_from_file"))
+            return ok
+              ? Response.json({ imageUrl: "https://i.ebayimg.com/images/g/abc/s-l1600.jpg", maxDimensionImageUrl: "https://i.ebayimg.com/x.jpg", expirationDate: "2027-01-01T00:00:00Z" }, { status: 201, headers: { Location: "https://apim.ebay.com/commerce/media/v1_beta/image/abc" } })
+              : Response.json({ errors: [{ errorId: 190201, message: "The file size exceeds the limit." }] }, { status: 400 });
+          const reply = call === "AddFixedPriceItem" ? "<Ack>Success</Ack><ItemID>110500000002</ItemID>" : "<Ack>Success</Ack>";
+          return new Response(`<?xml version="1.0"?><${call}Response>${reply}</${call}Response>`);
+        }),
+      );
+      const photos = memoryPhotoStore();
+      const env = { store: memoryStore(), photos, EBAY_ENV: "production", WRITE_MODE: "approval", EBAY_SITE_ID: "3", SIGNING_KEY: "k", PUBLIC_URL: "https://test.example" } as unknown as Env;
+      await withEbayTokens(env.store);
+      const d = await readyDraft(env, photos);
+      const { draft } = await submitDraft(env, d.id);
+      const result = await decide(env, draft.proposal_id!, "approve", "K");
+      const upload = seen.find((c) => c.url.includes("create_image_from_file"))!;
+      expect(upload.body).toBeInstanceOf(FormData);
+      expect((upload.body as FormData).get("image")).toBeInstanceOf(Blob);
+      expect(seen.map((c) => c.call)).not.toContain("UploadSiteHostedPictures");
+      const log = (await env.store.audit.recent(10)).map((a: any) => `${a.call}:${a.outcome}`);
+      if (ok) {
+        expect(result).toBe("AddFixedPriceItem ok, item 110500000002");
+        const add = seen.find((c) => c.call === "AddFixedPriceItem")!;
+        expect(String(add.body)).toContain("<PictureURL>https://i.ebayimg.com/images/g/abc/s-l1600.jpg</PictureURL>");
+        expect(log).toContain("createImageFromFile:applied");
+        expect((await env.store.drafts.get(d.id))!.status).toBe("published");
+      } else {
+        expect(result).toBe("Failed: eBay's picture upload failed (400): The file size exceeds the limit.");
+        expect(seen.map((c) => c.call)).not.toContain("AddFixedPriceItem");
+        expect(log).toContain("createImageFromFile:failed");
+        expect((await env.store.drafts.get(d.id))!.status).toBe("submitted");
+      }
+    });
+
   // eBay Sandbox's picture service answers every upload with error 10007 (eBay's API status page, 2025).
-  for (const ebayEnv of ["sandbox", "production"] as const)
+  for (const ebayEnv of ["sandbox"] as const)
     it(`when eBay's picture service fails with error 10007 on ${ebayEnv}, ${ebayEnv === "sandbox" ? "lists without photos and says so" : "never lists"}`, async () => {
       const calls: string[] = [];
       vi.stubGlobal(

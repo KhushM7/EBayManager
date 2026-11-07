@@ -407,6 +407,10 @@ select {
 .tabbar {
   display: none;
 }
+/* A step-by-step flow (New listing) hides the phone's tab bar; its own Back / Next bar takes the place. */
+body.focus-flow .tabbar {
+  display: none !important;
+}
 @media (max-width: 860px) {
   :root {
     --tabbar: calc(72px + env(safe-area-inset-bottom));

@@ -77,6 +77,15 @@ Still only met stand-ins after all that, so they're what K's test is for:
 4. **The postage service code** sent to eBay is Royal Mail 2nd Class whatever carrier is picked (see "Left to build").
 5. On production, eBay's check needs the full-permission sign-in (go-live section I), so a real draft can only be submitted on production after going live.
 
+## Photos on production go through eBay's Media API (2026-11-07)
+
+K's first real listing was approved but failed at the first photo. Trading's `UploadSiteHostedPictures` answered "Resource not found" on production, and eBay's reference page for it is gone. eBay retired it there.
+
+- **Production:** now uploads each photo with the Media API's `createImageFromFile` (`POST https://apim.ebay.com/commerce/media/v1_beta/image/create_image_from_file`, the JPEG as multipart key `image`, full `sell.inventory` permission). The reply's `imageUrl` goes into `PictureDetails.PictureURL`, as eBay's "Managing images" guide says.
+- **Sandbox:** eBay publishes no Media API host for it, so it keeps the old call and its fallback below.
+- **Safety:** the new call is a write on the allowlist (`REST_WRITE`) that only the gate sends; the safety scans cover it.
+- **A failed listing is kept:** its draft says "eBay didn't take it", with eBay's answer, and **Send for approval again** puts a fresh label in the Inbox without redoing anything.
+
 ## eBay Sandbox's picture service is down (2026-11-06)
 
 K's first Sandbox approval failed at the first photo: `UploadSiteHostedPictures` answered "Internal error to the application" (error 10007). eBay's API status page lists the Sandbox picture service as not working (unresolved since 2025), and developers report the same call working on production. So on **Sandbox only**, a first photo failing that way now lists the item without photos and says so in the result; the rest of publishing (specifics, postage, collection, the audit log) can be checked. On production a failed photo always stops the listing (both tested). The photo upload itself is first truly tested with the first real listing after going live (go-live I5), which K checks on eBay anyway. A failed label shows under the Inbox's **Refused** tab, and its draft can be reopened with "Edit it again".

@@ -129,7 +129,14 @@ export async function reviewDraft(env: Env, id: string, api?: MessagesApi): Prom
   const aspects = category ? await categoryAspectDetails(env, category.id).catch(() => []) : [];
   // Published specs only for an exactly identified product, each kept only with a page search returned.
   let specs: DraftRow["specs"] = null;
-  if (review.exact) {
+  // A re-check of the same exact product in the same category keeps the specs already found (the same search
+  // would find the same pages), instead of paying for the web search again.
+  const same = (a: unknown, b: unknown) => String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+  const prev = d.review;
+  const unchanged =
+    review.exact && prev?.exact && d.specs?.exact && same(prev.product, review.product) && same(prev.brand, review.brand) && same(prev.model, review.model) && same(d.category?.id, category?.id);
+  if (unchanged) specs = d.specs!;
+  else if (review.exact) {
     const found = await lookupSpecs(env, { ItemID: id, Title: review.product, Description: review.visibleFacts.map((f) => f.fact).join(". ") }, aspects.map((a) => a.name), api).catch(() => null);
     if (found) specs = { product: found.product, exact: found.exact, note: found.note, specs: found.specs, aliases: found.aliases ?? [] };
   }

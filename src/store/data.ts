@@ -255,6 +255,19 @@ export function listingsRepo(docs: DocStore) {
     async putSpecs(itemId: string, title: string, at: number, lookup: string) {
       await docs.upsert(L, { id: "specs", pk: itemId, type: "product_specs", item_id: itemId, title, at, lookup });
     },
+    /**
+     * After an approved title change: the stored lookup follows the listing to its new title (same item, same
+     * product), so the next review doesn't search the web again for specs it already has.
+     */
+    async retitleSpecs(itemId: string, title: string) {
+      const d = await docs.get<any>(L, "specs", itemId);
+      if (!d || d.title === title) return;
+      let lookup = d.lookup;
+      try {
+        lookup = JSON.stringify({ ...JSON.parse(d.lookup), title });
+      } catch {}
+      await docs.upsert(L, { id: "specs", pk: itemId, type: "product_specs", item_id: itemId, title, at: d.at, lookup });
+    },
   };
 }
 

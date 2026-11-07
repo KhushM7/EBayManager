@@ -64,6 +64,35 @@ describe("Claude tool-use loop", () => {
     expect(logged.reduce((s, u) => s + u.cost_usd, 0)).toBeCloseTo(2 * costUsd(MODELS.audit, usage()), 10);
   });
 
+  it("caches the conversation so far on later turns, leaving the content unchanged", async () => {
+    const { api, calls } = scripted([
+      msg("tool_use", [{ type: "tool_use", id: "t1", name: "list_proposals", input: {} }]),
+      msg("end_turn", [{ type: "text", text: "Done." }]),
+    ]);
+    await runAgent(env, run(), api);
+    // Turn 1: the prompt as given, no breakpoint in the messages.
+    expect(calls[0].messages).toEqual([{ role: "user", content: "Go." }]);
+    // Turn 2: one breakpoint, on the last tool result.
+    const last = calls[1].messages.at(-1)?.content as any[];
+    expect(last.at(-1)).toMatchObject({ type: "tool_result", tool_use_id: "t1", content: "[]", cache_control: { type: "ephemeral" } });
+    expect(JSON.stringify(calls[1].messages.slice(0, -1))).not.toContain("cache_control");
+  });
+
+  it("stops a run that reaches the daily budget part-way", async () => {
+    await env.store.usage.log({ at: Date.now(), job: "x", model: MODELS.audit, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0.99, stop_reason: "end_turn" });
+    const big = { ...msg("tool_use", [{ type: "tool_use", id: "t1", name: "list_proposals", input: {} }]), usage: usage(10_000, 0) };
+    const { api, calls } = scripted([big as any, msg("end_turn", [{ type: "text", text: "Done." }])]);
+    await runAgent(env, run(), api);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("prices a fallback model's reply at that model's rates", async () => {
+    const reply = { ...msg("end_turn", [{ type: "text", text: "ok" }]), model: MODELS.triage };
+    const { api } = scripted([reply as any]);
+    const r = await runAgent(env, run(), api);
+    expect(r.costUsd).toBeCloseTo(costUsd(MODELS.triage, usage()), 10);
+  });
+
   it("refuses tools outside the job's allowlist without running them", async () => {
     const { api, calls } = scripted([
       msg("tool_use", [{ type: "tool_use", id: "t1", name: "pause_writes", input: {} }]),

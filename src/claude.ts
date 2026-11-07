@@ -20,7 +20,7 @@ const PRICES: Record<Model, { input: number; output: number; cacheWrite: number;
 export const WEB_SEARCH_USD = 0.01;
 
 export function costUsd(model: Model, u: Anthropic.Beta.BetaUsage): number {
-  const p = PRICES[model];
+  const p = PRICES[model] ?? PRICES[MODELS.audit];
   const m =
     u.input_tokens * p.input +
     u.output_tokens * p.output +
@@ -30,10 +30,22 @@ export function costUsd(model: Model, u: Anthropic.Beta.BetaUsage): number {
   return m / 1_000_000 + (u.server_tool_use?.web_search_requests ?? 0) * WEB_SEARCH_USD;
 }
 
+// Today's spend, read from the store at most once a minute per store and kept up to date by logUsage, so a
+// batch of calls doesn't query the whole day's usage before each one.
+const spendCache = new WeakMap<object, { day: number; usd: number; at: number }>();
+const utcDayStart = () => {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  return d.getTime();
+};
+
 export async function spentTodayUsd(env: Env): Promise<number> {
-  const since = new Date();
-  since.setUTCHours(0, 0, 0, 0);
-  return (await env.store.usage.since(since.getTime())).reduce((sum, u) => sum + u.cost_usd, 0);
+  const day = utcDayStart();
+  const hit = spendCache.get(env.store);
+  if (hit && hit.day === day && Date.now() - hit.at < 60_000) return hit.usd;
+  const usd = (await env.store.usage.since(day)).reduce((sum, u) => sum + u.cost_usd, 0);
+  spendCache.set(env.store, { day, usd, at: Date.now() });
+  return usd;
 }
 
 /** The subset of the Messages API this loop uses, so tests can stand in for it. */
@@ -69,8 +81,12 @@ export async function client(env: Env, api?: MessagesApi): Promise<MessagesApi> 
   return api ?? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }).beta.messages;
 }
 
-export async function logUsage(env: Env, job: string, model: Model, response: Anthropic.Beta.BetaMessage): Promise<number> {
+export async function logUsage(env: Env, job: string, requested: Model, response: Anthropic.Beta.BetaMessage): Promise<number> {
+  // When a server-side fallback answered, the reply names the model that did: price it at that model's rates.
+  const model = (response.model && response.model in PRICES ? response.model : requested) as Model;
   const cost = costUsd(model, response.usage);
+  const hit = spendCache.get(env.store);
+  if (hit && hit.day === utcDayStart()) hit.usd += cost;
   await env.store.usage.log({
     at: Date.now(),
     job,
@@ -139,6 +155,23 @@ export async function completeOnce<T = string>(
   return (req.schema ? JSON.parse(text) : text) as T;
 }
 
+/**
+ * The conversation so far with a cache breakpoint on its last block, so the next turn reads the earlier turns
+ * (the listing data from tool results above all) from the cache instead of paying full price for them again.
+ * Billing only: the request content is unchanged. The first turn is left alone (nothing to reuse yet), and so is
+ * a last block that can't carry a breakpoint (thinking, server tool results after a paused turn).
+ */
+export function withHistoryCache(messages: Anthropic.Beta.BetaMessageParam[]): Anthropic.Beta.BetaMessageParam[] {
+  if (messages.length < 2) return messages;
+  const last = messages[messages.length - 1];
+  if (last.role !== "user") return messages;
+  const blocks: Anthropic.Beta.BetaContentBlockParam[] = typeof last.content === "string" ? [{ type: "text", text: last.content }] : [...(last.content ?? [])];
+  const end = blocks[blocks.length - 1];
+  if (!end || (end.type !== "text" && end.type !== "tool_result")) return messages;
+  blocks[blocks.length - 1] = { ...end, cache_control: { type: "ephemeral" } };
+  return [...messages.slice(0, -1), { role: "user", content: blocks }];
+}
+
 export async function runAgent(env: Env, run: AgentRun, api?: MessagesApi): Promise<AgentResult> {
   const messagesApi = await client(env, api);
   const allowed = tools.filter((t) => run.toolNames.includes(t.name));
@@ -155,15 +188,18 @@ export async function runAgent(env: Env, run: AgentRun, api?: MessagesApi): Prom
   let turns = 0;
   let last: Anthropic.Beta.BetaMessage | null = null;
   const maxTurns = run.maxTurns ?? 12;
+  const spentAtStart = await spentTodayUsd(env);
 
   while (turns < maxTurns) {
+    // The daily budget holds inside a run too, not only before it starts.
+    if (turns > 0 && spentAtStart + total >= CLAUDE_DAILY_BUDGET_USD) break;
     turns++;
     const response = await messagesApi.create({
       model: run.model,
       max_tokens: 16000,
       system,
       tools: toolDefs,
-      messages,
+      messages: withHistoryCache(messages),
       output_config: { effort: run.effort ?? "medium" },
       // Sonnet 5.5 on the Claude API: a refused request is re-run on a fallback model inside the same call.
       ...(run.model === MODELS.audit ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),

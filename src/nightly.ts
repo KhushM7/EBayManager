@@ -11,6 +11,7 @@ import { bundleAdvice } from "./pricing/bundles";
 import { reviewPrices, type ReviewOut } from "./pricing/review";
 import { fileHealthTodos, fileOwnPriceReminders, filePriceQuestions, lastSentence } from "./todos";
 import { reviewPromotions } from "./promotion";
+import { checkAllowances } from "./allowance";
 import { auditDone, runFirstDayAudit } from "./firstday";
 import { cleanUpDrafts } from "./drafts";
 
@@ -134,6 +135,9 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
 
   // Promotion research on the listings the engine has a market picture for (docs/pricing-and-promotion.md).
   await step(steps, "promotion", async () => reviewPromotions(env));
+
+  // Claude credit and sold-data searches running low or out: an Inbox to-do and a notification.
+  await step(steps, "allowances", async () => checkAllowances(env));
 
   let triaged = 0;
   const triageNotes = new Map<string, string>();

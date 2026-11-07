@@ -23,6 +23,7 @@ import { editStyle, getStyle, learnStyle, saveStyle } from "./style";
 import { reviewPromotions } from "./promotion";
 import { handleDrafts } from "./drafts";
 import { fetchListingPicture } from "./ebay/pictures";
+import { allowances, checkAllowances, setClaudeCredit } from "./allowance";
 
 // JSON API for the dashboard. Everything except sign-in needs a signed-in person (docs/security.md); some
 // actions are owner-only. Sign-in failures are rate-limited per network.
@@ -454,6 +455,18 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
       byJob,
       dailyBudgetUsd: CLAUDE_DAILY_BUDGET_USD,
       apiKeySet: Boolean(env.ANTHROPIC_API_KEY),
+      allowances: await allowances(env),
+    });
+  }
+
+  // K's Claude credit balance, from the Claude Console, so Settings can show what's left.
+  if (path === "/usage/credit" && method === "POST") {
+    if (!owner) return ownerOnly();
+    const b = await body(request);
+    return run(async () => {
+      await setClaudeCredit(env, b.usd == null || b.usd === "" ? null : Number(b.usd));
+      await checkAllowances(env);
+      return json({ allowances: await allowances(env) });
     });
   }
 

@@ -8,6 +8,7 @@ import { handleSignIn, signinPath } from "./signin";
 import { handleMcp } from "./mcp";
 import { envPrefix } from "./notify";
 import { pollInbox } from "./inbox";
+import { checkAllowances } from "./allowance";
 import { runNightly } from "./nightly";
 import { decide, getProposal, verifyDecision } from "./proposals";
 
@@ -64,8 +65,12 @@ export async function handle(request: Request, env: Env): Promise<Response> {
 }
 
 /** The scheduled jobs: the 02:00 UTC nightly run, and the buyer-message poll every 15 minutes. */
-export function runScheduled(kind: "nightly" | "poll", env: Env) {
-  return kind === "nightly" ? runNightly(env) : pollInbox(env);
+export async function runScheduled(kind: "nightly" | "poll", env: Env) {
+  if (kind === "nightly") return runNightly(env);
+  const r = await pollInbox(env);
+  // Allowances running low or out become Inbox to-dos with a notification (store reads only).
+  await checkAllowances(env).catch((e) => console.error(`allowances: ${e instanceof Error ? e.message : String(e)}`));
+  return r;
 }
 
 export default { fetch: handle };

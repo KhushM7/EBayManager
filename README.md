@@ -102,7 +102,7 @@ questions about your items, setting prices directly, and signing other people ou
 
 ## Finishing touches (one time)
 
-- [ ] Merge `azure-migration` into `main` (a pull request), so GitHub's main branch matches what's live.
+- [ ] Merge the latest work branch into `main` with a pull request (now `photo-tools-and-live-fixes`), so GitHub's main matches what's live.
 - [ ] Turn on your authenticator app's cloud backup (Google Authenticator: sign in with your Google account;
       Microsoft Authenticator: Settings → Cloud backup), so a lost phone doesn't lock you out.
 - [ ] Remove the app from your phone's home screen and install it again, so the new logo shows (Chrome menu ⋮ → Install app).

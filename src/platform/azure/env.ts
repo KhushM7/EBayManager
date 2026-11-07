@@ -53,6 +53,8 @@ export function azureEnv(): Omit<Env, "enqueue"> {
     // The same storage account as the Functions host (its name is already an app setting), container "photos".
     photos: v.AzureWebJobsStorage__accountName ? azurePhotoStore(v.AzureWebJobsStorage__accountName, credential) : undefined,
     DASHBOARD_KEY: v.DASHBOARD_KEY ?? "",
+    PEOPLE: opt("PEOPLE"),
+    SIGNIN_PATH: opt("SIGNIN_PATH"),
     VAPID_KEY: opt("VAPID_KEY"),
     ANTHROPIC_API_KEY: opt("ANTHROPIC_API_KEY"),
     ALLOW_KEY_LOGIN: opt("ALLOW_KEY_LOGIN"),

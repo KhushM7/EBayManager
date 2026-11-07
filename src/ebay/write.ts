@@ -5,7 +5,7 @@ import { esc, tradingRequest, tradingUpload } from "./trading";
 import { seqId } from "../store/doc";
 
 // The write gate. This is the only module that may send an eBay write (enforced by test/safety.test.ts).
-// It reads the proposal's state from D1 itself, so a caller can't talk it into applying something.
+// It reads the proposal's state from the store itself, so a caller can't talk it into applying something.
 
 export class WriteRefused extends Error {}
 

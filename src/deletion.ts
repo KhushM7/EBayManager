@@ -2,7 +2,28 @@ import type { Env } from "./env";
 import { appToken } from "./ebay/auth";
 import { assertRest } from "./ebay/allowlist";
 import { ebayHosts } from "./ebay/hosts";
-import { derToRaw } from "./auth/webauthn";
+
+/** An ECDSA P-256 signature from DER (as eBay sends it) to the raw r||s form Web Crypto verifies. */
+export function derToRaw(der: Uint8Array): Uint8Array {
+  if (der[0] !== 0x30) throw new Error("Bad ECDSA signature");
+  let i = 2;
+  const part = () => {
+    if (der[i++] !== 0x02) throw new Error("Bad ECDSA signature");
+    const len = der[i++];
+    let v = der.slice(i, (i += len));
+    while (v.length > 32 && v[0] === 0) v = v.slice(1);
+    if (v.length > 32) throw new Error("Bad ECDSA signature");
+    const out = new Uint8Array(32);
+    out.set(v, 32 - v.length);
+    return out;
+  };
+  const r = part();
+  const s = part();
+  const raw = new Uint8Array(64);
+  raw.set(r);
+  raw.set(s, 32);
+  return raw;
+}
 
 // eBay marketplace account deletion (required for a production keyset). eBay verifies the endpoint with a
 // challenge, then POSTs signed notifications when an eBay user closes their account; the app deletes what it

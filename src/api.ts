@@ -6,27 +6,9 @@ import { CLAUDE_DAILY_BUDGET_USD } from "./rules";
 import { pollInbox } from "./inbox";
 import { applyApproved, decide, editProposal } from "./proposals";
 import { saveSubscription, vapidPublicKey } from "./push";
-import {
-  addPasskeyOptions,
-  clearCookie,
-  completeAddPasskey,
-  completeLogin,
-  completeRegistration,
-  createInvite,
-  createSession,
-  endSession,
-  listPeople,
-  loginOptions,
-  recordFailure,
-  registrationOptions,
-  removePasskey,
-  removePerson,
-  signOutEverywhere,
-  tooManyAttempts,
-  useRecoveryCode,
-  userCount,
-} from "./auth/users";
-import { checkKey, CSRF_HEADER, getSession, keyLogin } from "./session";
+import { clearCookie, endSession, isKnownDevice, knownDeviceCookie, recordFailure, signOutEverywhere, tooManyAttempts, type Session } from "./auth/users";
+import { listPeople } from "./auth/people";
+import { CSRF_HEADER, getSession, keyLogin } from "./session";
 import { snapshotListings } from "./snapshot";
 import { MONTHLY_CAP, providerEnabled, usedThisMonth, type Provider } from "./solddata";
 import { evaluateProviders } from "./solddata-eval";
@@ -72,7 +54,8 @@ export function clientIp(request: Request): string {
 const setting = async (env: Env, key: string) =>
   env.store.kv.get(key);
 
-export async function handleApi(env: Env, request: Request, url: URL): Promise<Response> {
+/** `pre` is the session when the caller already looked it up (src/index.ts), so it isn't read twice. */
+export async function handleApi(env: Env, request: Request, url: URL, pre?: Session | null): Promise<Response> {
   const path = url.pathname.replace(/^\/api/, "");
   const method = request.method;
 
@@ -94,41 +77,12 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
     }
   };
 
-  // --- Signing in (no session needed) ---
-  if (path.startsWith("/auth/") || path === "/login" || path === "/setup") {
+  // --- Sandbox test sign-in (no session needed). People sign in on the hidden page (src/signin.ts). ---
+  if (path === "/login") {
+    if (method !== "POST") return json({ error: "Not found" }, 404);
     if (await limited()) return json({ error: "Too many attempts. Wait an hour and try again." }, 429);
-    const b = method === "POST" ? await body(request) : {};
-
-    if (path === "/auth/login/options" && method === "POST") return json(await loginOptions(env));
-    if (path === "/auth/login/verify" && method === "POST")
-      return run(async () => {
-        const userId = await completeLogin(env, b.challengeId, b.credential);
-        return json({ ok: true }, 200, { "Set-Cookie": await createSession(env, userId, request) });
-      });
-    if (path === "/auth/recover" && method === "POST")
-      return run(async () => {
-        const userId = await useRecoveryCode(env, b.code);
-        return json({ ok: true, mustAddPasskey: true }, 200, { "Set-Cookie": await createSession(env, userId, request, true) });
-      });
-    if (path === "/auth/register/options" && method === "POST") return run(async () => json(await registrationOptions(env, b.invite)));
-    if (path === "/auth/register/verify" && method === "POST")
-      return run(async () => {
-        const r = await completeRegistration(env, b.challengeId, b.credential, String(b.label ?? ""));
-        return json({ recoveryCodes: r.recoveryCodes }, 200, { "Set-Cookie": await createSession(env, r.userId, request) });
-      });
-    // The owner's first invite, while nobody is registered. Needs DASHBOARD_KEY.
-    if (path === "/setup" && method === "POST") {
-      if ((await userCount(env)) > 0) return json({ error: "Already set up" }, 403);
-      if (!checkKey(env, b.key)) return fail(401, "Wrong key");
-      const token = await createInvite(env, String(b.name ?? "K"), "owner", null);
-      return json({ inviteUrl: `${env.PUBLIC_URL}/join#${token}` });
-    }
-    // Sandbox only.
-    if (path === "/login" && method === "POST") {
-      const cookie = await keyLogin(env, request, b.key);
-      return cookie ? json({ ok: true }, 200, { "Set-Cookie": cookie }) : fail(401, "Wrong key");
-    }
-    return json({ error: "Not found" }, 404);
+    const cookie = await keyLogin(env, request, (await body(request)).key);
+    return cookie ? json({ ok: true }, 200, { "Set-Cookie": cookie }) : fail(401, "Wrong key");
   }
 
   if (path === "/logout" && method === "POST") {
@@ -136,52 +90,32 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
     return json({ ok: true }, 200, { "Set-Cookie": clearCookie });
   }
 
-  const session = await getSession(env, request);
+  const session = pre === undefined ? await getSession(env, request) : pre;
   if (!session) return json({ error: "Sign in" }, 401);
   const { user } = session;
   const owner = user.role === "owner";
   const ownerOnly = () => json({ error: "Only the owner can do that" }, 403);
 
-  // After a recovery code, the only thing allowed is registering a new passkey.
-  if (session.mustAddPasskey && !["/me", "/passkeys/options", "/passkeys/verify"].includes(path))
-    return json({ error: "Register a new passkey first", mustAddPasskey: true }, 403);
-
   // New-listing drafts and their photos (src/drafts.ts).
   const drafts = await handleDrafts(env, request, url, path, user);
   if (drafts) return drafts;
 
-  if (path === "/passkeys/options" && method === "POST") return json(await addPasskeyOptions(env, user));
-  if (path === "/passkeys/verify" && method === "POST") {
-    const b = await body(request);
-    return run(async () => json(await completeAddPasskey(env, user, b.challengeId, b.credential, String(b.label ?? ""), session.id)));
-  }
-  const removeKey = path.match(/^\/passkeys\/([\w-]+)\/remove$/);
-  if (removeKey && method === "POST") return run(async () => (await removePasskey(env, user, removeKey[1]), json({ ok: true })));
-
-  if (path === "/people" && method === "GET") return owner ? json(await listPeople(env)) : ownerOnly();
-  if (path === "/people/invite" && method === "POST") {
-    if (!owner) return ownerOnly();
-    const b = await body(request);
-    return run(async () => json({ inviteUrl: `${env.PUBLIC_URL}/join#${await createInvite(env, String(b.name ?? ""), "manager", user.id)}` }));
-  }
-  const person = path.match(/^\/people\/([\w-]+)\/(remove|signout)$/);
+  // The people are set by K with scripts/people.mjs; here the owner can only see them and sign them out.
+  if (path === "/people" && method === "GET") return owner ? json({ people: await listPeople(env) }) : ownerOnly();
+  const person = path.match(/^\/people\/([\w-]+)\/signout$/);
   if (person && method === "POST") {
     if (!owner && person[1] !== user.id) return ownerOnly();
-    return run(async () => {
-      if (person[2] === "remove") {
-        if (!owner) throw new Error("Only the owner can remove people");
-        await removePerson(env, user, person[1]);
-      } else await signOutEverywhere(env, person[1]);
-      return json({ ok: true });
-    });
+    await signOutEverywhere(env, person[1]);
+    return json({ ok: true });
   }
 
   if (path === "/me" && method === "GET") {
     const lastPush = await setting(env, "last_push_at");
     const connected = await env.store.kv.getEbayTokens();
+    // Marks this browser as one where someone has signed in, so it can find the hidden sign-in page again.
+    const mark: Record<string, string> = (await isKnownDevice(env, request)) ? {} : { "Set-Cookie": await knownDeviceCookie(env, user.id) };
     return json({
       user,
-      mustAddPasskey: session.mustAddPasskey,
       ebayEnv: env.EBAY_ENV,
       writeMode: env.WRITE_MODE,
       writesPaused: await writesPaused(env),
@@ -190,7 +124,7 @@ export async function handleApi(env: Env, request: Request, url: URL): Promise<R
       ebayScopes: connected ? (/sell\.inventory\.readonly/.test(connected.scopes) ? "read-only" : "full") : null,
       vapidPublicKey: vapidPublicKey(env),
       lastPushAt: lastPush ? Number(lastPush) : null,
-    });
+    }, 200, mark);
   }
 
   if (path === "/proposals" && method === "GET") {

@@ -17,20 +17,22 @@ Since 2026-11-05 production runs on Azure (docs/azure-migration.md): Cosmos DB a
 
 ## B. Access and security (R and K)
 
-- [x] B1. (R) Every `/api` route returns 401 without a session, including with a forged or expired cookie.
-- [x] B2. (R) State-changing requests without the `X-EbayManager` header return 403.
-- [x] B3. (R) A manager session gets 403 on owner-only actions (invite, remove user, resume, auto-apply settings, connect eBay). (2026-11-05, C: security.test "keeps owner-only actions from managers", including Inbox answers and price actions)
-- [x] B4. (R) A fourth user can't be added. (2026-11-05, C: security.test "allows three people at most")
-- [x] B5. (R) An invite link works once and expires after 24 hours. (2026-11-05, C: single use tested at setup; 24-hour expiry test added)
-- [x] B6. (R) Sign-in is rate-limited after 5 failures. (2026-11-05, C: security.test, 5 failed passkey sign-ins per person in 15 minutes, 20 per network per hour)
-- [x] B7. (R) `/mcp` returns 404 in production; `/oauth/start` without the owner's session returns 401.
-- [x] B8. (R) Security headers are present on every page (CSP, no framing, nosniff, no referrer), and cookies are `__Host-`, `HttpOnly`, `Secure`, `SameSite=Strict`.
-- [x] B9. (R) The production decide link is refused without a signed-in session, even when correctly signed. (2026-11-05, C: security.test "needs a signed-in device for a production approval link, even when it is correctly signed")
-- [x] B10. (K) K registers a passkey on their phone and on a computer, and signs in on both. (2026-11-05, K: "Android phone" and "Windows computer" on Azure production)
-- [ ] B11. (K) Each manager registers through their invite, signs in on their own phone, and turns on notifications. **N/A until a manager joins** (K's decision, 2026-11-05: go live with K only; run this the day the first manager is invited)
-- [ ] B12. (K) K signs one manager out of all devices from Settings, and that manager has to sign in again. **N/A until a manager joins** (K's decision, 2026-11-05: go live with K only; run this the day the first manager is invited)
-- [ ] B13. (K) Each person stores their recovery codes, and one code is tested once, then a new passkey is registered. (K now; each manager when they join)
-- [ ] B14. (K, optional) An identity gate in front of the app (on Azure: App Service authentication with Entra ID, replacing the Cloudflare Access idea) admits the three people and turns a fourth away. Not set up; passkeys are the gate.
+Sign-in changed on 2026-11-07 from passkeys to email and authenticator code, with a hidden site ([security.md](security.md)). B1 to B6 and B10 to B14 were rewritten for it. Their earlier passkey ticks (2026-11-05) are history and must be redone on the new build.
+
+- [ ] B1. (R) The hidden site: without a session, every address (`/`, `/api/*`, `/health`, `/oauth/start`, a wrong sign-in address) is an empty 404, including with a forged cookie. (C, 2026-11-07: security.test "the hidden site", 4 tests. On each environment: `check-production.mjs`)
+- [ ] B2. (R) State-changing requests without the `X-EbayManager` header, or from another origin, are refused. The sign-in form refuses a POST from another site. (C, 2026-11-07: security.test. On each environment: `check-production.mjs`)
+- [x] B3. (R) A manager session gets 403 on owner-only actions (see people, sign others out, resume, auto-apply settings, connect eBay, Inbox answers, price actions). (2026-11-07, C: security.test "keeps owner-only actions from managers", "the owner can sign anyone out everywhere; a manager only themselves")
+- [x] B4. (R) The people list allows 1 to 3 people with exactly one owner and full-length secrets; a malformed list lets nobody in; there's no way to add people from the app. (2026-11-07, C: security.test "checks the people list strictly", "lets nobody in when the people list is missing or malformed", "has no way to add or change people from the app")
+- [x] B5. (R) Each authenticator code works once (and never an older one after a newer one). A wrong code and an unknown email get the same answer. Taking someone off the list ends their sessions. (2026-11-07, C: security.test "signing in")
+- [x] B6. (R) Sign-in is rate-limited: 5 failures per person in 15 minutes (from any network), 20 per network per hour. (2026-11-07, C: security.test)
+- [ ] B7. (R) `/mcp` is a blank 404 in production; `/oauth/start` without the owner's session is a blank 404; the key sign-in never works in production. (C, 2026-11-07: security.test. On production: `check-production.mjs`)
+- [x] B8. (R) Security headers are present on every page (CSP, no framing, nosniff, no referrer, noindex), and cookies are `__Host-`, `HttpOnly`, `Secure`, `SameSite=Strict`.
+- [x] B9. (R) The production decide link is refused without a signed-in session, even when correctly signed. (2026-11-05, C: security.test "needs a signed-in device for a production approval link, even when it is correctly signed"; still passing 2026-11-07)
+- [ ] B10. (K) K runs `people.mjs production add` for themselves and scans the QR code. They sign in on the phone (installed app, "stay signed in" ticked) and on a computer (unticked), turn on notifications on the phone, and see the Settings → People list.
+- [ ] B11. (K) Each manager is added with `people.mjs`, scans their QR code, signs in on their own phone and turns on notifications. **N/A until a manager joins** (K's decision, 2026-11-05: go live with K only)
+- [ ] B12. (K) K signs one manager out of all devices from Settings, and that manager has to sign in again. **N/A until a manager joins**
+- [ ] B13. (K) Recovery: K runs `people.mjs production new-code` for themselves, the old authenticator entry stops working and the new one signs in. K also checks the authenticator app's cloud backup is on.
+- [ ] B14. (K) The hidden site from outside: in a private window (or on mobile data), the app's address and `/api/me` show a blank page, and only the bookmarked sign-in address shows the sign-in form. After signing out, the installed app opens straight to the sign-in page.
 
 ## C. eBay connection, read-only (R and K)
 

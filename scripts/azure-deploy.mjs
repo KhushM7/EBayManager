@@ -25,4 +25,4 @@ if (entries.some((e) => e.includes("\\")) || !entries.includes("index.js") || !e
 
 console.log(`Deploying to ${o.functionAppName} (${env})...`);
 az(["functionapp", "deployment", "source", "config-zip", "--resource-group", o.resourceGroup, "--name", o.functionAppName, "--src", zip], { quiet: true });
-console.log(`Deployed. ${o.publicUrl}/health should show ${env}.`);
+console.log(`Deployed. Check it with: node scripts/check-production.mjs${env === "sandbox" ? " sandbox" : ""}`);

@@ -2,7 +2,7 @@ import { AnimatePresence, LayoutGroup, motion, MotionConfig } from "framer-motio
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { api, SignedOut, type Me } from "./api";
-import { AddPasskeyFirst, Join, SignIn } from "./doors";
+import { SignedOutDoor } from "./doors";
 import { Logo } from "./logo";
 import { Metrics } from "./metrics";
 import { NewListing } from "./wizard";
@@ -60,7 +60,6 @@ function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [signedOut, setSignedOut] = useState(false);
   const [waiting, setWaiting] = useState(0);
-  const invite = path === "/join" ? location.hash.slice(1) : "";
 
   const load = () =>
     api<Me>("/me")
@@ -74,21 +73,14 @@ function App() {
       .catch(() => {});
 
   useEffect(() => {
-    if (!invite) load();
+    load();
   }, []);
   useEffect(() => {
-    if (me && !me.mustAddPasskey) countWaiting();
+    if (me) countWaiting();
   }, [me, path]);
 
-  const afterSignIn = () => {
-    if (location.pathname === "/join") history.replaceState(null, "", "/");
-    load();
-  };
-
-  if (invite) return <Join invite={invite} onDone={() => (history.replaceState(null, "", "/"), location.reload())} />;
-  if (signedOut) return <SignIn onDone={afterSignIn} />;
+  if (signedOut) return <SignedOutDoor />;
   if (!me) return <main class="door" aria-busy="true" />;
-  if (me.mustAddPasskey) return <AddPasskeyFirst onDone={load} />;
 
   const route = ROUTES.find((r) => r.path === path) ?? ROUTES[0];
   const props = { me, reloadMe: load, onSignedOut: () => setSignedOut(true), go, onChanged: countWaiting };

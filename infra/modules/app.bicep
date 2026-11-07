@@ -38,6 +38,8 @@ var secrets = [
   'MCP_TOKEN'
   'SIGNING_KEY'
   'NTFY_TOPIC'
+  'PEOPLE'
+  'SIGNIN_PATH'
 ]
 
 var roles = {

@@ -27,8 +27,15 @@ export interface Env {
    * jobs run inline instead (src/background.ts).
    */
   enqueue?: (message: { jobId: string }) => void | Promise<void>;
-  /** Bootstraps the owner's invite when nobody is registered; on Sandbox only, also a test sign-in. */
+  /** K's operations key: reads /health (X-Health-Key). On Sandbox only, also a test sign-in. */
   DASHBOARD_KEY: string;
+  /**
+   * The people who may sign in, with their authenticator secrets (JSON, src/auth/people.ts). Set only by K with
+   * scripts/people.mjs, through Key Vault. Unset or malformed: nobody can sign in.
+   */
+  PEOPLE?: string;
+  /** The secret part of the hidden sign-in page's address, /s/<SIGNIN_PATH> (src/signin.ts). */
+  SIGNIN_PATH?: string;
   /** VAPID key pair as a P-256 private JWK, for Web Push. */
   VAPID_KEY?: string;
   /** K's Anthropic API key, for the audit and nightly triage. */

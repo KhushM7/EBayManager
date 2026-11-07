@@ -1,39 +1,29 @@
 import type { Env } from "../env";
 import { b64u } from "../push";
-import { verifyAuthentication, verifyRegistration } from "./webauthn";
+import { findByEmail, findUser, type Role, type User } from "./people";
+import { matchStep } from "./totp";
 
-// People, passkeys, invites, recovery codes and sessions (docs/security.md). At most three people: K as owner
-// and two managers. Sessions are random tokens stored hashed; 12 hours idle, 7 days at most. Storage is in
-// src/store/auth.ts, where every multi-step change (registration, recovery codes, removing someone) is one
-// all-or-nothing transaction and every single-use item (invite, recovery code, challenge) is claimed once.
+// Signing in and sessions (docs/security.md). A person signs in with their email and the 6-digit code from
+// their authenticator app; the people and their authenticator secrets come only from K's PEOPLE list
+// (src/auth/people.ts). Sessions are random tokens stored hashed. A normal sign-in lasts 12 hours idle and
+// 7 days at most; "stay signed in" (the installed phone app, so notification approvals keep working) lasts
+// 30 days.
 
-export const MAX_USERS = 3;
+export type { Role, User };
+
 const SESSION_IDLE_MS = 12 * 3_600_000;
 const SESSION_MAX_MS = 7 * 86_400_000;
-const INVITE_TTL_MS = 24 * 3_600_000;
+const LONG_SESSION_MS = 30 * 86_400_000;
 const CHALLENGE_TTL_MS = 10 * 60_000;
 export const COOKIE = "__Host-sid";
 
-export type Role = "owner" | "manager";
-export interface User {
-  id: string;
-  name: string;
-  role: Role;
-}
 export interface Session {
   user: User;
   id: string;
-  /** Signed in with a recovery code: may only register a new passkey. */
-  mustAddPasskey: boolean;
 }
 
 const random = (n = 32) => b64u.encode(crypto.getRandomValues(new Uint8Array(n)));
 export const hash = async (s: string) => b64u.encode(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
-
-export function relyingParty(env: Pick<Env, "PUBLIC_URL">) {
-  const u = new URL(env.PUBLIC_URL);
-  return { origin: u.origin, rpId: u.hostname };
-}
 
 // --- Rate limiting ---
 
@@ -46,42 +36,62 @@ export async function recordFailure(env: Env, key: string) {
   await env.store.auth.recordAttempt(key, Date.now());
 }
 
-// --- Challenges ---
+// --- Signing in with email and authenticator code ---
 
-async function newChallenge(env: Env, purpose: string, data: object = {}) {
-  const id = random(16);
-  const challenge = random(32);
-  const now = Date.now();
-  await env.store.auth.createChallenge({ id, challenge, purpose, data: JSON.stringify(data), expires_at: now + CHALLENGE_TTL_MS }, now);
-  return { id, challenge };
-}
+/** Failed codes allowed per person in 15 minutes, on top of the per-network limit (20 an hour). */
+export const PERSON_FAILURES = 5;
+const PERSON_WINDOW_MS = 15 * 60_000;
+export const NETWORK_FAILURES = 20;
+const NETWORK_WINDOW_MS = 3_600_000;
 
-/** Takes a challenge once: read and deleted together, so a replay or a parallel request gets nothing. */
-async function takeChallenge(env: Env, id: string, purpose: string): Promise<{ challenge: string; data: any }> {
-  const row = await env.store.auth.takeChallenge(String(id));
-  if (!row || row.purpose !== purpose || row.expires_at < Date.now()) throw new Error("This sign-in step expired. Try again.");
-  return { challenge: row.challenge, data: JSON.parse(row.data) };
+export class SignInRefused extends Error {}
+/** The same words whether the email is unknown or the code is wrong, so nobody can test which emails work. */
+export const WRONG = "That email and code didn't match. Check you're using the newest code and try again.";
+export const TOO_MANY = "Too many tries. Wait 15 minutes and try again.";
+
+/** A secret no one has, checked for an unknown email so the answer takes as long as for a real one. */
+const DECOY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+/** Checks an email and code; returns the person, or throws SignInRefused. Each code works once. */
+export async function signIn(env: Env, email: string, code: string, ip: string): Promise<User> {
+  const person = await findByEmail(env, email);
+  const personKey = person ? `user:${person.id}` : `email:${await hash(String(email).trim().toLowerCase())}`;
+  if (
+    (await tooManyAttempts(env, `ip:${ip}`, NETWORK_FAILURES, NETWORK_WINDOW_MS)) ||
+    (await tooManyAttempts(env, personKey, PERSON_FAILURES, PERSON_WINDOW_MS))
+  )
+    throw new SignInRefused(TOO_MANY);
+  const step = await matchStep(person?.totp ?? DECOY, code, Date.now());
+  // A code already used (or an older one once a newer one was used) is refused: a code seen over someone's
+  // shoulder or caught on its way can't be used a second time.
+  const ok = person !== null && step !== null && (await env.store.auth.claimTotpStep(person.id, step));
+  if (!ok) {
+    await recordFailure(env, `ip:${ip}`);
+    await recordFailure(env, personKey);
+    throw new SignInRefused(WRONG);
+  }
+  return { id: person.id, name: person.name, role: person.role };
 }
 
 // --- Sessions ---
 
-export async function createSession(env: Env, userId: string, request: Request, mustAddPasskey = false) {
+/** Starts a session; returns the Set-Cookie value. `stay` gives the 30-day session. */
+export async function createSession(env: Env, userId: string, request: Request, stay = false) {
   const token = random(32);
   const now = Date.now();
-  await env.store.auth.createSession(
-    {
-      id_hash: await hash(token),
-      user_id: userId,
-      created_at: now,
-      last_seen_at: now,
-      expires_at: now + SESSION_MAX_MS,
-      user_agent: (request.headers.get("User-Agent") ?? "").slice(0, 200),
-      must_add_passkey: mustAddPasskey ? 1 : 0,
-      revoked: 0,
-    },
-    SESSION_IDLE_MS,
-  );
-  return `${COOKIE}=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${SESSION_MAX_MS / 1000}`;
+  const idle = stay ? LONG_SESSION_MS : SESSION_IDLE_MS;
+  const max = stay ? LONG_SESSION_MS : SESSION_MAX_MS;
+  await env.store.auth.createSession({
+    id_hash: await hash(token),
+    user_id: userId,
+    created_at: now,
+    last_seen_at: now,
+    expires_at: now + max,
+    idle_ms: idle,
+    user_agent: (request.headers.get("User-Agent") ?? "").slice(0, 200),
+    revoked: 0,
+  });
+  return `${COOKIE}=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${max / 1000}`;
 }
 
 export const clearCookie = `${COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`;
@@ -92,13 +102,16 @@ export async function getSession(env: Env, request: Request): Promise<Session | 
   const token = tokenFrom(request);
   if (!token) return null;
   const id = await hash(token);
-  const found = await env.store.auth.getSessionWithUser(id);
+  const s = await env.store.auth.getSession(id);
   const now = Date.now();
-  if (!found) return null;
-  const { session: s, user } = found;
-  if (s.revoked || user.disabled || s.expires_at < now || s.last_seen_at + SESSION_IDLE_MS < now) return null;
-  if (now - s.last_seen_at > 5 * 60_000) await env.store.auth.touchSession(id, s, now, SESSION_IDLE_MS);
-  return { id, user: { id: user.id, name: user.name, role: user.role as Role }, mustAddPasskey: Boolean(s.must_add_passkey) };
+  if (!s) return null;
+  const idle = s.idle_ms ?? SESSION_IDLE_MS;
+  if (s.revoked || s.expires_at < now || s.last_seen_at + idle < now) return null;
+  // Someone taken off the list loses access at once, whatever sessions they had.
+  const user = await findUser(env, s.user_id);
+  if (!user) return null;
+  if (now - s.last_seen_at > 5 * 60_000) await env.store.auth.touchSession(id, s, now);
+  return { id, user };
 }
 
 export async function endSession(env: Env, request: Request) {
@@ -110,190 +123,53 @@ export async function signOutEverywhere(env: Env, userId: string) {
   await env.store.auth.revokeAllSessions(userId);
 }
 
-// --- Invites ---
+// --- This device has signed in before ---
+// A long-lived cookie, signed with SIGNING_KEY, that marks a browser where one of the people has signed in.
+// It is not a sign-in: it only lets that browser find the hidden sign-in page again (src/index.ts) once its
+// session ends. Anyone else gets a blank "Not found" everywhere.
 
-export async function userCount(env: Env) {
-  return env.store.auth.countActiveUsers();
+export const KNOWN_COOKIE = "__Host-known";
+const KNOWN_MAX_AGE = 400 * 86_400;
+
+async function mac(env: Env, msg: string) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.SIGNING_KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return b64u.encode(new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`known-device:${msg}`))));
 }
 
-/** A single-use invite link token, shown once. Refuses beyond three people (counting open invites). */
-export async function createInvite(env: Env, name: string, role: Role, createdBy: string | null): Promise<string> {
-  const clean = name.trim().slice(0, 60);
-  if (!clean) throw new Error("Give the person's name");
-  if ((await userCount(env)) + (await env.store.auth.countOpenInvites(Date.now())) >= MAX_USERS) throw new Error(`The app is limited to ${MAX_USERS} people`);
-  const token = random(32);
-  await env.store.auth.createInvite({
-    token_hash: await hash(token),
-    name: clean,
-    role,
-    created_by: createdBy,
-    created_at: Date.now(),
-    expires_at: Date.now() + INVITE_TTL_MS,
-    used_at: null,
-    reenrol_user_id: null,
-  });
-  return token;
+export async function knownDeviceCookie(env: Env, userId: string) {
+  return `${KNOWN_COOKIE}=${userId}.${await mac(env, userId)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${KNOWN_MAX_AGE}`;
 }
 
-async function findInvite(env: Env, token: string) {
-  const row = await env.store.auth.getInvite(await hash(String(token)));
-  if (!row || row.used_at || row.expires_at < Date.now()) throw new Error("This invite link has expired or been used. Ask K for a new one.");
-  return row;
-}
-
-// --- Passkey registration ---
-
-function creationOptions(env: Env, challenge: string, user: { id: string; name: string }, exclude: string[]) {
-  const { rpId } = relyingParty(env);
-  return {
-    challenge,
-    rp: { name: "EBayManager", id: rpId },
-    user: { id: b64u.encode(new TextEncoder().encode(user.id)), name: user.name, displayName: user.name },
-    pubKeyCredParams: [
-      { type: "public-key", alg: -7 },
-      { type: "public-key", alg: -257 },
-    ],
-    authenticatorSelection: { residentKey: "required", userVerification: "required" },
-    attestation: "none",
-    timeout: CHALLENGE_TTL_MS,
-    excludeCredentials: exclude.map((id) => ({ type: "public-key", id })),
-  };
-}
-
-/**
- * Options for completing an invite. A re-enrolment invite (written by the Azure migration for someone who
- * already exists: passkeys are bound to the old web address) registers a passkey for that same person.
- */
-export async function registrationOptions(env: Env, invite: string) {
-  const inv = await findInvite(env, invite);
-  if (inv.reenrol_user_id) {
-    const existing = await env.store.auth.getUser(inv.reenrol_user_id);
-    if (!existing || existing.is_test) throw new Error("This invite link isn't valid any more. Ask K for a new one.");
-  } else if ((await userCount(env)) >= MAX_USERS) throw new Error(`The app is limited to ${MAX_USERS} people`);
-  const userId = inv.reenrol_user_id ?? random(12);
-  const { id, challenge } = await newChallenge(env, "register", { inviteHash: inv.token_hash, userId });
-  return { challengeId: id, options: creationOptions(env, challenge, { id: userId, name: inv.name }, []) };
-}
-
-const newCodes = () => Array.from({ length: 10 }, () => random(9).replace(/[-_]/g, "x").slice(0, 12));
-
-/** Completes an invite: creates the person (or re-enrols them), their passkey and recovery codes, in one step. */
-export async function completeRegistration(env: Env, challengeId: string, credential: any, label: string) {
-  const { challenge, data } = await takeChallenge(env, challengeId, "register");
-  const inv = await env.store.auth.getInvite(data.inviteHash);
-  if (!inv || inv.used_at || inv.expires_at < Date.now()) throw new Error("This invite link has expired or been used.");
-  const reenrol = Boolean(inv.reenrol_user_id);
-  if (reenrol && inv.reenrol_user_id !== data.userId) throw new Error("This invite link isn't valid.");
-  if (!reenrol && (await userCount(env)) >= MAX_USERS) throw new Error(`The app is limited to ${MAX_USERS} people`);
-  const cred = await verifyRegistration(credential, { challenge, ...relyingParty(env) });
-  const codes = newCodes();
-  const ok = await env.store.auth.completeRegistration({
-    inviteHash: inv.token_hash,
-    now: Date.now(),
-    newUser: reenrol ? null : { id: data.userId, name: inv.name, role: inv.role },
-    existingUserId: reenrol ? data.userId : null,
-    credential: { id: cred.id, user_id: data.userId, alg: cred.alg, public_key: JSON.stringify(cred.jwk), sign_count: cred.signCount, label: (label || "First passkey").slice(0, 60) },
-    codeHashes: await Promise.all(codes.map(hash)),
-  });
-  if (!ok) throw new Error("This invite link has already been used.");
-  return { userId: data.userId as string, recoveryCodes: codes };
-}
-
-/** A further passkey for a signed-in person (another device, or after a recovery code). */
-export async function addPasskeyOptions(env: Env, user: User) {
-  const exclude = await env.store.auth.listCredentialIds(user.id);
-  const { id, challenge } = await newChallenge(env, "add", { userId: user.id });
-  return { challengeId: id, options: creationOptions(env, challenge, user, exclude) };
-}
-
-export async function completeAddPasskey(env: Env, user: User, challengeId: string, credential: any, label: string, sessionId: string) {
-  const { challenge, data } = await takeChallenge(env, challengeId, "add");
-  if (data.userId !== user.id) throw new Error("This passkey step belongs to someone else");
-  const cred = await verifyRegistration(credential, { challenge, ...relyingParty(env) });
-  const codes = newCodes();
-  await env.store.auth.addCredentialWithCodes(
-    user.id,
-    { id: cred.id, user_id: user.id, alg: cred.alg, public_key: JSON.stringify(cred.jwk), sign_count: cred.signCount, label: (label || "Passkey").slice(0, 60) },
-    await Promise.all(codes.map(hash)),
-    Date.now(),
-  );
-  await env.store.auth.clearMustAddPasskey(sessionId);
-  return { recoveryCodes: codes };
-}
-
-// --- Sign-in ---
-
-export async function loginOptions(env: Env) {
-  const { id, challenge } = await newChallenge(env, "login");
-  return {
-    challengeId: id,
-    options: { challenge, rpId: relyingParty(env).rpId, userVerification: "required", allowCredentials: [], timeout: CHALLENGE_TTL_MS },
-  };
-}
-
-/** Failed passkey checks allowed per person in 15 minutes (docs/security.md), on top of the per-network limit. */
-export const PERSON_FAILURES = 5;
-const PERSON_WINDOW_MS = 15 * 60_000;
-
-export async function completeLogin(env: Env, challengeId: string, credential: any): Promise<string> {
-  const { challenge } = await takeChallenge(env, challengeId, "login");
-  const found = await env.store.auth.getCredentialWithUser(String(credential?.id));
-  if (!found || found.user.disabled) throw new Error("This passkey isn't registered here");
-  const row = found.cred;
-  const personKey = `user:${row.user_id}`;
-  if (await tooManyAttempts(env, personKey, PERSON_FAILURES, PERSON_WINDOW_MS)) throw new Error("Too many failed sign-ins for this person. Wait 15 minutes and try again.");
-  let signCount: number;
-  try {
-    signCount = await verifyAuthentication(credential, { alg: row.alg, jwk: JSON.parse(row.public_key), signCount: row.sign_count }, { challenge, ...relyingParty(env) });
-  } catch (e) {
-    await recordFailure(env, personKey);
-    throw e;
-  }
-  await env.store.auth.updateCredentialUse(row.id, signCount, Date.now());
-  return row.user_id;
-}
-
-/** A recovery code signs its owner in once, for registering a new passkey only. */
-export async function useRecoveryCode(env: Env, code: string): Promise<string> {
-  const userId = await env.store.auth.consumeRecoveryCode(await hash(String(code).trim()), Date.now());
-  if (!userId) throw new Error("That recovery code isn't valid");
-  return userId;
-}
-
-// --- Managing people (owner only; enforced by the API) ---
-
-export async function listPeople(env: Env) {
-  const { people, creds, invites } = await env.store.auth.listPeople(Date.now());
-  return { people: people.map((u) => ({ ...u, passkeys: creds.filter((c) => c.user_id === u.id) })), invites, max: MAX_USERS };
-}
-
-export async function removePerson(env: Env, owner: User, userId: string) {
-  if (userId === owner.id) throw new Error("The owner can't remove themselves");
-  await env.store.auth.removePerson(userId);
-  await env.store.auth.revokeAllSessions(userId);
-}
-
-export async function removePasskey(env: Env, actor: User, credentialId: string) {
-  const found = await env.store.auth.getCredentialWithUser(credentialId);
-  if (!found) throw new Error("Passkey not found");
-  if (found.cred.user_id !== actor.id && actor.role !== "owner") throw new Error("Only the owner can remove someone else's passkey");
-  await env.store.auth.deleteCredential(credentialId);
+/** True when this browser carries a valid known-device mark for someone still on the list. */
+export async function isKnownDevice(env: Env, request: Request): Promise<boolean> {
+  const m = (request.headers.get("Cookie") ?? "").match(new RegExp(`${KNOWN_COOKIE}=([\\w-]{1,64})\\.([\\w-]{20,})`));
+  if (!m) return false;
+  const expected = await mac(env, m[1]);
+  if (expected.length !== m[2].length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ m[2].charCodeAt(i);
+  return diff === 0 && (await findUser(env, m[1])) !== null;
 }
 
 // --- Connecting eBay (owner only) ---
 
+async function newChallenge(env: Env, purpose: string, data: object = {}) {
+  const id = random(16);
+  const now = Date.now();
+  await env.store.auth.createChallenge({ id, challenge: random(32), purpose, data: JSON.stringify(data), expires_at: now + CHALLENGE_TTL_MS }, now);
+  return id;
+}
+
 /** Records the owner starting the eBay sign-in; returns the state to send to eBay. */
 export async function startOAuth(env: Env, userId: string, readonly: boolean): Promise<string> {
-  const { id } = await newChallenge(env, "oauth", { userId, readonly });
-  return id;
+  return newChallenge(env, "oauth", { userId, readonly });
 }
 
 /** Accepts the callback's state once, if an owner started it in the last few minutes. */
 export async function finishOAuth(env: Env, state: string): Promise<{ readonly: boolean } | null> {
-  try {
-    const { data } = await takeChallenge(env, state, "oauth");
-    return (await env.store.auth.isActiveOwner(data.userId)) ? { readonly: Boolean(data.readonly) } : null;
-  } catch {
-    return null;
-  }
+  const row = await env.store.auth.takeChallenge(String(state));
+  if (!row || row.purpose !== "oauth" || row.expires_at < Date.now()) return null;
+  const data = JSON.parse(row.data);
+  const user = await findUser(env, String(data.userId));
+  return user?.role === "owner" ? { readonly: Boolean(data.readonly) } : null;
 }

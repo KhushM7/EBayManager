@@ -141,28 +141,16 @@ export function runConformance(name: string, make: () => Promise<DocStore>, opts
       expect((await s.proposals.listByStatus("expired", "asc")).filter((p) => p.item_id === "333")).toHaveLength(5);
     });
 
-    it("uses an invite, a recovery code and a sign-in challenge once each", async () => {
+    it("uses an authenticator time step and a sign-in challenge once each", async () => {
       const s = makeStore(await make());
       const now = Date.now();
-      await s.auth.createInvite({ token_hash: "inv1", name: "Sam", role: "manager", created_by: "k", created_at: now, expires_at: now + 3_600_000, used_at: null });
-      const reg = (uid: string, cred: string) =>
-        s.auth.completeRegistration({
-          inviteHash: "inv1",
-          now,
-          newUser: { id: uid, name: "Sam", role: "manager" },
-          existingUserId: null,
-          credential: { id: cred, user_id: uid, alg: -7, public_key: "{}", sign_count: 0, label: "x" },
-          codeHashes: [`c-${uid}`],
-        });
-      const regs = await Promise.all([reg("u1", "cred1"), reg("u2", "cred2"), reg("u3", "cred3")]);
-      expect(regs.filter(Boolean)).toHaveLength(1);
-      expect(await s.auth.countActiveUsers()).toBe(1);
+      const claims = await Promise.all(Array.from({ length: 5 }, () => s.auth.claimTotpStep("u1", 1000)));
+      expect(claims.filter(Boolean)).toHaveLength(1);
+      expect(await s.auth.claimTotpStep("u1", 999)).toBe(false);
+      expect(await s.auth.claimTotpStep("u1", 1001)).toBe(true);
+      expect(await s.auth.claimTotpStep("u2", 1000)).toBe(true);
 
-      const winner = ["u1", "u2", "u3"][regs.indexOf(true)];
-      const uses = await Promise.all(Array.from({ length: 5 }, () => s.auth.consumeRecoveryCode(`c-${winner}`, now)));
-      expect(uses.filter((u) => u === winner)).toHaveLength(1);
-
-      await s.auth.createChallenge({ id: "ch1", challenge: "c", purpose: "login", data: "{}", expires_at: now + 600_000 }, now);
+      await s.auth.createChallenge({ id: "ch1", challenge: "c", purpose: "oauth", data: "{}", expires_at: now + 600_000 }, now);
       const takes = await Promise.all(Array.from({ length: 5 }, () => s.auth.takeChallenge("ch1")));
       expect(takes.filter(Boolean)).toHaveLength(1);
     });
@@ -173,25 +161,17 @@ export function runConformance(name: string, make: () => Promise<DocStore>, opts
       expect(await s.solddata.used("trawl", "2026-11")).toBe(10);
     });
 
-    it("removes a person's passkeys and codes with their access, in one step", async () => {
+    it("signs a person out of every session", async () => {
       const s = makeStore(await make());
       const now = Date.now();
-      await s.auth.createInvite({ token_hash: "inv2", name: "Alex", role: "manager", created_by: "k", created_at: now, expires_at: now + 3_600_000, used_at: null });
-      await s.auth.completeRegistration({
-        inviteHash: "inv2",
-        now,
-        newUser: { id: "ua", name: "Alex", role: "manager" },
-        existingUserId: null,
-        credential: { id: "credA", user_id: "ua", alg: -7, public_key: "{}", sign_count: 0, label: "x" },
-        codeHashes: ["ca1", "ca2"],
-      });
-      await s.auth.createSession({ id_hash: "sa", user_id: "ua", created_at: now, last_seen_at: now, expires_at: now + 86_400_000, user_agent: "", must_add_passkey: 0, revoked: 0 }, 43_200_000);
-      await s.auth.removePerson("ua");
+      const row = (id: string, user: string) => ({ id_hash: id, user_id: user, created_at: now, last_seen_at: now, expires_at: now + 86_400_000, user_agent: "", revoked: 0 });
+      await s.auth.createSession(row("sa", "ua"));
+      await s.auth.createSession(row("sb", "ua"));
+      await s.auth.createSession(row("sc", "ub"));
       await s.auth.revokeAllSessions("ua");
-      expect(await s.auth.getCredentialWithUser("credA")).toBeNull();
-      expect(await s.auth.consumeRecoveryCode("ca1", now)).toBeNull();
-      expect((await s.auth.getUser("ua"))!.disabled).toBe(1);
-      expect((await s.auth.getSessionWithUser("sa"))!.session.revoked).toBe(1);
+      expect((await s.auth.getSession("sa"))!.revoked).toBe(1);
+      expect((await s.auth.getSession("sb"))!.revoked).toBe(1);
+      expect((await s.auth.getSession("sc"))!.revoked).toBe(0);
     });
   });
 }

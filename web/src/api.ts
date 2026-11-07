@@ -18,7 +18,6 @@ export async function api<T = any>(path: string, init: { method?: string; body?:
 
 export interface Me {
   user: { id: string; name: string; role: "owner" | "manager" };
-  mustAddPasskey: boolean;
   ebayEnv: "sandbox" | "production";
   writeMode: string;
   writesPaused: boolean;

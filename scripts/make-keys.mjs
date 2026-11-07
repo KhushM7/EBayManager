@@ -1,7 +1,7 @@
 // Adds any missing app secrets to a vars file without printing them. Existing values are kept.
 //   node scripts/make-keys.mjs              -> .dev.vars (Sandbox)
 //   node scripts/make-keys.mjs .prod.vars   -> production
-// Then upload with: npx wrangler secret bulk <file> --env sandbox|production
+// Then upload with: node scripts/azure-secrets.mjs sandbox|production. People: node scripts/people.mjs.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { randomBytes, webcrypto } from "node:crypto";
 
@@ -17,7 +17,7 @@ const add = (k, v) => {
 };
 
 add("SIGNING_KEY", randomBytes(48).toString("base64url"));
-// Bootstraps the owner's invite while nobody is registered (and, on Sandbox only, a test sign-in).
+// K's operations key: reads /health (and, on Sandbox only, a test sign-in).
 add("DASHBOARD_KEY", randomBytes(24).toString("base64url"));
 // eBay accepts 32 to 80 characters: letters, digits, underscore and hyphen.
 add("EBAY_DELETION_TOKEN", randomBytes(36).toString("base64url"));

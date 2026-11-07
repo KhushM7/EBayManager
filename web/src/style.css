@@ -656,23 +656,6 @@ blockquote.quote {
   font-size: var(--fs-sm);
   font-weight: 550;
 }
-.codes {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 8px;
-  padding: 0;
-  list-style: none;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-.codes li {
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  text-align: center;
-}
 .todo-points {
   margin: 8px 0;
   padding-left: 18px;

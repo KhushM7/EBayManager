@@ -116,7 +116,7 @@ Two short sessions; everything else is scripted above or already recorded in [go
 
 Tell Claude anything that reads badly and any photo wrongly flagged or missed, so the thresholds can be tuned.
 
-**2. Production, before going live:** the remaining (K) go-live items: B13 (a recovery code), C1, C3 and D5 (spot-check 5 listings against Seller Hub), E2 and E3 (to-dos, style guide), F1 to F4 (labels, evidence, facts, floors), G2 and G3 (message drafts and offers), H1, H2 and H4 (push, a dry-run notification, pause and resume). H3 (every screen on phone and computer) is covered by the screen runs above on the same build, so on production it's only a look.
+**2. Production, before going live:** the remaining (K) go-live items: B10, B13 and B14 (the new sign-in and hidden site), C1, C3 and D5 (spot-check 5 listings against Seller Hub), E2 and E3 (to-dos, style guide), F1 to F4 (labels, evidence, facts, floors), G2 and G3 (message drafts and offers), H1, H2 and H4 (push, a dry-run notification, pause and resume). H3 (every screen on phone and computer) is covered by the screen runs above on the same build, so on production it's only a look.
 
 ## Left to build
 
@@ -136,15 +136,18 @@ Tell Claude anything that reads badly and any photo wrongly flagged or missed, s
 2. **(C)** Small items before production, none needing K: the eBay shipping service sent for courier-sized parcels (now always Royal Mail 2nd Class, the placeholder until K switches to Simple Delivery); and re-run go-live A1 (typecheck, tests) on the merged `main` commit.
 
 **B. Production update (read-only still)**
+Sign-in changed on 2026-11-07 ([security.md](security.md)): email and authenticator code, people set by `scripts/people.mjs`, and a hidden site. Passkeys stop working on the first deploy of this code, so do steps 3 and 3a together.
 3. **(K)** Put the Parcel2Go credentials in `.prod.vars` (`PARCEL2GO_CLIENT_ID`, `PARCEL2GO_CLIENT_SECRET`; no `PARCEL2GO_SANDBOX`: they're live credentials). Then:
    `$env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-infra.mjs production`
    `$env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-secrets.mjs production`
+   The infrastructure run also adds the two new settings, `PEOPLE` and `SIGNIN_PATH`.
+3a. **(K)** Set yourself up: `$env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/people.mjs production add --email <your email> --name K --role owner`. Scan the QR code into your authenticator app and bookmark the sign-in address it prints. (Same on Sandbox first, without the variable, to try it.)
 4. **(K)** Deploy `main` to production: `$env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-deploy.mjs production`, then `node scripts/check-production.mjs`.
 5. **(K)** Settings → Sold data: re-run the comparison. With the identification fix and the seller's rule, the engine should be at or better than the 12.4% off it scored before. Tell Claude the figure.
 
 **C. Go-live tests on production** ([go-live-tests.md](go-live-tests.md); manager items N/A until a manager joins). Let one nightly run (02:00) and a day of the 15-minute poll happen on the new code first.
 6. **(C)** C2 (stored scopes read-only), C4 (orders match), C5 (policies), C7 (eBay call volume), D1 to D4 (nothing can change the real account), E1 (audit covers everything), G1 (the poll ran clean), A1 on the deployed commit.
-7. **(K)** One session on the phone and computer: B13 (test a recovery code, add a new passkey), C1 (Settings shows production, read-only), C3 and D5 (spot-check 5 listings against Seller Hub, none revised), E2 and E3 (to-dos, style guide), F1 to F4 (10 dry-run labels make sense with evidence, no invented facts, floors set), G2 and G3 (message drafts and offer suggestions; a test question from another account if none arrived), H1 to H4 (push pop-up, a dry-run notification, every screen, pause and resume). Also one New listing on production up to "Send for approval": eBay's check there needs the full-permission sign-in, so on production it stops at that step until go-live.
+7. **(K)** One session on the phone and computer: B10 (sign in on phone and computer), B13 (a new authenticator code), B14 (the site is blank from outside), C1 (Settings shows production, read-only), C3 and D5 (spot-check 5 listings against Seller Hub, none revised), E2 and E3 (to-dos, style guide), F1 to F4 (10 dry-run labels make sense with evidence, no invented facts, floors set), G2 and G3 (message drafts and offer suggestions; a test question from another account if none arrived), H1 to H4 (push pop-up, a dry-run notification, every screen, pause and resume). Also one New listing on production up to "Send for approval": eBay's check there needs the full-permission sign-in, so on production it stops at that step until go-live.
 
 **D. Go live (section I)**
 8. **(K)** Sign in to eBay again through the production app, granting full permissions (I1).
@@ -153,7 +156,7 @@ Tell Claude anything that reads badly and any photo wrongly flagged or missed, s
 11. **(K)** First real listing through New listing: approve it, check it on eBay (photos, specifics, collection), then do its Inbox to-do: switch postage to Simple Delivery at the app's size in Seller Hub, and note whether eBay recommended the same size.
 
 **E. After**
-12. **(K)** About 2026-11-19 (M8): delete the Cloudflare Workers, D1 databases, R2 buckets and the `.d1-*.sql` exports. **(C)** then removes `wrangler` and the old scripts.
+12. ~~M8, delete Cloudflare~~: done 2026-11-07 (K asked early): Workers, D1 databases and the empty R2 buckets deleted, the `.d1-production.sql` export removed, `wrangler`, `wrangler.toml`, `schema.sql` and the D1 import code gone.
 
 ## Decisions for K
 

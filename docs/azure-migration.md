@@ -93,7 +93,7 @@ Who does each step: **C** = Claude, **K** = K.
 - [x] (C) Docs updated: CLAUDE.md, README, security.md, safety-and-environments.md, app-and-dashboard.md, go-live-tests.md, roadmap.md, privacy.html; free-plan-queue.md marked superseded (2026-11-05; also approvals.md and listing-assistant.md)
 
 ### M8. Two weeks later
-- [ ] (K) Delete the Cloudflare Workers, D1 databases and R2 buckets, and the `.d1-*.sql` exports
+- [x] (C, at K's request, 2026-11-07, early) Deleted the Cloudflare Workers `ebay-autopilot-sandbox` and `ebay-autopilot-production`, D1 databases `ebay-autopilot-sandbox` and `ebay-autopilot-production`, and the R2 buckets (both empty), plus the local `.d1-production.sql` export. Removed `wrangler`, `wrangler.toml`, `schema.sql`, the D1 import (`src/store/migrate.ts`, `scripts/migrate-d1-to-cosmos.ts`) and its test
 
 ## State before the move (2026-11-03, to match afterwards)
 

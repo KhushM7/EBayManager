@@ -17,13 +17,13 @@ Design docs: [roadmap](docs/roadmap.md), [design system](docs/design-system.md),
 - TypeScript on Azure (moved from Cloudflare on 2026-11-05, [azure-migration.md](docs/azure-migration.md)): Azure Functions on Flex Consumption (France Central), Cosmos DB for NoSQL (free tier: one account, databases `ebay-sandbox` and `ebay-production`), Blob Storage for photos, Key Vault for secrets, a Storage Queue for background jobs. Infrastructure is Bicep (`infra/`); `sandbox` and `production` are separate resource groups that share only the Cosmos account, each app reaching only its own database through its managed identity.
 - eBay: Trading API (XML) for existing listings, best offers and revisions; REST APIs (Browse, Inventory, Marketing, Negotiation, Analytics, Taxonomy) elsewhere. Marketplace is EBAY_GB, site ID 3. `EBAY_ENV` (`sandbox` | `production`) selects hosts and keyset.
 - Claude: called from the app (server side) through the Anthropic API with K's key, using `@anthropic-ai/sdk`. This decision was made on 2026-11-01 and replaces the earlier plan to run on the Claude subscription. Use Claude Sonnet 5.5 (`claude-sonnet-5-5`) for listing builds and photo feedback. Use Claude Haiku 5.5 (`claude-haiku-5-5`) for nightly triage and buyer message drafts. The target spend is about $3 to $6 a month.
-- Dashboard and PWA: Vite + Preact + TypeScript in `web/`, served by the same Function App at the site root. People sign in with passkeys (Sandbox also allows `DASHBOARD_KEY`, never production); `/api/*` needs the session cookie plus an `X-EbayManager` header. Design: [design-system.md](docs/design-system.md), a pro-consumer "glass and glow" look in Tailwind v4 and Framer Motion (K, 2026-11-05). The tasteskill house rules no longer bind the dashboard.
+- Dashboard and PWA: Vite + Preact + TypeScript in `web/`, served by the same Function App at the site root. People sign in on a hidden page (`/s/<SIGNIN_PATH>`) with their email and an authenticator-app code (Sandbox also allows `DASHBOARD_KEY`, never production); everyone else gets a blank 404 everywhere. `/api/*` needs the session cookie plus an `X-EbayManager` header. Design: [design-system.md](docs/design-system.md), a pro-consumer "glass and glow" look in Tailwind v4 and Framer Motion (K, 2026-11-05). The tasteskill house rules no longer bind the dashboard.
 - Notifications: Web Push (VAPID, implemented on Web Crypto in `src/push.ts`, no library) to the installed PWA, with signed Approve/Reject actions handled by `web/public/sw.js`. ntfy.sh is the fallback.
 - The `/mcp` endpoint stays. It lets K use the same tools from the Claude app or Claude Code when they want to, but nothing depends on it.
 
 ## Decisions (2026-11-02, plan v3)
 
-- **Three people only**: K (owner) and two managers, each signing in with a passkey; roles and the eBay call allowlist enforced in code. See [security.md](docs/security.md). Extreme focus on security.
+- **Three people only**: K (owner) and two managers, set only by K with `scripts/people.mjs` (never from the app), each signing in with email and authenticator code (changed from passkeys on 2026-11-07); roles and the eBay call allowlist enforced in code. See [security.md](docs/security.md). Extreme focus on security.
 - **Go live after one nightly read-only cycle** and the [go-live tests](docs/go-live-tests.md), not 7 days.
 - **Everything needs approval at launch**, including titles, descriptions and specifics. Later, owner-only switches let those three apply automatically with a "Done" notification. Prices, offers, replies and promotion never auto-apply.
 - **Prices, offers and promotion come from a market picture**: the same item in the same condition, postage-inclusive, with saturation and sold prices. Promotion only when it pays, below eBay's suggested rate. See [pricing-and-promotion.md](docs/pricing-and-promotion.md).
@@ -38,6 +38,10 @@ Design docs: [roadmap](docs/roadmap.md), [design system](docs/design-system.md),
 ## Decisions (2026-11-05)
 
 - **Dashboard redesign** ([design-system.md](docs/design-system.md)): glass and glow, swipeable approval cards, a listings catalogue, Insights and Store Pulse (was Audit), and a New listing wizard, now on the drafts server (merged 2026-11-06). The environment shows as a pinned pill; the change switch, Claude spend and diagnostics are under Settings → Advanced. This supersedes the tasteskill rules for the app.
+
+## Decisions (2026-11-07)
+
+- **Sign-in** (K): email plus a 6-digit authenticator-app code (Google or Microsoft Authenticator), replacing passkeys, invites and recovery codes. The people (K now, managers later) are set only by K with `scripts/people.mjs`, kept in Key Vault (`PEOPLE`). The site is hidden: a blank 404 for anyone not signed in, with the sign-in page at a secret address (`SIGNIN_PATH`). See [security.md](docs/security.md). Never print `PEOPLE` or run `people.mjs` for K: it shows authenticator secrets.
 
 ## Decisions (2026-11-06)
 
@@ -70,11 +74,12 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/proposals.ts` | Proposals, signed expiring approval links, and deciding them |
 | `src/tools.ts`, `src/mcp.ts` | Tool definitions and a minimal stateless MCP server |
 | `src/notify.ts`, `src/push.ts` | Notifications: Web Push to the PWA (RFC 8291/8292), ntfy fallback |
-| `src/store/`, `infra/cosmos-containers.json` | The data store: one document layer with a Cosmos DB and an in-memory implementation, repositories on top, and the 14 containers (`schema.sql` is the old D1 schema, kept for the import) |
+| `src/store/`, `infra/cosmos-containers.json` | The data store: one document layer with a Cosmos DB and an in-memory implementation, repositories on top, and the 14 containers |
 | `src/platform/azure/`, `infra/`, `scripts/azure-*.mjs` | The Azure Functions adapter (HTTP, timers, queue), Bicep templates, and the infra, secrets and deploy scripts |
 | `test/` | Vitest: gate refusal paths (`gate.test.ts`), source scans keeping writes behind the gate (`safety.test.ts`) |
 | `docs/` | Design docs and roadmap |
 | `src/api.ts`, `src/session.ts` | Dashboard JSON API and K's sign-in session |
+| `src/auth/`, `src/signin.ts`, `scripts/people.mjs` | Sign-in: the people list from Key Vault (`people.ts`), authenticator codes (`totp.ts`), sessions and the known-device mark (`users.ts`), the hidden sign-in page, and K's script that sets the people |
 | `web/` | The dashboard PWA (Preact, Tailwind, Framer Motion). `MOCK=1 npm run dev:web` runs it on sample data. `ui.tsx` shared motion pieces, `wizard.tsx` + `camera.tsx` + `photocheck.ts` (the one set of photo checks) the New listing flow. Under `MOCK=1`, `/api/drafts` runs the real server code with stand-ins for Claude, eBay and sold data (`web/mock-drafts.ts`) |
 | `scripts/` | `make-keys.mjs` (DASHBOARD_KEY, VAPID_KEY into .dev.vars), `make-icons.mjs` |
 | `src/claude.ts`, `src/jobs.ts` | Claude tool-use loop (allowlisted tools, cost log, daily budget) and the jobs that use it |
@@ -101,7 +106,7 @@ Production is read-only (`WRITE_MODE=off`, forced by the Bicep template). Claude
 
 ## Where things stand (2026-11-06)
 
-- Phases 0–6 are done, and the move to Azure is done (M0–M7; M8, deleting Cloudflare, is due about 2026-11-19). K's real eBay account is connected **read-only** to production: https://ebay-autopilot-production-wrpoyt.azurewebsites.net (Sandbox: https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net). K is the only user for now.
+- Phases 0–6 are done, and the move to Azure is complete (M0–M8; Cloudflare deleted 2026-11-07). K's real eBay account is connected **read-only** to production: https://ebay-autopilot-production-wrpoyt.azurewebsites.net (Sandbox: https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net). K is the only user for now.
 - **Branches:** `merge-redesign` holds everything (Azure work, Add Listing, the redesigned app) and runs on Sandbox. It goes to `azure-migration` (a fast-forward), then `main` by pull request, then production. Production still runs older `azure-migration` code.
 - The pricing engine (`src/pricing/`, [pricing-engine.md](docs/pricing-engine.md)) follows K's seller rule (revision 4): same-condition sales set the value, just under the cheapest realistic listing, overpriced listings ignored. It prices listings, Best Offers and counters, audits and a nightly price review.
 - K's past sales (23, from 2025-03 to 2026-09) are imported from the Seller Hub orders report. eBay's APIs return only 90 days.

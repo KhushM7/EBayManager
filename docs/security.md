@@ -1,8 +1,8 @@
 # Security
 
-Three named people can use the app: K (the owner) and two managers. Each signs in with a **passkey**, a phishing-resistant key held on their phone or computer and unlocked by fingerprint, face or PIN. That counts as multi-factor authentication on its own: something you have (the device) plus something you are or know. Nobody else can see any account data or change anything, wherever they are.
+Three named people can use the app: K (the owner) and two managers. Each signs in with **their email and the 6-digit code from an authenticator app** (Google or Microsoft Authenticator). Only K decides who they are, on their own computer; the app has no way to add anyone. The site is **hidden**: to anyone not signed in, every address is a blank "Not found", except a sign-in page at a secret address. Nobody else can see any account data or change anything, wherever they are.
 
-Decided 2026-11-02. This must be built and tested before K's real account is connected (Phase 6).
+Decided 2026-11-02 (with passkeys); changed by K on 2026-11-07 to email and authenticator code, a fixed list of people set by script, and a hidden site. Passkeys were awkward on laptops without fingerprint or face sign-in, and invites and recovery codes were unnecessary for three known people.
 
 ## Who can do what
 
@@ -12,18 +12,50 @@ Decided 2026-11-02. This must be built and tested before K's real account is con
 | Approve, reject or edit proposals | Yes | Yes |
 | Pause all changes | Yes | Yes |
 | Resume changes, change auto-apply settings | Yes | No |
-| Invite or remove users, connect eBay | Yes | No |
+| See who can sign in, sign anyone out everywhere, connect eBay | Yes | No (only sign themselves out) |
+| Add, change or remove people | Not in the app: K only, with `scripts/people.mjs` | No |
 
-The limit of three users is enforced in code. Every approval, rejection, edit and setting change records who made it, and the Activity screen shows it.
+The limit of three people, with exactly one owner, is enforced in code. Every approval, rejection, edit and setting change records who made it, and the Activity screen shows it.
 
 ## Signing in
 
-1. **K adds a person:** in Settings, K enters their name and gets a single-use invite link valid for 24 hours. It's shown once and K sends it privately.
-2. **The person registers a passkey** by opening the link on their phone or computer. The app accepts only passkeys that require user verification (fingerprint, face or device PIN). Passkeys sync through Google Password Manager or iCloud Keychain, so the same person can sign in from their other devices. They can also add another passkey for a device that doesn't sync.
-3. **Recovery:** each person gets 10 one-time recovery codes at registration, shown once. A code signs them in once, then they must register a new passkey. K can also remove a lost device's passkey or a person entirely.
-4. **Sessions:** a session lasts 12 hours of inactivity, or 7 days at most, then the person signs in again with their passkey. Sessions are stored server-side, so K can sign anyone out of every device at once.
+1. **K sets up a person** on their computer: `node scripts/people.mjs <sandbox|production> add --email … --name … --role owner|manager`. The script:
+   - makes a fresh authenticator secret and shows it once as a QR code in the terminal;
+   - saves the list (`PEOPLE`) in the gitignored `.dev.vars` or `.prod.vars`;
+   - uploads it to the environment's Key Vault and restarts the app.
 
-The current single `DASHBOARD_KEY` sign-in is retired once passkeys work. Until then it stays only on Sandbox.
+   The first run also makes the secret sign-in address (`SIGNIN_PATH`).
+2. **The person scans the QR code** into Google or Microsoft Authenticator (or types the setup key). They bookmark the sign-in address, which K sends them privately.
+3. **Signing in**, on any phone or computer: open the sign-in address, then enter the email and the current 6-digit code. It's a plain server page with no script.
+   - Only the listed emails are accepted. An unknown email and a wrong code get the same answer, so nobody can test which emails work.
+   - Each code works once. A code seen over someone's shoulder can't be reused, and neither can an older one after a newer one.
+   - Codes from one step either side of now are accepted, for a phone clock a little out.
+4. **Sessions:** a normal sign-in lasts 12 hours of inactivity, or 7 days at most. Sessions are stored server-side, so K can sign anyone out of every device at once.
+   - "Stay signed in on this device for 30 days" is ticked by default; untick it on a shared computer.
+   - It keeps the installed phone app signed in, so notification approvals keep working.
+5. **A lost or new phone:** the authenticator app's own cloud backup restores the codes. Otherwise K runs `people.mjs … new-code --email …`, which gives a new QR code; the old authenticator stops working. Removing a person (`… remove --email …`) ends their sessions at once.
+
+`DASHBOARD_KEY` signs in as a test owner only on Sandbox (`ALLOW_KEY_LOGIN`), for scripts and checks, never in production. On production it only reads `/health` (`X-Health-Key`).
+
+**Why not passkeys:** passkeys are the strongest sign-in because they can't be phished, and the app used them from Phase 6 to 2026-11-07. K chose email and code so there is one way in that works the same on every device.
+- **The trade-off:** the code is one real factor (the phone), and a convincing fake of the sign-in page could relay a code within its 30 seconds.
+- **What limits that risk:** the hidden site, single-use codes, rate limits, the approval-only write gate and the audit log. A stolen sign-in could only approve labels, never make other eBay changes.
+
+## The hidden site
+
+To anyone without a session, every address returns an empty 404, with no app, logo or sign-in form. That covers `/`, `/api/*`, `/health`, `/oauth/*`, made-up approval links and the old `/login`. Search engines are told not to index anything (`X-Robots-Tag`).
+
+Only these answer:
+- the sign-in page at `/s/<SIGNIN_PATH>` (at least 16 random characters; a shorter value turns it off);
+- `/ebay/account-deletion`, which eBay calls;
+- `/privacy.html`, which eBay's developer settings link to;
+- `/health` with K's `X-Health-Key`, for `scripts/check-production.mjs`.
+
+The secret address only hides the site: the email and code are the security.
+
+**Known devices:** a browser where someone has signed in carries a signed "known device" mark (`__Host-known`, kept 400 days). It isn't a sign-in. It only sends that browser to the sign-in page when its session has ended, so the installed app still opens.
+
+A missing or malformed people list lets nobody in.
 
 ## Approving from a notification
 
@@ -37,9 +69,9 @@ A forwarded or screenshotted link is useless on another device, and a phone whos
 
 | Layer | What it stops |
 | --- | --- |
-| 1. An identity gate (optional, not set up) | Would hide the whole site from anyone not among the three people before the app loads. On Azure this is App Service authentication with Entra ID (it replaced the Cloudflare Access idea at the move on 2026-11-05) |
-| 2. Passkey sign-in, per person | Everyone else. Passkeys can't be phished or reused on another site |
-| 3. Roles | Managers can't add users, resume changes or switch on auto-apply |
+| 1. The hidden site | Anyone without the secret sign-in address: they see only blank "Not found" pages, with nothing to probe or recognise |
+| 2. Email and authenticator code, per person | Everyone else: only the three listed emails, each code once, rate-limited |
+| 3. Roles | Managers can't resume changes, switch on auto-apply, connect eBay or sign others out. Nobody can add people from the app |
 | 4. The write gate | Any eBay change that isn't an approved proposal, whoever is signed in |
 | 5. The eBay call allowlist | Any eBay call not on the explicit list below, even from the app's own code |
 | 6. Audit log | Nothing happens without a record of who and when |
@@ -48,7 +80,8 @@ A forwarded or screenshotted link is useless on another device, and a phone whos
 
 - **`/mcp` is off in production.** The Claude connector stays available on Sandbox only, unless K switches it on deliberately.
 - **Connecting eBay** (`/oauth/start`) needs the owner's signed-in session, not a token in the URL.
-- **Login protection:** at most 5 failed sign-ins per person per 15 minutes, and 20 per hour from any one network; then a pause. Invite links work once.
+- **Login protection:** after at most 5 failed sign-ins per person (or per unknown email) per 15 minutes, or 20 per hour from any one network, there's a pause. Each authenticator code works once. The sign-in form only accepts a POST from its own page (checked with `Sec-Fetch-Site` or `Origin`).
+- **People and their authenticator secrets** live only in Key Vault (`PEOPLE`) and K's gitignored vars file. The app reads them, never writes them, and never sends a secret to a browser.
 - **Headers:** a strict content security policy (only the app's own code and its font), no framing, no referrer, and HTTPS only. Cookies are `__Host-`, `HttpOnly`, `Secure`, `SameSite=Strict`.
 - **CSRF:** every change needs the `X-EbayManager` header and a same-origin request.
 - **Secrets** live only in each environment's Key Vault (read by the app's managed identity, never as plain app settings) and in K's gitignored `.dev.vars` and `.prod.vars`. They are never in code, logs, notifications or chat. The eBay token is stored in Cosmos DB and never sent to the browser.
@@ -75,9 +108,10 @@ Everything else is refused in code (`src/ebay/allowlist.ts`), and a test fails i
 
 | Threat | Answer |
 | --- | --- |
-| Someone finds the web address | They see a sign-in page. No data without a passkey |
-| A manager's phone is stolen | It's locked by its own fingerprint or PIN; K removes that person's passkeys and signs them out everywhere |
-| A phishing page copies the sign-in | Passkeys only work on the real site's domain, so they can't be phished |
+| Someone finds the web address | They see a blank page everywhere. Even with the sign-in address, they need one of the three emails and that person's current code |
+| A manager's phone is stolen | It's locked by its own PIN. K signs them out everywhere and runs `people.mjs new-code` (or `remove`) |
+| A phishing page copies the sign-in | The address is secret, so a lookalike would have to target one of the three. A relayed code works once, within about 30 seconds, and could only approve labels, each recorded in the audit log |
+| Someone guesses codes | 5 tries per person per 15 minutes and 20 per network per hour, against a million possible codes |
 | An approval link leaks | It also needs the receiving device's session, and it expires after 7 days |
 | Someone brute-forces sign-in | There are no passwords to guess, and attempts are rate-limited |
 | A cross-site request tries to approve something | Blocked: `SameSite=Strict` cookies plus a required custom header |

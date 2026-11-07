@@ -3,32 +3,16 @@ import { memoryStore } from "../src/store";
 import type { Env } from "../src/env";
 import { handleApi } from "../src/api";
 import worker from "../src/index";
-import { b64u } from "../src/push";
 import { createProposal } from "../src/proposals";
 import { challengeResponse, forgetUser } from "../src/deletion";
 import { CallNotAllowed, assertRest, assertTrading } from "../src/ebay/allowlist";
+import { base32Encode, stepAt, STEP_SECONDS, totpCode } from "../src/auth/totp";
+import { parsePeople } from "../src/auth/people";
 
 const ORIGIN = "https://app.example";
 const enc = new TextEncoder();
-const sha256 = async (d: Uint8Array) => new Uint8Array(await crypto.subtle.digest("SHA-256", d as BufferSource));
 
-// --- A tiny CBOR encoder, for building authenticator responses. ---
-function cbor(v: any): Uint8Array {
-  const head = (major: number, n: number) =>
-    n < 24 ? [(major << 5) | n] : n < 256 ? [(major << 5) | 24, n] : [(major << 5) | 25, n >> 8, n & 255];
-  if (typeof v === "number") return new Uint8Array(v >= 0 ? head(0, v) : head(1, -1 - v));
-  if (typeof v === "string") {
-    const b = enc.encode(v);
-    return new Uint8Array([...head(3, b.length), ...b]);
-  }
-  if (v instanceof Uint8Array) return new Uint8Array([...head(2, v.length), ...v]);
-  if (v instanceof Map) {
-    const parts = [...v].flatMap(([k, x]) => [...cbor(k), ...cbor(x)]);
-    return new Uint8Array([...head(5, v.size), ...parts]);
-  }
-  throw new Error("unsupported");
-}
-
+/** A raw r||s ECDSA signature as DER, the way eBay sends it. */
 const rawToDer = (raw: Uint8Array) => {
   const int = (b: Uint8Array) => {
     let i = 0;
@@ -40,45 +24,13 @@ const rawToDer = (raw: Uint8Array) => {
   const body = [...int(raw.slice(0, 32)), ...int(raw.slice(32))];
   return new Uint8Array([0x30, body.length, ...body]);
 };
-
-/** A software passkey: real ES256 keys and authenticator data, for driving the ceremonies in tests. */
-class SoftPasskey {
-  credId = crypto.getRandomValues(new Uint8Array(16));
-  counter = 0;
-  keys!: CryptoKeyPair;
-  async init() {
-    this.keys = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
-    return this;
-  }
-  async authData(rpId: string, flags: number, attested: boolean) {
-    const parts = [...(await sha256(enc.encode(rpId))), flags, 0, 0, 0, this.counter];
-    if (!attested) return new Uint8Array(parts);
-    const jwk = (await crypto.subtle.exportKey("jwk", this.keys.publicKey)) as JsonWebKey;
-    const cose = cbor(new Map<number, any>([[1, 2], [3, -7], [-1, 1], [-2, b64u.decode(jwk.x!)], [-3, b64u.decode(jwk.y!)]]));
-    return new Uint8Array([...parts, ...new Uint8Array(16), 0, this.credId.length, ...this.credId, ...cose]);
-  }
-  async create(options: any, opts: { origin?: string; flags?: number } = {}) {
-    const clientDataJSON = enc.encode(JSON.stringify({ type: "webauthn.create", challenge: options.challenge, origin: opts.origin ?? ORIGIN }));
-    const authData = await this.authData(options.rp.id, opts.flags ?? 0x45, true);
-    const attestationObject = cbor(new Map<string, any>([["fmt", "none"], ["attStmt", new Map()], ["authData", authData]]));
-    return {
-      id: b64u.encode(this.credId),
-      response: { clientDataJSON: b64u.encode(clientDataJSON), attestationObject: b64u.encode(attestationObject) },
-    };
-  }
-  async get(options: any, opts: { flags?: number; tamper?: boolean; counter?: number } = {}) {
-    this.counter = opts.counter ?? this.counter + 1;
-    const clientDataJSON = enc.encode(JSON.stringify({ type: "webauthn.get", challenge: options.challenge, origin: ORIGIN }));
-    const authData = await this.authData(options.rpId, opts.flags ?? 0x05, false);
-    const signed = new Uint8Array([...authData, ...(await sha256(clientDataJSON))]);
-    const raw = new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, this.keys.privateKey, signed));
-    if (opts.tamper) raw[5] ^= 1;
-    return {
-      id: b64u.encode(this.credId),
-      response: { clientDataJSON: b64u.encode(clientDataJSON), authenticatorData: b64u.encode(authData), signature: b64u.encode(rawToDer(raw)) },
-    };
-  }
-}
+const SIGNIN = "test-signin-path-0123456789";
+const K_SECRET = base32Encode(new Uint8Array(20).fill(7));
+const SAM_SECRET = base32Encode(new Uint8Array(20).fill(9));
+const PEOPLE = JSON.stringify([
+  { email: "k@example.com", name: "K", role: "owner", totp: K_SECRET },
+  { email: "Sam@Example.com", name: "Sam", role: "manager", totp: SAM_SECRET },
+]);
 
 let env: Env;
 const api = async (path: string, body?: unknown, cookie = "", headers: Record<string, string> = {}) => {
@@ -92,95 +44,195 @@ const api = async (path: string, body?: unknown, cookie = "", headers: Record<st
   const setCookie = (res.headers.get("Set-Cookie") ?? "").split(";")[0];
   return { status: res.status, json: (await res.json()) as any, cookie: setCookie };
 };
+const fetchWorker = (path: string, init: RequestInit = {}) => worker.fetch(new Request(`${ORIGIN}${path}`, init), env);
 
-/** Invite -> register a passkey -> signed in. */
-async function join(inviteUrl: string, key?: SoftPasskey) {
-  const pk = key ?? (await new SoftPasskey().init());
-  const invite = inviteUrl.split("#")[1];
-  const opts = await api("/auth/register/options", { invite });
-  const done = await api("/auth/register/verify", { challengeId: opts.json.challengeId, credential: await pk.create(opts.json.options), label: "Phone" });
-  return { pk, cookie: done.cookie, codes: done.json.recoveryCodes as string[], status: done.status, error: done.json.error };
+const codeNow = (secret: string, offsetSteps = 0) => totpCode(secret, stepAt(Date.now()) + offsetSteps);
+
+/** Posts the hidden sign-in form, as the browser would from that page. */
+async function signIn(email: string, code: string, opts: { stay?: boolean; ip?: string; origin?: string } = {}) {
+  const form = new URLSearchParams({ email, code, ...(opts.stay ? { stay: "1" } : {}) });
+  const res = await fetchWorker(`/s/${SIGNIN}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: opts.origin ?? ORIGIN, "Client-IP": `${opts.ip ?? "1.2.3.4"}:5000` },
+    body: form.toString(),
+  });
+  const setCookie = res.headers.get("Set-Cookie") ?? "";
+  return { status: res.status, location: res.headers.get("Location"), cookie: setCookie.split(";")[0], setCookie, text: await res.text() };
 }
 
-async function signIn(pk: SoftPasskey, opts: Parameters<SoftPasskey["get"]>[1] = {}) {
-  const o = await api("/auth/login/options", {});
-  return api("/auth/login/verify", { challengeId: o.json.challengeId, credential: await pk.get(o.json.options, opts) });
+async function team() {
+  const owner = await signIn("k@example.com", await codeNow(K_SECRET));
+  const manager = await signIn("sam@example.com", await codeNow(SAM_SECRET));
+  expect(owner.status).toBe(303);
+  expect(manager.status).toBe(303);
+  return { owner, manager };
 }
 
 beforeEach(() => {
-  env = { store: memoryStore(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", PUBLIC_URL: ORIGIN, SIGNING_KEY: "sign", DASHBOARD_KEY: "boot-key-123" } as Env;
+  env = { store: memoryStore(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", PUBLIC_URL: ORIGIN, SIGNING_KEY: "sign", DASHBOARD_KEY: "boot-key-123", PEOPLE, SIGNIN_PATH: SIGNIN } as Env;
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
-describe("passkeys", () => {
-  it("sets up the owner from DASHBOARD_KEY once, then signs in with the passkey", async () => {
-    expect((await api("/setup", { key: "wrong", name: "K" })).status).toBe(401);
-    const setup = await api("/setup", { key: "boot-key-123", name: "K" });
-    expect(setup.json.inviteUrl).toMatch(/\/join#[\w-]{40,}$/);
-    const owner = await join(setup.json.inviteUrl);
-    expect(owner.status).toBe(200);
-    expect(owner.codes).toHaveLength(10);
-    expect((await api("/me", undefined, owner.cookie)).json.user).toMatchObject({ name: "K", role: "owner" });
-
-    // Setup is closed once someone exists, and the invite can't be reused.
-    expect((await api("/setup", { key: "boot-key-123" })).status).toBe(403);
-    const reused = await api("/auth/register/options", { invite: setup.json.inviteUrl.split("#")[1] });
-    expect(reused.status).toBe(400);
-    expect(reused.json.error).toMatch(/expired or been used/);
-
-    const again = await signIn(owner.pk);
-    expect(again.status).toBe(200);
-    expect(again.cookie).toMatch(/^__Host-sid=/);
+describe("authenticator codes", () => {
+  it("match RFC 6238's SHA-1 test values", async () => {
+    const secret = base32Encode(new TextEncoder().encode("12345678901234567890"));
+    expect(await totpCode(secret, Math.floor(59 / STEP_SECONDS))).toBe("287082");
+    expect(await totpCode(secret, Math.floor(1111111109 / STEP_SECONDS))).toBe("081804");
+    expect(await totpCode(secret, Math.floor(2000000000 / STEP_SECONDS))).toBe("279037");
   });
 
-  it("rejects passkeys used on another site, without user verification, tampered, or with a rewound counter", async () => {
-    const { json } = await api("/setup", { key: "boot-key-123", name: "K" });
-    const invite = json.inviteUrl.split("#")[1];
-    const pk = await new SoftPasskey().init();
-    let o = await api("/auth/register/options", { invite });
-    expect((await api("/auth/register/verify", { challengeId: o.json.challengeId, credential: await pk.create(o.json.options, { origin: "https://evil.example" }) })).json.error).toMatch(/wrong site/);
-    o = await api("/auth/register/options", { invite });
-    expect((await api("/auth/register/verify", { challengeId: o.json.challengeId, credential: await pk.create(o.json.options, { flags: 0x41 }) })).json.error).toMatch(/fingerprint, face or PIN/);
+  it("checks the people list strictly: one owner, three people at most, real secrets", async () => {
+    const p = (list: unknown[]) => parsePeople(JSON.stringify(list));
+    const k = { email: "k@example.com", name: "K", role: "owner", totp: K_SECRET };
+    await expect(p([k])).resolves.toHaveLength(1);
+    await expect(p([k, { ...k, email: "b@example.com" }])).rejects.toThrow(/exactly one owner/);
+    await expect(p([k, ...[1, 2, 3].map((i) => ({ ...k, role: "manager", email: `m${i}@example.com` }))])).rejects.toThrow(/1 to 3/);
+    await expect(p([{ ...k, totp: "ABCDEFGH" }])).rejects.toThrow(/160 bits/);
+    await expect(p([k, { ...k, role: "manager", email: "K@example.com" }])).rejects.toThrow(/twice/);
+  });
+});
 
-    const owner = await join(json.inviteUrl, pk);
-    expect(owner.status).toBe(200);
-    expect((await signIn(pk, { tamper: true })).json.error).toMatch(/signature/);
-    expect((await signIn(pk, { flags: 0x01 })).json.error).toMatch(/fingerprint, face or PIN/);
-    expect((await signIn(pk, { counter: 5 })).status).toBe(200);
-    expect((await signIn(pk, { counter: 3 })).json.error).toMatch(/counter/);
+describe("signing in", () => {
+  it("signs in with email and the current code, then the app works", async () => {
+    const r = await signIn("  K@Example.com ", await codeNow(K_SECRET));
+    expect(r.status).toBe(303);
+    expect(r.location).toBe("/");
+    expect(r.setCookie).toMatch(/__Host-sid=.+HttpOnly; Secure; SameSite=Strict/);
+    const me = await api("/me", undefined, r.cookie);
+    expect(me.json.user).toMatchObject({ name: "K", role: "owner" });
+    // The first /me marks this browser as known.
+    expect(me.cookie).toMatch(/^__Host-known=/);
   });
 
-  it("can't reuse a challenge", async () => {
-    const { json } = await api("/setup", { key: "boot-key-123", name: "K" });
-    const owner = await join(json.inviteUrl);
-    const o = await api("/auth/login/options", {});
-    const cred = await owner.pk.get(o.json.options);
-    expect((await api("/auth/login/verify", { challengeId: o.json.challengeId, credential: cred })).status).toBe(200);
-    expect((await api("/auth/login/verify", { challengeId: o.json.challengeId, credential: cred })).json.error).toMatch(/expired/);
+  it("accepts a code a step either side of now, for a phone clock a little out", async () => {
+    expect((await signIn("k@example.com", await codeNow(K_SECRET, -1))).status).toBe(303);
+    expect((await signIn("sam@example.com", await codeNow(SAM_SECRET, 1))).status).toBe(303);
+    expect((await signIn("k@example.com", await codeNow(K_SECRET, 3))).status).toBe(401);
+  });
+
+  it("gives the same answer for an unknown email and a wrong code", async () => {
+    const unknown = await signIn("stranger@example.com", await codeNow(K_SECRET));
+    const wrong = await signIn("k@example.com", "000000");
+    expect(unknown.status).toBe(401);
+    expect(wrong.status).toBe(401);
+    const msg = (t: string) => t.match(/class="error"[^>]*>([^<]+)</)?.[1];
+    expect(msg(unknown.text)).toBeTruthy();
+    expect(msg(unknown.text)).toBe(msg(wrong.text));
+    expect(unknown.cookie).toBe("");
+  });
+
+  it("uses each code once, and never an older one after a newer one", async () => {
+    const code = await codeNow(K_SECRET);
+    expect((await signIn("k@example.com", code)).status).toBe(303);
+    expect((await signIn("k@example.com", code)).status).toBe(401);
+    expect((await signIn("k@example.com", await codeNow(K_SECRET, -1))).status).toBe(401);
+    expect((await signIn("k@example.com", await codeNow(K_SECRET, 1))).status).toBe(303);
+  });
+
+  it("limits wrong codes per person (5 in 15 minutes), even from different networks", async () => {
+    for (let i = 0; i < 5; i++) expect((await signIn("k@example.com", "123456", { ip: `10.0.0.${i}` })).status).toBe(401);
+    const blocked = await signIn("k@example.com", await codeNow(K_SECRET), { ip: "10.0.0.99" });
+    expect(blocked.status).toBe(401);
+    expect(blocked.text).toMatch(/Too many tries/);
+    // Someone else is unaffected.
+    expect((await signIn("sam@example.com", await codeNow(SAM_SECRET), { ip: "10.0.0.98" })).status).toBe(303);
+  });
+
+  it("limits failures per network (20 an hour)", async () => {
+    for (let i = 0; i < 20; i++) await signIn(`nobody${i}@example.com`, "123456");
+    const blocked = await signIn("sam@example.com", await codeNow(SAM_SECRET));
+    expect(blocked.text).toMatch(/Too many tries/);
+  });
+
+  it("refuses a sign-in form posted from another site", async () => {
+    const r = await signIn("k@example.com", await codeNow(K_SECRET), { origin: "https://evil.example" });
+    expect(r.status).toBe(403);
+    expect(r.cookie).toBe("");
+  });
+
+  it("stays signed in for 30 days only when asked; otherwise 12 hours idle and 7 days at most", async () => {
+    const short = await signIn("k@example.com", await codeNow(K_SECRET));
+    expect(short.setCookie).toMatch(/Max-Age=604800/);
+    const long = await signIn("sam@example.com", await codeNow(SAM_SECRET), { stay: true });
+    expect(long.setCookie).toMatch(/Max-Age=2592000/);
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 13 * 3_600_000);
+    expect((await api("/me", undefined, short.cookie)).status).toBe(401);
+    expect((await api("/me", undefined, long.cookie)).status).toBe(200);
+    vi.setSystemTime(Date.now() + 31 * 86_400_000);
+    expect((await api("/me", undefined, long.cookie)).status).toBe(401);
+  });
+
+  it("lets nobody in when the people list is missing or malformed", async () => {
+    const code = await codeNow(K_SECRET);
+    env = { ...env, PEOPLE: PEOPLE.replace('"manager"', '"owner"') } as Env;
+    expect((await signIn("k@example.com", code)).status).toBe(401);
+    env = { ...env, PEOPLE: undefined } as Env;
+    expect((await signIn("k@example.com", code)).status).toBe(401);
+  });
+
+  it("ends a person's access as soon as they are taken off the list", async () => {
+    const { manager } = await team();
+    expect((await api("/me", undefined, manager.cookie)).status).toBe(200);
+    env = { ...env, PEOPLE: JSON.stringify([JSON.parse(PEOPLE)[0]]) } as Env;
+    expect((await api("/me", undefined, manager.cookie)).status).toBe(401);
+  });
+});
+
+describe("the hidden site", () => {
+  it("shows strangers nothing: a blank Not found everywhere except the sign-in page", async () => {
+    for (const path of ["/", "/settings", "/assets/index.js", "/api/me", "/api/proposals", "/health", "/oauth/start", "/oauth/callback?code=x&state=y", "/s/wrong-path-0123456789", "/mcp", "/decide/abc?d=approve&e=1&s=x", "/login", "/join"]) {
+      const res = await fetchWorker(path, { headers: { "Client-IP": "1.2.3.4:5000" } });
+      expect(res.status, path).toBe(404);
+      expect(await res.text(), path).toBe("");
+      expect(res.headers.get("X-Robots-Tag")).toMatch(/noindex/);
+    }
+    const posted = await fetchWorker("/api/auth/login/options", { method: "POST", headers: { "X-EbayManager": "1" } });
+    expect(posted.status).toBe(404);
+  });
+
+  it("serves the sign-in page only at its secret address, with no script and no indexing", async () => {
+    const res = await fetchWorker(`/s/${SIGNIN}`);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toMatch(/autocomplete="one-time-code"/);
+    expect(text).not.toMatch(/<script/i);
+    expect(res.headers.get("Content-Security-Policy")).toMatch(/default-src 'none'/);
+    expect(res.headers.get("Referrer-Policy")).toBe("same-origin");
+    // A path that's too short can't be used.
+    env = { ...env, SIGNIN_PATH: "short" } as Env;
+    expect((await fetchWorker("/s/short")).status).toBe(404);
+  });
+
+  it("sends a device that signed in before to the sign-in page once its session ends", async () => {
+    const { owner } = await team();
+    const known = (await api("/me", undefined, owner.cookie)).cookie;
+    await api("/logout", {}, owner.cookie);
+    const home = await fetchWorker("/", { headers: { Cookie: known } });
+    expect(home.status).toBe(302);
+    expect(home.headers.get("Location")).toBe(`/s/${SIGNIN}`);
+    expect((await fetchWorker("/api/me", { headers: { Cookie: known } })).status).toBe(401);
+    // A forged mark gets nothing.
+    expect((await fetchWorker("/", { headers: { Cookie: known.replace(/.$/, (c) => (c === "A" ? "B" : "A")) } })).status).toBe(404);
+  });
+
+  it("answers /health to a signed-in person or K's key only", async () => {
+    expect((await fetchWorker("/health", { headers: { "X-Health-Key": "wrong" } })).status).toBe(404);
+    const res = await fetchWorker("/health", { headers: { "X-Health-Key": "boot-key-123" } });
+    expect(await res.json()).toMatchObject({ ebayEnv: "sandbox", writeMode: "approval" });
   });
 });
 
 describe("people and roles", () => {
-  async function team() {
-    const { json } = await api("/setup", { key: "boot-key-123", name: "K" });
-    const owner = await join(json.inviteUrl);
-    const inv = await api("/people/invite", { name: "Sam" }, owner.cookie);
-    const manager = await join(inv.json.inviteUrl);
-    return { owner, manager };
-  }
-
-  it("allows three people at most", async () => {
-    const { owner } = await team();
-    expect((await api("/people/invite", { name: "Alex" }, owner.cookie)).status).toBe(200);
-    const fourth = await api("/people/invite", { name: "Too many" }, owner.cookie);
-    expect(fourth.status).toBe(400);
-    expect(fourth.json.error).toMatch(/limited to 3/);
-  });
-
   it("keeps owner-only actions from managers", async () => {
     const { owner, manager } = await team();
     expect((await api("/people", undefined, manager.cookie)).status).toBe(403);
-    expect((await api("/people/invite", { name: "X" }, manager.cookie)).status).toBe(403);
+    expect((await api("/people", undefined, owner.cookie)).json.people.map((p: any) => p.name)).toEqual(["K", "Sam"]);
+    expect(JSON.stringify((await api("/people", undefined, owner.cookie)).json)).not.toContain(K_SECRET);
     expect((await api("/settings/writes", { paused: true }, manager.cookie)).status).toBe(200);
     expect((await api("/settings/writes", { paused: false }, manager.cookie)).status).toBe(403);
     expect((await api("/settings/writes", { paused: false }, owner.cookie)).status).toBe(200);
@@ -195,19 +247,9 @@ describe("people and roles", () => {
     expect((await api("/pricing/own", { itemId: "123456", price: "no idea" }, owner.cookie)).status).toBe(400);
   });
 
-  it("refuses an invite link after 24 hours (go-live B5)", async () => {
+  it("has no way to add or change people from the app", async () => {
     const { owner } = await team();
-    const inv = await api("/people/invite", { name: "Alex" }, owner.cookie);
-    const token = inv.json.inviteUrl.split("#")[1];
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(Date.now() + 24 * 3_600_000 + 60_000);
-    try {
-      const late = await api("/auth/register/options", { invite: token });
-      expect(late.status).toBeGreaterThanOrEqual(400);
-      expect(late.json.error).toMatch(/expired or been used/);
-    } finally {
-      vi.useRealTimers();
-    }
+    for (const path of ["/people/invite", "/setup", "/auth/register/options", "/auth/recover", "/passkeys/options"]) expect((await api(path, { name: "X" }, owner.cookie)).status).toBe(404);
   });
 
   it("records who decided a proposal", async () => {
@@ -218,50 +260,22 @@ describe("people and roles", () => {
     expect(row!.decided_by).toBe("Sam");
   });
 
-  it("removing a person ends their sessions at once", async () => {
+  it("the owner can sign anyone out everywhere; a manager only themselves", async () => {
     const { owner, manager } = await team();
-    const people = await api("/people", undefined, owner.cookie);
-    const sam = people.json.people.find((x: any) => x.name === "Sam");
-    expect((await api(`/people/${sam.id}/remove`, {}, owner.cookie)).status).toBe(200);
+    const people = (await api("/people", undefined, owner.cookie)).json.people;
+    const k = people.find((x: any) => x.name === "K");
+    const sam = people.find((x: any) => x.name === "Sam");
+    expect((await api(`/people/${k.id}/signout`, {}, manager.cookie)).status).toBe(403);
+    expect((await api(`/people/${sam.id}/signout`, {}, owner.cookie)).status).toBe(200);
     expect((await api("/me", undefined, manager.cookie)).status).toBe(401);
-    expect((await signIn(manager.pk)).status).toBe(400);
-  });
-
-  it("a recovery code works once and only allows registering a new passkey", async () => {
-    const { manager } = await team();
-    const rec = await api("/auth/recover", { code: manager.codes[0] });
-    expect(rec.json.mustAddPasskey).toBe(true);
-    expect((await api("/proposals", undefined, rec.cookie)).status).toBe(403);
-    const pk = await new SoftPasskey().init();
-    const o = await api("/passkeys/options", {}, rec.cookie);
-    const added = await api("/passkeys/verify", { challengeId: o.json.challengeId, credential: await pk.create(o.json.options), label: "New phone" }, rec.cookie);
-    expect(added.json.recoveryCodes).toHaveLength(10);
-    expect((await api("/proposals", undefined, rec.cookie)).status).toBe(200);
-    expect((await api("/auth/recover", { code: manager.codes[0] })).status).toBe(400);
+    expect((await api("/me", undefined, owner.cookie)).status).toBe(200);
   });
 });
 
 describe("request protection", () => {
-  it("rate-limits sign-in attempts per network", async () => {
-    for (let i = 0; i < 20; i++) await api("/auth/recover", { code: "nope" });
-    expect((await api("/auth/recover", { code: "nope" })).status).toBe(429);
-  });
-
-  it("limits failed passkey sign-ins per person (5 in 15 minutes), even from different networks", async () => {
-    const setup = await api("/setup", { key: "boot-key-123", name: "K" });
-    const owner = await join(setup.json.inviteUrl);
-    for (let i = 0; i < 5; i++) {
-      const o = await api("/auth/login/options", {}, "", { "Client-IP": `10.0.0.${i}:443` });
-      const r = await api("/auth/login/verify", { challengeId: o.json.challengeId, credential: await owner.pk.get(o.json.options, { tamper: true }) }, "", { "Client-IP": `10.0.0.${i}:443` });
-      expect(r.status).toBe(400);
-    }
-    const blocked = await signIn(owner.pk);
-    expect(blocked.status).toBe(400);
-    expect(blocked.json.error).toMatch(/Too many failed sign-ins for this person/);
-  });
-
   it("refuses cross-site requests and requests without the custom header", async () => {
-    expect((await api("/auth/login/options", {}, "", { Origin: "https://evil.example" })).status).toBe(403);
+    const { owner } = await team();
+    expect((await api("/settings/writes", { paused: true }, owner.cookie, { Origin: "https://evil.example" })).status).toBe(403);
     const url = new URL(`${ORIGIN}/api/logout`);
     expect((await handleApi(env, new Request(url, { method: "POST" }), url)).status).toBe(403);
   });
@@ -269,20 +283,11 @@ describe("request protection", () => {
   it("never allows the key sign-in in production", async () => {
     env = { ...env, EBAY_ENV: "production", ALLOW_KEY_LOGIN: "true" } as Env;
     expect((await api("/login", { key: "boot-key-123" })).status).toBe(401);
+    expect((await fetchWorker("/api/login", { method: "POST", headers: { "X-EbayManager": "1" }, body: JSON.stringify({ key: "boot-key-123" }) })).status).toBe(404);
   });
 });
 
 describe("production routes", () => {
-  const fetchWorker = (path: string, init: RequestInit = {}) => worker.fetch(new Request(`${ORIGIN}${path}`, init), env);
-
-  it("serves /mcp only when switched on", async () => {
-    expect((await fetchWorker("/mcp", { method: "POST" })).status).toBe(404);
-  });
-
-  it("needs the owner's session to connect eBay", async () => {
-    expect((await fetchWorker("/oauth/start")).status).toBe(401);
-  });
-
   it("needs a signed-in device for a production approval link, even when it is correctly signed", async () => {
     env = { ...env, EBAY_ENV: "production", WRITE_MODE: "off" } as Env;
     const { decisionLinks } = await import("../src/proposals");
@@ -347,23 +352,29 @@ describe("marketplace account deletion", () => {
   });
 });
 
+
 describe("connecting eBay", () => {
+  it("needs the owner's session to start", async () => {
+    const { manager } = await team();
+    expect((await fetchWorker("/oauth/start")).status).toBe(404);
+    expect((await fetchWorker("/oauth/start", { headers: { Cookie: manager.cookie } })).status).toBe(404);
+  });
+
   it("accepts eBay's redirect without the session cookie, but only for a state the owner started", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ access_token: "a", expires_in: 7200, refresh_token: "r", refresh_token_expires_in: 1e7 })));
     env = { ...env, EBAY_APP_ID: "app", EBAY_CERT_ID: "cert", EBAY_RUNAME: "runame" } as Env;
-    const { json } = await api("/setup", { key: "boot-key-123", name: "K" });
-    const owner = await join(json.inviteUrl);
+    const { owner } = await team();
 
-    const start = await worker.fetch(new Request(`${ORIGIN}/oauth/start`, { headers: { Cookie: owner.cookie } }), env);
+    const start = await fetchWorker("/oauth/start", { headers: { Cookie: owner.cookie } });
     expect(start.status).toBe(302);
     const state = new URL(start.headers.get("Location")!).searchParams.get("state")!;
     const stateCookie = (start.headers.get("Set-Cookie") ?? "").split(";")[0];
 
     // eBay's redirect back: no session cookie (SameSite=Strict), only the state cookie.
-    const callback = (s: string) => worker.fetch(new Request(`${ORIGIN}/oauth/callback?code=c&state=${s}`, { headers: { Cookie: stateCookie } }), env);
+    const callback = (s: string) => fetchWorker(`/oauth/callback?code=c&state=${s}`, { headers: { Cookie: stateCookie } });
     expect((await callback(state)).status).toBe(200);
     expect(await env.store.kv.getEbayTokens()).not.toBeNull();
     expect((await callback(state)).status).toBe(400);
-    expect((await callback("made-up")).status).toBe(400);
+    expect((await callback("made-up")).status).toBe(404);
   });
 });

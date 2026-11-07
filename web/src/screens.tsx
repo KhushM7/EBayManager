@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { api, apiJob, SignedOut, type Activity as Row, type Device, type Listing, type Me, type Proposal } from "./api";
 import { DraftEditor, EDITABLE } from "./drafts";
 import { ago, daysSince, describe, money } from "./format";
-import { addPasskey } from "./passkey";
 import { SoldDataCard } from "./solddata";
 import { BundleAdvice, PriceCheck } from "./pricing";
 import { Todos } from "./todos";
@@ -641,9 +640,7 @@ interface Usage {
 }
 
 interface People {
-  people: { id: string; name: string; role: string; created_at: number; passkeys: { id: string; label: string; last_used_at: number | null }[] }[];
-  invites: { name: string; expires_at: number }[];
-  max: number;
+  people: { id: string; name: string; role: string; email: string }[];
 }
 
 const JOB_NAMES: Record<string, string> = { audit: "Listing reviews", triage: "Nightly checks", reply: "Reply drafts", offer: "Offer suggestions" };
@@ -667,38 +664,25 @@ function Section({ title, sub, children, class: cls = "" }: { title: string; sub
   );
 }
 
-function PeopleCard({ me, onSignedOut }: ScreenProps) {
+function PeopleCard({ onSignedOut }: ScreenProps) {
   const people = useData<People>("/people", onSignedOut);
-  const [name, setName] = useState("");
-  const [link, setLink] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const invite = async (e: Event) => {
-    e.preventDefault();
+  const signOut = async (id: string, name: string) => {
     setError(null);
+    setNote(null);
     try {
-      const out = await api<{ inviteUrl: string }>("/people/invite", { body: { name } });
-      setLink(out.inviteUrl);
-      setName("");
-      people.reload();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-  const act = async (id: string, what: "remove" | "signout") => {
-    setError(null);
-    try {
-      await api(`/people/${id}/${what}`, { body: {} });
-      people.reload();
+      await api(`/people/${id}/signout`, { body: {} });
+      setNote(`${name} is signed out on every device.`);
     } catch (err) {
       setError((err as Error).message);
     }
   };
 
   const d = people.data;
-  const room = d ? d.max - d.people.length - d.invites.length : 0;
   return (
-    <Section title="People" sub="You and up to two managers, each with their own passkey.">
+    <Section title="People" sub="Who can sign in. You set them up on your computer with scripts/people.mjs; the app can't add or change anyone.">
       {d && (
         <ul class="grid gap-2 p-0">
           {d.people.map((p) => (
@@ -708,49 +692,16 @@ function PeopleCard({ me, onSignedOut }: ScreenProps) {
                 <span class="block font-semibold">
                   {p.name} <span class="text-sm font-normal text-muted">· {p.role}</span>
                 </span>
-                <span class="block truncate text-xs text-muted">{p.passkeys.map((k) => `${k.label}, used ${ago(k.last_used_at)}`).join(" · ") || "No passkeys"}</span>
+                <span class="block truncate text-xs text-muted">{p.email}</span>
               </span>
-              <span class="flex gap-3 text-sm">
-                <button class="btn-link" onClick={() => act(p.id, "signout")}>
-                  Sign out everywhere
-                </button>
-                {p.id !== me.user.id && (
-                  <button class="btn-link text-red" onClick={() => act(p.id, "remove")}>
-                    Remove
-                  </button>
-                )}
-              </span>
-            </li>
-          ))}
-          {d.invites.map((v) => (
-            <li class="flex list-none items-center gap-3 rounded-xl border border-dashed border-line-strong px-3 py-2.5" key={v.name + v.expires_at}>
-              <span class="flex-1">{v.name}</span>
-              <span class="state state-held">Invited</span>
-              <span class="text-xs text-muted">expires {ago(v.expires_at)}</span>
+              <button class="btn-link text-sm" onClick={() => signOut(p.id, p.name)}>
+                Sign out everywhere
+              </button>
             </li>
           ))}
         </ul>
       )}
-      {room > 0 && (
-        <form class="mt-4 flex flex-wrap items-end gap-2" onSubmit={invite}>
-          <label class="grid min-w-0 flex-1 gap-1.5 text-sm font-semibold text-ink-2" for="invite-name">
-            Invite a manager
-            <input id="invite-name" value={name} maxLength={60} placeholder="Their name" onInput={(e) => setName(e.currentTarget.value)} required />
-          </label>
-          <motion.button whileTap={{ scale: 0.95 }} class="btn btn-secondary">
-            Create invite link
-          </motion.button>
-        </form>
-      )}
-      {link && (
-        <div class="evidence">
-          <p class="text-sm">Send this privately (not in a group chat). It works once, expires in 24 hours and won't be shown again.</p>
-          <p class="my-2 font-semibold break-all">{link}</p>
-          <button class="btn btn-secondary" onClick={() => navigator.clipboard?.writeText(link)}>
-            Copy link
-          </button>
-        </div>
-      )}
+      {note && <p class="mt-3 text-sm text-muted">{note}</p>}
       {error && <p class="error mt-3">{error}</p>}
     </Section>
   );
@@ -880,7 +831,6 @@ export function Settings(props: ScreenProps) {
   const { me, reloadMe, onSignedOut, go } = props;
   const devices = useData<Device[]>("/push/devices", onSignedOut);
   const usage = useData<Usage>("/usage", onSignedOut);
-  const [codes, setCodes] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [permission, setPermission] = useState(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
   const owner = me.user.role === "owner";
@@ -955,21 +905,10 @@ export function Settings(props: ScreenProps) {
           <p class="mt-3 text-xs text-muted">On Android: open this site in Chrome, choose Install app, then turn notifications on here.</p>
         </Section>
 
-        <Section title="Passkeys" sub="Add one on each phone or computer you use. You get fresh recovery codes each time.">
-          {codes ? (
-            <div class="evidence">
-              <p class="text-sm">New recovery codes. Save them now: they replace your old ones and won't be shown again.</p>
-              <ol class="codes mt-3">
-                {codes.map((c) => (
-                  <li key={c}>{c}</li>
-                ))}
-              </ol>
-            </div>
-          ) : (
-            <motion.button whileTap={{ scale: 0.95 }} class="btn btn-secondary" disabled={busy} onClick={() => run(async () => setCodes(await addPasskey()))}>
-              Add a passkey on this device
-            </motion.button>
-          )}
+        <Section title="Your account" sub="You sign in with your email and the code from your authenticator app.">
+          <motion.button whileTap={{ scale: 0.95 }} class="btn btn-secondary" disabled={busy} onClick={() => run(async () => (await api(`/people/${me.user.id}/signout`, { body: {} }), onSignedOut()))}>
+            Sign out on all my devices
+          </motion.button>
           {owner && !me.ebayConnected && (
             <p class="mt-4">
               <a class="btn btn-primary" href="/oauth/start">

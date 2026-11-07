@@ -8,7 +8,6 @@ const h = 3_600_000;
 
 const me = {
   user: { id: "u1", name: "K", role: "owner" },
-  mustAddPasskey: false,
   ebayEnv: "sandbox",
   writeMode: "approval",
   writesPaused: false,
@@ -120,7 +119,7 @@ export function mockApi(): Plugin {
         if (p === "/listings/refresh") return send({ count: listings.length });
         if (p === "/activity") return send(activity);
         if (p === "/push/devices") return send(devices);
-        if (p === "/people") return send({ people: [{ id: "u1", name: "K", role: "owner", created_at: now - 3 * 24 * h, passkeys: [{ id: "c1", label: "Android phone", last_used_at: now - h }, { id: "c2", label: "Windows computer", last_used_at: now - 26 * h }] }, { id: "u2", name: "Sam", role: "manager", created_at: now - 2 * 24 * h, passkeys: [{ id: "c3", label: "iPhone or iPad", last_used_at: now - 5 * h }] }], invites: [{ name: "Alex", expires_at: now + 20 * h }], max: 3 });
+        if (p === "/people") return send({ people: [{ id: "u1", name: "K", role: "owner", email: "k@example.com" }, { id: "u2", name: "Sam", role: "manager", email: "sam@example.com" }] });
         if (p === "/metrics") {
           const days = (n: number, f: (i: number) => any) =>
             Array.from({ length: n }, (_, i) => ({ day: new Date(now - (n - 1 - i) * 24 * h).toISOString().slice(0, 10), ...f(i) }));

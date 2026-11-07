@@ -49,13 +49,15 @@ Then:
 3. Optional (Sandbox only): add a custom connector in Claude settings: URL `<PUBLIC_URL>/mcp`, request header `Authorization: Bearer <MCP_TOKEN>`.
 4. Install the app and turn on notifications in Settings. ntfy (`NTFY_TOPIC`) is an optional fallback.
 
-`<PUBLIC_URL>/health` shows the environment and write mode. Anyone can pause all eBay changes from Settings (or the `pause_writes`
+`<PUBLIC_URL>/health` shows the environment and write mode to a signed-in person, or with `X-Health-Key: <DASHBOARD_KEY>`. Anyone can pause all eBay changes from Settings (or the `pause_writes`
 tool); only the owner resumes them, from Settings.
 
 ## Dashboard and Android app
 
-The app also serves the dashboard at its root address. The owner registers a passkey from the setup invite, then invites up to two
-managers. On Sandbox only, `DASHBOARD_KEY` from `.dev.vars` also signs in (through the API).
+The app also serves the dashboard at its root address, to signed-in people only: everyone else sees a blank page. K sets up
+who can sign in (themselves and up to two managers) with `node scripts/people.mjs <env> add --email ... --name ... --role ...`,
+which shows a QR code for Google or Microsoft Authenticator and the hidden sign-in address. People sign in there with their
+email and the 6-digit code. On Sandbox only, `DASHBOARD_KEY` from `.dev.vars` also signs in (through the API).
 
 On Android: open the URL in Chrome, choose **Install app**, sign in, then **Settings → Turn on for this device**.
 Approval notifications then carry Approve and Reject buttons that act without opening the app.

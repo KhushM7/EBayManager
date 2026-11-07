@@ -12,6 +12,7 @@ import { reviewPrices, type ReviewOut } from "./pricing/review";
 import { fileHealthTodos, fileOwnPriceReminders, filePriceQuestions, lastSentence } from "./todos";
 import { reviewPromotions } from "./promotion";
 import { checkAllowances } from "./allowance";
+import { providerEnabled } from "./solddata";
 import { auditDone, runFirstDayAudit } from "./firstday";
 import { cleanUpDrafts } from "./drafts";
 
@@ -127,7 +128,7 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
   // Its questions become Inbox to-dos for the listings it priced (src/todos.ts).
   const review: ReviewOut = { priced: [], asked: [] };
   await step(steps, "prices", async () => {
-    if (!env.TRAWL_API_KEY && !env.COMPSAPI_KEY) return "skipped: no sold-data provider keys";
+    if (!providerEnabled(env, "trawl") && !providerEnabled(env, "compsapi")) return "skipped: no sold-data provider keys";
     const out = await reviewPrices(env, at, { out: review });
     await filePriceQuestions(env, review.priced, review.asked, at);
     return out;

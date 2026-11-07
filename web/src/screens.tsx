@@ -646,6 +646,7 @@ interface Allowance {
   summary: string;
   notes: string[];
   level: "ok" | "low" | "out" | "unknown" | "off";
+  keys?: { slot: number; left: number; total: number; inUse: boolean; reported: boolean }[];
 }
 
 interface Usage {
@@ -965,7 +966,23 @@ function AllowanceRow({ a }: { a: Allowance }) {
         <span class={`state ${l.cls}`}>{l.word}</span>
       </div>
       <p class="mt-1 text-lg font-bold tabular-nums tracking-tight">{a.summary}</p>
-      {share != null && (
+      {a.keys && a.keys.length > 1 ? (
+        <ul class="mt-2 grid gap-2 p-0">
+          {a.keys.map((k) => (
+            <li class="list-none" key={k.slot}>
+              <div class="flex items-center justify-between gap-2 text-sm">
+                <span class="font-semibold">
+                  Key {k.slot} {k.inUse && <span class="state state-applied ml-1">In use</span>}
+                </span>
+                <span class="tabular-nums text-muted">{k.left <= 0 ? "Used up" : `${k.left} of ${k.total} left`}</span>
+              </div>
+              <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-3" role="meter" aria-valuemin={0} aria-valuemax={k.total} aria-valuenow={k.left} aria-label={`${a.name} key ${k.slot} left`}>
+                <motion.div class="h-full rounded-full" style={{ background: k.left <= 0 ? "var(--red)" : k.left / k.total < 0.1 ? "var(--yellow)" : "var(--green)" }} initial={{ width: 0 }} animate={{ width: `${Math.max(0, Math.min(1, k.left / k.total)) * 100}%` }} transition={{ duration: 0.8, ease: EASE_OUT }} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : share != null && (
         <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-3" role="meter" aria-valuemin={0} aria-valuemax={a.total ?? 0} aria-valuenow={a.left ?? 0} aria-label={`${a.name} left`}>
           <motion.div class="h-full rounded-full" style={{ background: l.bar }} initial={{ width: 0 }} animate={{ width: `${share * 100}%` }} transition={{ duration: 0.8, ease: EASE_OUT }} />
         </div>

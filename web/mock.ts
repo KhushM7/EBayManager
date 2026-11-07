@@ -151,7 +151,7 @@ export function mockApi(): Plugin {
             today: { usd: 0.04, calls: 6 }, month: { usd: 0.61, calls: 88 }, byJob: [{ job: "audit", calls: 40, usd: 0.52 }, { job: "triage", calls: 48, usd: 0.09 }], dailyBudgetUsd: 1, apiKeySet: true,
             allowances: [
               claude,
-              { id: "trawl", name: "Trawl (sold prices)", left: 224, total: 250, unit: "searches", summary: "224 of 250 searches left this month", notes: ["Resets on the 1st of each month."], level: "ok" },
+              { id: "trawl", name: "Trawl (sold prices)", left: 224, total: 500, unit: "searches", summary: "Key 2 in use: 224 of 250 left", notes: ["Resets 2026-12-01.", "As reported by Trawl just now."], level: "ok", keys: [{ slot: 1, left: 0, total: 250, inUse: false, reported: true }, { slot: 2, left: 224, total: 250, inUse: true, reported: true }] },
               { id: "compsapi", name: "CompsAPI (sold prices)", left: 13, total: 100, unit: "searches", summary: "13 of 100 searches left this month", notes: ["Resets on the 1st of each month."], level: "low" },
             ],
           });

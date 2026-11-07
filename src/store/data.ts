@@ -16,6 +16,7 @@ const docIds = {
   push: async (endpoint: string) => `push:${await hashId(endpoint)}`,
   solddata: async (key: string) => `sd:${await hashId(key)}`,
   identity: async (key: string) => `idn:${await hashId(key)}`,
+  grades: async (key: string) => `grd:${await hashId(key)}`,
   marketPk: (key: string) => hashId(key),
   usage: (provider: string, month: string) => `solddata_usage:${provider}:${month}`,
 };
@@ -470,6 +471,17 @@ export function pricingRepo(docs: DocStore) {
     async putIdentity(key: string, itemId: string | null, identity: string, at: number) {
       const id = await docIds.identity(key);
       await docs.upsert("cache", { id, pk: id, type: "identity", key, item_id: itemId, identity, at });
+    },
+
+    // Claude's grades of comparable titles for one item and component, by title (container cache, 30 days like
+    // the sold data they grade). null marks a title Claude saw and didn't match.
+    async getGrades(key: string): Promise<Record<string, { grade: "exact" | "close"; factor: number } | null>> {
+      const id = await docIds.grades(key);
+      return (await docs.get<any>("cache", id, id))?.grades ?? {};
+    },
+    async putGrades(key: string, grades: Record<string, { grade: "exact" | "close"; factor: number } | null>, at: number) {
+      const id = await docIds.grades(key);
+      await docs.upsert("cache", { id, pk: id, type: "match_grades", key, grades, at, ttl: 30 * 86_400 });
     },
 
     // Daily matched active listings per search (container market, kept 180 days).

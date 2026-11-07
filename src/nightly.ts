@@ -19,6 +19,8 @@ import { cleanUpDrafts } from "./drafts";
 // stop the rest. The outcome is kept in settings.last_nightly for the Metrics screen.
 
 const MAX_TRIAGED_PER_NIGHT = 5;
+/** How long an unchanged listing keeps its last triage instead of being triaged again (as REVISE_QUIET_DAYS). */
+const TRIAGE_REUSE_MS = 7 * 86_400_000;
 /** A change proposed this recently (waiting, approved, agreed as a dry run, or applied) isn't redone by triage. */
 export const REVISE_QUIET_DAYS = 7;
 
@@ -139,9 +141,31 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
     if (!env.ANTHROPIC_API_KEY) return "skipped: no ANTHROPIC_API_KEY";
     const revised = await recentlyRevised(env, at);
     const repriced = await recentlyRevised(env, at, "price");
+    const pending = await env.store.proposals.listByStatus("pending", "asc");
+    let reused = 0;
     for (const f of flagged.slice(0, MAX_TRIAGED_PER_NIGHT)) {
       const noEdit = revised.has(f.itemId);
       const noPrice = repriced.has(f.itemId);
+      // A listing triaged in the last week with nothing changed since (same flags, title, price, K's settings,
+      // labels waiting and edit limits) keeps that night's note instead of the same run again.
+      const l = await env.store.listings.latest(f.itemId);
+      const s = await env.store.listings.getSettings(f.itemId);
+      const fingerprint = JSON.stringify([
+        f.flags.map((x) => x.flag).sort(),
+        l?.title ?? null,
+        l?.price ?? null,
+        s?.floor_price ?? null,
+        s?.notes ?? null,
+        pending.filter((p) => p.item_id === f.itemId).map((p) => p.id),
+        noEdit,
+        noPrice,
+      ]);
+      const last = await env.store.kv.getJson<{ at: number; fingerprint: string; note: string }>(`triage:${f.itemId}`).catch(() => null);
+      if (last && last.fingerprint === fingerprint && at - last.at < TRIAGE_REUSE_MS) {
+        if (last.note) triageNotes.set(f.itemId, last.note);
+        reused++;
+        continue;
+      }
       const r = await runAgent(env, {
         job: `triage:${f.itemId}`,
         model: MODELS.triage,
@@ -156,9 +180,11 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
       });
       const note = lastSentence(r.text);
       if (note) triageNotes.set(f.itemId, note);
+      // Only a run that finished is remembered; one cut short (turn limit, budget) runs again next night.
+      if (r.stopReason === "end_turn") await env.store.kv.set(`triage:${f.itemId}`, JSON.stringify({ at, fingerprint, note: note ?? "" })).catch(() => null);
       triaged++;
     }
-    return `${triaged} of ${flagged.length} triaged`;
+    return `${triaged} of ${flagged.length} triaged${reused ? `, ${reused} unchanged since last week's check` : ""}`;
   });
 
   // Flagged listings that didn't end in a label become Inbox to-dos; to-dos for ended listings close.

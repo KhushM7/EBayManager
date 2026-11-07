@@ -22,6 +22,7 @@ import { getAnsweredQuestions, getSentMessages } from "./ebay/history";
 import { editStyle, getStyle, learnStyle, saveStyle } from "./style";
 import { reviewPromotions } from "./promotion";
 import { handleDrafts } from "./drafts";
+import { fetchListingPicture } from "./ebay/pictures";
 
 // JSON API for the dashboard. Everything except sign-in needs a signed-in person (docs/security.md); some
 // actions are owner-only. Sign-in failures are rate-limited per network.
@@ -164,6 +165,8 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
           view_count: s.view_count ?? null,
           quantity_available: s.quantity_available,
           start_time: s.start_time,
+          // Served through the app (below), so the dashboard's CSP stays 'self' only.
+          image_url: s.image_url ? `/api/listings/${s.item_id}/image` : null,
           taken_at: s.taken_at,
           floor_price: i?.floor_price ?? null,
           collection_only: i ? i.collection_only : null,
@@ -175,6 +178,17 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
   }
 
   if (path === "/listings/refresh" && method === "POST") return json(await snapshotListings(env));
+
+  // A listing's main picture, fetched from eBay's picture host and cached by the browser for a day.
+  const listingImage = path.match(/^\/listings\/(\d{6,20})\/image$/);
+  if (listingImage && method === "GET") {
+    const l = await env.store.listings.latest(listingImage[1]);
+    const pic = l?.image_url ? await fetchListingPicture(l.image_url) : null;
+    if (!pic) return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
+    return new Response(pic.bytes as unknown as BodyInit, {
+      headers: { "Content-Type": pic.type, "Cache-Control": "private, max-age=86400", "Content-Disposition": "inline" },
+    });
+  }
 
   // K's floor and facts for one listing. Facts are used by listing edits and reply drafts, cited "from K".
   const itemSettings = path.match(/^\/items\/(\d{6,20})\/settings$/);

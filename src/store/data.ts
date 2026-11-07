@@ -124,6 +124,8 @@ export interface SnapshotRow {
   watch_count: number;
   view_count: number | null;
   start_time: string;
+  /** The listing's main picture on eBay (older snapshots have none). */
+  image_url?: string | null;
 }
 
 export interface LatestRow extends SnapshotRow {

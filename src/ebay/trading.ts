@@ -2,7 +2,7 @@ import { XMLParser } from "fast-xml-parser";
 import type { Env } from "../env";
 import { userToken } from "./auth";
 import { assertRest, assertTrading, REST_WRITE, TRADING_READ } from "./allowlist";
-import { ebayHosts, PRODUCTION_HOSTS } from "./hosts";
+import { ebayHosts, isEbayPictureHost, PRODUCTION_HOSTS } from "./hosts";
 
 const COMPAT_LEVEL = "1349";
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
@@ -137,6 +137,28 @@ export interface ActiveListing {
   watchCount: number;
   startTime: string;
   url: string;
+  /** The listing's main picture on eBay's picture host, or null. */
+  imageUrl: string | null;
+}
+
+/**
+ * The main picture of a listing from what GetMyeBaySelling already returns (PictureDetails), so finding it costs
+ * no extra eBay call. Only https addresses on eBay's picture hosts are kept (the app fetches only from those,
+ * src/ebay/pictures.ts), and the small gallery size is swapped for a 500px one, which eBay serves at the same address.
+ */
+export function listingImage(item: any): string | null {
+  const pd = item?.PictureDetails ?? {};
+  const first = [pd.GalleryURL, ...[pd.PictureURL ?? []].flat()].map((u) => String(u ?? "").trim()).find(Boolean);
+  if (!first) return null;
+  let url: URL;
+  try {
+    url = new URL(first);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" || !isEbayPictureHost(url.hostname)) return null;
+  url.pathname = url.pathname.replace(/\/s-l\d+\.(jpg|jpeg|png|webp)$/i, "/s-l500.$1");
+  return url.toString();
 }
 
 export function toActiveListing(item: any, web = PRODUCTION_HOSTS.web): ActiveListing {
@@ -150,6 +172,7 @@ export function toActiveListing(item: any, web = PRODUCTION_HOSTS.web): ActiveLi
     watchCount: Number(item.WatchCount ?? 0),
     startTime: String(item.ListingDetails?.StartTime ?? ""),
     url: String(item.ListingDetails?.ViewItemURL ?? `${web}/itm/${item.ItemID}`),
+    imageUrl: listingImage(item),
   };
 }
 

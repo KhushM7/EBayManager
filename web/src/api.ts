@@ -54,6 +54,7 @@ export interface Listing {
   view_count: number | null;
   quantity_available: number;
   start_time: string;
+  image_url?: string | null;
   taken_at: number;
   floor_price: number | null;
   collection_only: number | null;

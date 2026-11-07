@@ -55,7 +55,7 @@ let proposals: any[] = [
 ];
 
 const listings = [
-  { item_id: "110591497599", title: "TEST The Hobbit by J.R.R. Tolkien Paperback", price: 4.5, currency: "GBP", watch_count: 2, view_count: 31, quantity_available: 1, start_time: new Date(now - 12 * 24 * h).toISOString(), taken_at: now - 3 * h, floor_price: 3.5, collection_only: 0, pending: 1 },
+  { item_id: "110591497599", title: "TEST The Hobbit by J.R.R. Tolkien Paperback", price: 4.5, currency: "GBP", watch_count: 2, view_count: 31, quantity_available: 1, start_time: new Date(now - 12 * 24 * h).toISOString(), image_url: null, taken_at: now - 3 * h, floor_price: 3.5, collection_only: 0, pending: 1 },
   { item_id: "110591497601", title: "TEST White Ceramic Coffee Mug 350ml", price: 6, currency: "GBP", watch_count: 0, view_count: 9, quantity_available: 1, start_time: new Date(now - 12 * 24 * h).toISOString(), taken_at: now - 3 * h, floor_price: null, collection_only: 0, pending: 1 },
   { item_id: "110591497965", title: "TEST Classic Strategy Board Game Complete", price: 12, currency: "GBP", watch_count: 5, view_count: 64, quantity_available: 1, start_time: new Date(now - 30 * 24 * h).toISOString(), taken_at: now - 3 * h, floor_price: 8, collection_only: 1, pending: 1 },
 ];

@@ -15,6 +15,7 @@ export async function snapshotListings(env: Env) {
       quantity_available: l.quantityAvailable,
       watch_count: l.watchCount,
       start_time: l.startTime,
+      image_url: l.imageUrl,
     })),
   );
   return { count: listings.length, takenAt: new Date(now).toISOString() };

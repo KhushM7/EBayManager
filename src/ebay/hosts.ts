@@ -21,3 +21,6 @@ export function ebayHosts(env: Pick<Env, "EBAY_ENV">): EbayHosts {
 }
 
 export const PRODUCTION_HOSTS = HOSTS.production;
+
+/** eBay's picture hosts, live and Sandbox: the only places a listing's picture is fetched from (src/ebay/pictures.ts). */
+export const isEbayPictureHost = (hostname: string) => /^(?:[a-z0-9-]+\.)*ebayimg\.com$|^i\.ebayimg\.sandbox\.ebay\.com$/i.test(hostname);

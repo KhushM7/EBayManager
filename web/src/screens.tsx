@@ -402,11 +402,13 @@ export function Inbox({ me, onSignedOut, onChanged }: ScreenProps) {
 
 // ---------------------------------------------------------------- Listings
 
-// The thumbnail: eBay's API isn't asked for pictures yet, so each listing gets a tile tinted from its own id,
-// with its initials; it drifts and zooms gently as the card scrolls past (parallax).
+// The thumbnail: the listing's main picture from eBay (read with the listings, no extra call). Without one, or if
+// it fails to load, the listing gets a tile tinted from its own id with its initials. Either drifts and zooms
+// gently as the card scrolls past (parallax).
 const HUES = [222, 158, 38, 352, 200, 268, 12, 120];
 function Thumb({ l }: { l: Listing }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [broken, setBroken] = useState(false);
   const { scrollYProgress } = useScroll({ target: ref as any, offset: ["start end", "end start"] });
   const scale = useTransform(scrollYProgress, [0, 1], [1.18, 1]);
   const y = useTransform(scrollYProgress, [0, 1], ["-6%", "6%"]);
@@ -415,12 +417,18 @@ function Thumb({ l }: { l: Listing }) {
   const initials = (words[0]?.[0] ?? "") + (words[1]?.[0] ?? "");
   return (
     <div ref={ref} class="relative aspect-[4/3] overflow-hidden rounded-xl">
+      {l.image_url && !broken ? (
+        <motion.div style={{ scale, y }} class="absolute inset-[-8%] bg-surface-3">
+          <img src={l.image_url} alt="" loading="lazy" decoding="async" onError={() => setBroken(true)} class="size-full object-cover" />
+        </motion.div>
+      ) : (
       <motion.div
         style={{ scale, y, background: `radial-gradient(120% 90% at 20% 10%, hsl(${hue} 90% 70% / .55), transparent 60%), radial-gradient(100% 80% at 90% 100%, hsl(${(hue + 50) % 360} 90% 60% / .45), transparent 60%), var(--surface-3)` }}
         class="absolute inset-[-8%] grid place-items-center"
       >
         <span class="text-5xl font-bold tracking-tighter text-white/90 drop-shadow-lg">{initials.toUpperCase()}</span>
       </motion.div>
+      )}
     </div>
   );
 }

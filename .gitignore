@@ -1,10 +1,8 @@
 node_modules/
 .dev.vars
 web/dist/
-.taste-skill/
 .sandbox-buyer-token
 .prod.vars
-.owner-invite-*.txt
 dist/
 .parcel2go-sample.json
 .idea/

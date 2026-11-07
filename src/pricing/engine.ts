@@ -464,10 +464,17 @@ export async function priceListing(env: Env, itemId: string, api?: MessagesApi):
   return r;
 }
 
-/** The engine's latest result for one of K's listings if recent enough, else a fresh check (or null). */
-export async function currentPricing(env: Env, itemId: string, maxAgeDays = 3, api?: MessagesApi): Promise<PriceResult | null> {
-  const row = await env.store.pricing.latestDecision(itemId, Date.now() - maxAgeDays * DAY);
-  if (row) return JSON.parse(row.result);
-  if (!providerEnabled(env, "trawl") && !providerEnabled(env, "compsapi")) return null;
-  return priceListing(env, itemId, api).catch(() => null);
+/**
+ * A price for one of K's listings for Claude's checks and Best Offer answers. Always a fresh check, so eBay's
+ * live listings (the main benchmark: what the item sells for now) are searched every time; sold data and title
+ * grades come from their caches. Only if the fresh check fails (eBay or a provider down) does the latest result
+ * from the last `fallbackDays` stand in.
+ */
+export async function currentPricing(env: Env, itemId: string, fallbackDays = 3, api?: MessagesApi): Promise<PriceResult | null> {
+  const stored = async () => {
+    const row = await env.store.pricing.latestDecision(itemId, Date.now() - fallbackDays * DAY);
+    return row ? (JSON.parse(row.result) as PriceResult) : null;
+  };
+  if (!providerEnabled(env, "trawl") && !providerEnabled(env, "compsapi")) return stored();
+  return priceListing(env, itemId, api).catch(stored);
 }

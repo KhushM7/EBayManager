@@ -62,8 +62,8 @@ export const tools: Tool[] = [
       "Run the pricing engine on one of K's listings: identifies the item (and a bundle's parts), finds true matching sold sales and current listings, reads the market (clearing price, long-run price, trend, weeks of supply, regime) and recommends a strategy (compete, hold, clear, or ask K) with a price and three options showing expected days to sell. Prices are what K lists; totals include postage. Use its price and 'why' for any price proposal.",
     inputSchema: obj({ item_id: { type: "string" } }, ["item_id"]),
     run: async (env, a) => {
-      // A check from today is reused (the nightly review may have just run one).
-      const r = (await currentPricing(env, a.item_id, 1)) ?? (await priceListing(env, a.item_id));
+      // Always a fresh check: live listings are searched every time (sold data and grades are cached).
+      const r = (await currentPricing(env, a.item_id)) ?? (await priceListing(env, a.item_id));
       // A compact view for Claude: the decision and the market, not every matched title.
       return {
         decision: r.decision,

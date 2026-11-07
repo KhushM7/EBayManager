@@ -25,8 +25,12 @@ export const MIN_DAYS_BETWEEN_PRICE_CHANGES = 7;
 /** Returns: always accepted, buyer pays return postage (an eBay return policy). */
 export const RETURNS = { accepted: true, periodDays: 30, buyerPaysReturnPostage: true } as const;
 
-/** Shipping: assume K has a box and ships, unless the item is collection only. */
-export const DEFAULT_SHIPPING = "ship" as const;
+/**
+ * Shipping (K, 2026-11-07): assume K has a box and ships, and collection in person is offered as well by
+ * default (a second, free service on the listing). K can turn collection off per item, or make it collection only.
+ */
+export const DEFAULT_SHIPPING = "ship_and_collect" as const;
+export const COLLECTION_OFFERED_BY_DEFAULT = DEFAULT_SHIPPING === "ship_and_collect";
 
 /** Claude spend cap per UTC day. Runs refuse to start once it's reached (target is $3 to $6 a month). */
 export const CLAUDE_DAILY_BUDGET_USD = 1;

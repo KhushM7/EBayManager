@@ -7,6 +7,7 @@ import { lookupSpecs } from "./specs";
 import { priceItem } from "./pricing/engine";
 import { proposeAndNotify } from "./proposals";
 import { getStyle } from "./style";
+import { COLLECTION_OFFERED_BY_DEFAULT } from "./rules";
 import { parcelQuotes, recommendSize, sizeByCode, sizeName, SIMPLE_DELIVERY_MAX_PRICE, type Parcel } from "./postage";
 
 // Add Listing, steps L2 to L5 (docs/add-listing.md). From a draft's photos to a `create_listing` label:
@@ -444,7 +445,8 @@ export async function savePostage(env: Env, id: string, b: any): Promise<DraftRo
     carrier: clip(b.carrier, 40) || null,
     service: clip(b.service, 80) || null,
     source: b.source === "parcel2go" ? ("parcel2go" as const) : ("you" as const),
-    collectionOffered: collectionOnly || b.collectionOffered === true,
+    // Collection is offered unless K turned it off (DEFAULT_SHIPPING).
+    collectionOffered: collectionOnly || (b.collectionOffered == null ? COLLECTION_OFFERED_BY_DEFAULT : b.collectionOffered === true),
     collectionOnly,
     postcode,
     ...postageChoice(b, parcel, d.price?.value ?? d.pricing?.price ?? null),
@@ -585,7 +587,7 @@ export async function planPostage(env: Env, id: string, api?: MessagesApi): Prom
           carrier: cheapest.carrier,
           service: cheapest.service,
           source: "parcel2go",
-          collectionOffered: d.postage?.collectionOffered ?? false,
+          collectionOffered: d.postage?.collectionOffered ?? COLLECTION_OFFERED_BY_DEFAULT,
           collectionOnly: false,
           postcode,
           mode,

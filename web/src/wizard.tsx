@@ -1403,7 +1403,8 @@ const postageForm = (d: Draft): PostageForm => ({
   weightKg: String(d.parcel?.weightKg ?? ""),
   cost: d.postage && !d.postage.collectionOnly ? String(d.postage.cost) : "",
   carrier: d.postage?.carrier ? { carrier: d.postage.carrier, service: d.postage.service ?? "" } : null,
-  collect: d.postage?.collectionOffered ?? false,
+  // Collection is offered by default (src/rules.ts DEFAULT_SHIPPING); untick it for items that can't be collected.
+  collect: d.postage?.collectionOffered ?? true,
   only: d.postage?.collectionOnly ?? false,
   size: d.postage?.mode === "courier" ? "courier" : (d.postage?.size ?? ""),
   sizeMine: d.postage?.sizeBy === "you",

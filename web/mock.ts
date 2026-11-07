@@ -141,15 +141,30 @@ export function mockApi(): Plugin {
         if (p === "/firstday/run") { await new Promise((r) => setTimeout(r, 800)); return send({ report: { ...mockReport, at: Date.now() } }); }
         if (p === "/style" && req.method === "GET") return send({ style: mockStyle });
         if (p === "/style") { Object.assign(mockStyle, body.style, { editedBy: "K", at: Date.now() }); return send({ style: mockStyle }); }
-        if (p === "/usage") return send({ today: { usd: 0.04, calls: 6 }, month: { usd: 0.61, calls: 88 }, byJob: [{ job: "audit", calls: 40, usd: 0.52 }, { job: "triage", calls: 48, usd: 0.09 }], dailyBudgetUsd: 1, apiKeySet: false });
+        if (p === "/usage/credit") { mockCredit = body.usd == null ? null : Number(body.usd); return send({ ok: true }); }
+        if (p === "/usage") {
+          const left = mockCredit == null ? null : Math.max(0, Math.round((mockCredit - 0.61) * 100) / 100);
+          const claude = mockCredit == null
+            ? { id: "claude", name: "Claude", left: null, total: null, unit: "usd", summary: "Balance not entered", notes: ["Today: $0.04 of the $1.00 daily budget used."], level: "unknown" }
+            : { id: "claude", name: "Claude", left, total: mockCredit, unit: "usd", summary: `$${left!.toFixed(2)} left`, notes: ["Today: $0.04 of the $1.00 daily budget used.", `From $${mockCredit.toFixed(2)} entered today, less $0.61 the app has used since.`], level: left! <= 2 ? "low" : "ok" };
+          return send({
+            today: { usd: 0.04, calls: 6 }, month: { usd: 0.61, calls: 88 }, byJob: [{ job: "audit", calls: 40, usd: 0.52 }, { job: "triage", calls: 48, usd: 0.09 }], dailyBudgetUsd: 1, apiKeySet: true,
+            allowances: [
+              claude,
+              { id: "trawl", name: "Trawl (sold prices)", left: 224, total: 250, unit: "searches", summary: "224 of 250 searches left this month", notes: ["Resets on the 1st of each month."], level: "ok" },
+              { id: "compsapi", name: "CompsAPI (sold prices)", left: 13, total: 100, unit: "searches", summary: "13 of 100 searches left this month", notes: ["Resets on the 1st of each month."], level: "low" },
+            ],
+          });
+        }
         if (p === "/audit") { await new Promise((r) => setTimeout(r, 600)); return send({ error: "ANTHROPIC_API_KEY is not set on this Worker yet." }, 503); }
         if (p === "/settings/writes") { me.writesPaused = Boolean(body.paused); (me as any).writesBlocked = me.writesPaused ? "Writes are paused" : null; return send({ writesPaused: me.writesPaused }); }
-        if (p === "/solddata") return send({ providers: [{ provider: "trawl", enabled: true, used: 26, cap: 250 }, { provider: "compsapi", enabled: true, used: 27, cap: 100 }], primary: "trawl", lastEval: null });
         return send({ ok: true });
       });
     },
   };
 }
+
+let mockCredit: number | null = null;
 
 // The first-day audit report and style guide (src/firstday.ts, src/style.ts), sample data.
 const day = 86_400_000;

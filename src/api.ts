@@ -1,7 +1,6 @@
 import type { Env } from "./env";
 import { gateClosedReason, setWritesPaused, writesPaused } from "./ebay/write";
 import { runNightly } from "./nightly";
-import { push } from "./notify";
 import { CLAUDE_DAILY_BUDGET_USD } from "./rules";
 import { pollInbox } from "./inbox";
 import { applyApproved, decide, editProposal } from "./proposals";
@@ -10,8 +9,6 @@ import { clearCookie, endSession, isKnownDevice, knownDeviceCookie, recordFailur
 import { listPeople } from "./auth/people";
 import { CSRF_HEADER, getSession, keyLogin } from "./session";
 import { snapshotListings } from "./snapshot";
-import { MONTHLY_CAP, providerEnabled, usedThisMonth, type Provider } from "./solddata";
-import { evaluateProviders } from "./solddata-eval";
 import { cleanSale } from "./salesreport";
 import { orderLines } from "./store";
 import { jobStatus, startJob } from "./background";
@@ -267,11 +264,6 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
     );
   }
 
-  if (path === "/push/test" && method === "POST") {
-    await push(env, "Test notification", "Notifications from EBayManager reach this device.", undefined, "test");
-    return json({ ok: true, lastPushAt: Number(await setting(env, "last_push_at")) || null });
-  }
-
   if (path === "/audit" && method === "POST") {
     const { itemId } = await body(request);
     if (typeof itemId !== "string" || !/^\d{6,20}$/.test(itemId)) return json({ error: "Bad item id" }, 400);
@@ -474,14 +466,6 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
 
   if (path === "/metrics" && method === "GET") return json(await metrics(env));
 
-  if (path === "/solddata" && method === "GET") {
-    const providers = await Promise.all(
-      (["trawl", "compsapi"] as Provider[]).map(async (p) => ({ provider: p, enabled: providerEnabled(env, p), used: await usedThisMonth(env, p), cap: MONTHLY_CAP[p] })),
-    );
-    const last = await setting(env, "solddata_eval");
-    return json({ providers, primary: await setting(env, "solddata_primary"), lastEval: last ? JSON.parse(last) : null });
-  }
-
   // Past sales from Seller Hub's orders report (eBay's APIs only return 90 days). The browser has already
   // dropped every buyer column; the server re-validates each sale and stores only the sales fields.
   if (path === "/sales/import" && method === "POST") {
@@ -504,12 +488,6 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
         },
       ]);
     return json({ received: sales.length, valid: clean.length, imported, alreadyThere: clean.length - imported });
-  }
-
-  // Spends up to 5 searches per provider, so owner only.
-  if (path === "/solddata/evaluate" && method === "POST") {
-    if (!owner) return ownerOnly();
-    return run(async () => json(await evaluateProviders(env)));
   }
 
   return json({ error: "Not found" }, 404);

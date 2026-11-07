@@ -3,7 +3,6 @@ import { memoryStore } from "../src/store";
 import { withEbayTokens } from "./fixtures";
 import type { Env } from "../src/env";
 import { estimate, parseCompsApi, parseTrawl, QuotaReached, searchSold, wordsFromTitle, type SoldSale } from "../src/solddata";
-import { evaluateProviders, pickSales, score } from "../src/solddata-eval";
 
 const sale = (price: number, extra: Partial<SoldSale> = {}): SoldSale => ({
   provider: "trawl",
@@ -128,53 +127,5 @@ describe("calling providers", () => {
 
   it("isn't used without a key", async () => {
     await expect(searchSold({ ...env, TRAWL_API_KEY: undefined } as Env, "trawl", { words: "x" })).rejects.toThrow(/no API key/);
-  });
-});
-
-describe("K's test: price items K has sold, compare with what K got", () => {
-  it("picks sales spread across the price range", () => {
-    const rows = [5, 10, 20, 40, 80, 160, 320].map((p, i) => ({ item_id: String(i), title: `Item ${i}`, price: p }));
-    expect(pickSales(rows).map((r) => r.price)).toEqual([5, 20, 40, 160, 320]);
-  });
-
-  it("prefers the more accurate provider once it covers 3 items", () => {
-    const r = (errorPct: number) => ({ count: 5, median: 1, p25: 1, p75: 1, bestOfferShare: 0, excluded: 0, errorPct, inBand: errorPct < 10 });
-    const items = [1, 2, 3].map((i) => ({ itemId: String(i), title: "t", actual: 10, words: "t", results: { trawl: r(15), compsapi: r(5) } }));
-    expect(score(items).primary).toBe("compsapi");
-    expect(score(items).summary.compsapi).toEqual({ priced: 3, meanErrorPct: 5, inBand: 3 });
-  });
-
-  it("runs end to end, leaving K's own sale out of the estimate", async () => {
-    const env = { store: memoryStore(), EBAY_ENV: "sandbox", EBAY_MARKETPLACE: "EBAY_GB", TRAWL_API_KEY: "tk", COMPSAPI_KEY: "ck" } as Env;
-    await withEbayTokens(env.store);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
-        if (String(url).includes("/sell/fulfillment/"))
-          return Response.json({
-            orders: [{ orderId: "o1", creationDate: "2026-10-01T00:00:00Z", pricingSummary: { total: { value: "100" } }, lineItems: [{ legacyItemId: "111", title: "Sony WH-1000XM4 Headphones", quantity: 1, lineItemCost: { value: "100" } }] }],
-          });
-        if (String(url).includes("trawl"))
-          return Response.json({
-            currency: "GBP",
-            results: [
-              { title: "Sony WH-1000XM4", sale_price: 100, item_link: "https://www.ebay.co.uk/itm/111" },
-              // Trawl prices include the Buyer Protection fee; these come back to 90, 95 and 110.
-              ...[94.35, 99.55, 115.15].map((p) => ({ title: "Sony WH-1000XM4", sale_price: p, item_link: "x" })),
-            ],
-          });
-        return Response.json({ items: [80, 85, 90].map((p) => ({ title: "Sony WH-1000XM4", price: p, native_price: p, native_currency: "GBP" })) });
-      }),
-    );
-    const r = await evaluateProviders(env);
-    vi.unstubAllGlobals();
-    expect(r.items).toHaveLength(1);
-    const t = r.items[0].results.trawl as any;
-    expect(t.count).toBe(3);
-    expect(t.median).toBe(95);
-    expect(t.errorPct).toBe(5);
-    expect((r.items[0].results.compsapi as any).errorPct).toBe(15);
-    expect(r.summary.trawl).toEqual({ priced: 1, meanErrorPct: 5, inBand: 1 });
-    expect(r.primary).toBe("trawl");
   });
 });

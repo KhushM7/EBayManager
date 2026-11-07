@@ -37,7 +37,11 @@ Design docs: [roadmap](docs/roadmap.md), [design system](docs/design-system.md),
 
 ## Decisions (2026-11-05)
 
-- **Dashboard redesign** ([design-system.md](docs/design-system.md)): glass and glow, swipeable approval cards, a listings catalogue, Insights and Store Pulse (was Audit), and a New listing wizard, now on the drafts server (merged 2026-11-06). The environment shows as a pinned pill; the change switch, Claude spend and diagnostics are under Settings → Advanced. This supersedes the tasteskill rules for the app.
+- **Dashboard redesign** ([design-system.md](docs/design-system.md)): glass and glow, swipeable approval cards, a listings catalogue, Insights and Store Pulse (was Audit), and a New listing wizard, now on the drafts server (merged 2026-11-06). The environment shows as a pinned pill. This supersedes the tasteskill rules for the app.
+
+## Decisions (2026-11-07, Settings)
+
+- **Settings is organised** (K): the Changes to eBay switch (Pause all changes) leads the page; then Account, Notifications, eBay connection, Reply style, and Usage and APIs (Claude and sold-data allowances, Claude spend). On a phone each section is its own page; on a desktop the menu sits beside it. The sold-price provider comparison and the diagnostics (test notification) were development tools and are removed.
 
 ## Decisions (2026-11-07)
 
@@ -85,7 +89,10 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/claude.ts`, `src/jobs.ts` | Claude tool-use loop (allowlisted tools, cost log, daily budget) and the jobs that use it |
 | `src/nightly.ts`, `src/health.ts`, `src/ebay/sell.ts` | The 02:00 run: snapshot, orders and traffic sync, rule-based health flags, Haiku triage of flagged listings |
 | `src/pricing/` | The pricing engine: `model.ts` (maths, pure), `identify.ts` (Claude identify and match), `engine.ts`, `learn.ts`, `bundles.ts` |
-| `src/solddata.ts`, `src/solddata-eval.ts`, `src/salesreport.ts` | Trawl and CompsAPI sold data (capped, cached), K's comparison test, the Seller Hub orders report import |
+| `src/solddata.ts`, `src/salesreport.ts` | Trawl and CompsAPI sold data (capped, cached), the Seller Hub orders report import |
+| `src/allowance.ts` | What's left of Claude credit (K enters the Console balance; the app subtracts its logged spend) and the sold-data monthly searches; low or out opens an Inbox to-do with a notification (15-minute poll and nightly). Shown in Settings → Usage and APIs |
+| `src/ebay/pictures.ts` | Listing pictures for the Listings page, fetched from eBay's picture hosts only and served by the app (`/api/listings/:id/image`), so the CSP stays `'self'` |
+| `src/util.ts` | Small shared helpers (`r2`, `list`, `num`, `stripHtml`) |
 | `src/specs.ts` | Published specifications for an exactly identified product (Sonnet + web search), each with a verified source |
 | `src/firstday.ts`, `src/style.ts`, `src/promotion.ts`, `src/ebay/history.ts` | First-day audit report, K's reply style guide, Promoted Listings research, and the account-history reads they use |
 | `src/inbox.ts`, `src/ebay/inbox.ts` | The 15-minute poll: buyer questions and Best Offers, Haiku drafts, floor enforced in code |

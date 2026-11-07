@@ -1,7 +1,7 @@
 import type { Env } from "./env";
 import { push } from "./notify";
 import { CLAUDE_DAILY_BUDGET_USD } from "./rules";
-import { MONTHLY_CAP, providerEnabled, usedThisMonth, type Provider } from "./solddata";
+import { MONTHLY_CAP, providerEnabled, refreshQuota, usedThisMonth, type Provider } from "./solddata";
 import type { TodoInput } from "./store/todos";
 
 // What's left of each paid allowance the app uses: Claude credit (and today's budget) and the sold-data
@@ -34,6 +34,7 @@ export interface Allowance {
 }
 
 const money = (n: number) => `$${n.toFixed(2)}`;
+const minutesAgo = (ms: number) => (ms < 90_000 ? "just now" : ms < 90 * 60_000 ? `${Math.round(ms / 60_000)} minutes ago` : `${Math.round(ms / 3_600_000)} hours ago`);
 const dayStart = (now: number) => {
   const d = new Date(now);
   d.setUTCHours(0, 0, 0, 0);
@@ -85,10 +86,17 @@ export async function allowances(env: Env, now = Date.now()): Promise<Allowance[
     (["trawl", "compsapi"] as Provider[]).map(async (p): Promise<Allowance> => {
       const name = p === "trawl" ? "Trawl (sold prices)" : "CompsAPI (sold prices)";
       if (!providerEnabled(env, p)) return { id: p, name, left: null, total: null, unit: "searches", summary: "Not set up", notes: [], level: "off" };
-      const cap = MONTHLY_CAP[p];
-      const left = Math.max(0, cap - (await usedThisMonth(env, p)));
-      const level = left <= 0 ? "out" : left / cap <= LOW_SHARE ? "low" : "ok";
-      return { id: p, name, left, total: cap, unit: "searches", summary: `${left} of ${cap} searches left this month`, notes: ["Resets on the 1st of each month."], level };
+      // The provider's own figures (free to ask for, and they include searches made outside this app); the
+      // app's own count only if the provider can't be reached.
+      const q = await refreshQuota(env, p, 5 * 60_000, now);
+      const cap = q?.limit ?? MONTHLY_CAP[p];
+      const left = q ? q.remaining : Math.max(0, cap - (await usedThisMonth(env, p)));
+      const level = left <= 0 ? "out" : cap > 0 && left / cap <= LOW_SHARE ? "low" : "ok";
+      const resets = `Resets ${new Date(q?.resetAt ?? Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth() + 1, 1)).toISOString().slice(0, 10)}.`;
+      const source = q
+        ? `As reported by ${p === "trawl" ? "Trawl" : "CompsAPI"} ${minutesAgo(now - q.at)}.`
+        : `Counted by this app only (${p === "trawl" ? "Trawl" : "CompsAPI"} couldn't be reached): searches made elsewhere with the same key aren't included.`;
+      return { id: p, name, left, total: cap, unit: "searches", summary: `${left} of ${cap} searches left this month`, notes: [resets, source], level };
     }),
   );
   return [claude, ...sold];

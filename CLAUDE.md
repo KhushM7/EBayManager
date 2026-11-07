@@ -91,7 +91,7 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/nightly.ts`, `src/health.ts`, `src/ebay/sell.ts` | The 02:00 run: snapshot, orders and traffic sync, rule-based health flags, Haiku triage of flagged listings |
 | `src/pricing/` | The pricing engine: `model.ts` (maths, pure), `identify.ts` (Claude identify and match), `engine.ts`, `learn.ts`, `bundles.ts` |
 | `src/solddata.ts`, `src/salesreport.ts` | Trawl and CompsAPI sold data (capped, cached), the Seller Hub orders report import |
-| `src/allowance.ts` | What's left of Claude credit (K enters the Console balance; the app subtracts its logged spend) and the sold-data monthly searches; low or out opens an Inbox to-do with a notification (15-minute poll and nightly). Shown in Settings → Usage and APIs |
+| `src/allowance.ts` | What's left of Claude credit (K enters the Console balance; the app subtracts its logged spend) and the sold-data monthly searches (as Trawl and CompsAPI themselves report them: headers on every reply, and their free `/health` and `/v1/usage` calls; the app's own count only if they can't be reached); low or out opens an Inbox to-do with a notification (15-minute poll and nightly). Shown in Settings → Usage and APIs |
 | `src/ebay/pictures.ts` | Listing pictures for the Listings page, fetched from eBay's picture hosts only and served by the app (`/api/listings/:id/image`), so the CSP stays `'self'` |
 | `src/util.ts` | Small shared helpers (`r2`, `list`, `num`, `stripHtml`) |
 | `src/specs.ts` | Published specifications for an exactly identified product (Sonnet + web search), each with a verified source |

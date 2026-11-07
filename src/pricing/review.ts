@@ -2,6 +2,7 @@ import type { Env } from "../env";
 import { tools } from "../tools";
 import { priceListing } from "./engine";
 import { daysText } from "./model";
+import { holdsListing } from "../proposals";
 
 // Nightly price review (docs/pricing-engine.md): the engine re-prices a few of K's listings each night, oldest
 // check first, and files a price proposal where the market supports a change. No Claude agent decides the
@@ -34,6 +35,8 @@ export async function reviewPrices(env: Env, now = Date.now(), opts: { all?: boo
   // change eBay, so without this the review would propose the same change again the next night).
   const held = new Set(
     priceProposals
+      // Once writes are on, dry runs left over from the read-only days no longer hold (holdsListing).
+      .filter((p) => holdsListing(env, p))
       .filter((p) => !opts.all && (p.status === "pending" || p.status === "approved" || (p.status === "agreed" && p.created_at > now - 7 * DAY)))
       .map((p) => p.item_id),
   );

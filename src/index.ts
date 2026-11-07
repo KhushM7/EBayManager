@@ -76,6 +76,7 @@ export default { fetch: handle };
  * when its session ends.
  */
 const blank = () => new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
+const PUBLIC_FILES = new Set(["/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/badge-96.png", "/sw.js"]);
 
 const route = async (request: Request, env: Env, url: URL): Promise<Response> => {
   const path = url.pathname;
@@ -84,6 +85,10 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
   // Public by necessity: eBay calls the first, and its developer settings link to the second.
   if (path === "/ebay/account-deletion") return handleAccountDeletion(env, request, url);
   if (path === "/privacy.html" && env.ASSETS) return env.ASSETS.serve(request);
+  // Fetched by the browser without cookies, so they can't need a session: the app icons (for installing and
+  // notifications) and the service worker script. No data and no app name in them. The manifest stays
+  // private; the page asks for it with the session cookie (crossorigin="use-credentials").
+  if (PUBLIC_FILES.has(path) && env.ASSETS) return env.ASSETS.serve(request);
   if (signin && path === signin) return handleSignIn(env, request, url);
   // The Claude connector, with its own token: Sandbox only unless switched on deliberately.
   if (path === "/mcp") return env.MCP_ENABLED === "true" ? handleMcp(env, request) : blank();
@@ -118,8 +123,8 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
 <form method="post"><button>${d === "approve" ? "Approve" : "Reject"}</button></form>`);
   }
 
-  // eBay's redirect back after connecting. The session cookie is SameSite=Strict, so it isn't sent here; the
-  // state cookie set by /oauth/start is, and the state must be one the owner started in the last 10 minutes.
+  // eBay's redirect back after connecting. The session isn't relied on here: the state cookie set by
+  // /oauth/start is checked, and the state must be one the owner started in the last 10 minutes.
   if (path === "/oauth/callback") {
     const cookie = request.headers.get("Cookie") ?? "";
     const state = url.searchParams.get("state");

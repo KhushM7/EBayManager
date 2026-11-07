@@ -20,7 +20,8 @@ const check = (id, ok, detail = "") => {
 const get = (path, init = {}) => fetch(URL_ + path, { redirect: "manual", ...init });
 
 const health = await (await get("/health", { headers: { "X-Health-Key": vars.DASHBOARD_KEY ?? "" } })).json().catch(() => ({}));
-if (env === "production") check("A6  production runs with writes off", health.ebayEnv === "production" && health.writeMode === "off", JSON.stringify(health));
+// Since go-live (2026-11-07) production runs in approval mode: every eBay change still needs K's approval.
+if (env === "production") check("A6  production runs in approval mode (or read-only)", health.ebayEnv === "production" && ["approval", "off"].includes(health.writeMode), JSON.stringify(health));
 else check("A6  sandbox reports itself", health.ebayEnv === "sandbox", JSON.stringify(health));
 
 // The site is hidden: without a session, everything is a blank Not found.

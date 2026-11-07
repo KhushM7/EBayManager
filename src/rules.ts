@@ -18,9 +18,6 @@ export const LOCKED_KINDS = [
 /** A pending proposal expires after this many days, and so do its signed approval links. */
 export const PROPOSAL_TTL_DAYS = 7;
 
-/** Older fixed target (lower end of comparable sold prices). Prices now come from src/pricing (docs/pricing-engine.md). */
-export const TARGET_COMP_PERCENTILE = 0.3;
-
 /** Proposal guardrails: a proposed price change larger than this is flagged for a closer look. */
 export const MAX_PRICE_STEP = 0.1;
 export const MIN_DAYS_BETWEEN_PRICE_CHANGES = 7;

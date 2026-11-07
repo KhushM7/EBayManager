@@ -102,7 +102,7 @@ export async function createSession(env: Env, userId: string, request: Request, 
 
 export const clearCookie = `${COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
 
-const tokenFrom = (request: Request) => (request.headers.get("Cookie") ?? "").match(new RegExp(`${COOKIE}=([\\w-]{20,})`))?.[1];
+const tokenFrom = (request: Request) => (request.headers.get("Cookie") ?? "").match(new RegExp(`(?:^|;\\s*)${COOKIE}=([\\w-]{20,})`))?.[1];
 
 export async function getSession(env: Env, request: Request): Promise<Session | null> {
   const token = tokenFrom(request);
@@ -148,7 +148,7 @@ export async function knownDeviceCookie(env: Env, userId: string) {
 
 /** True when this browser carries a valid known-device mark for someone still on the list. */
 export async function isKnownDevice(env: Env, request: Request): Promise<boolean> {
-  const m = (request.headers.get("Cookie") ?? "").match(new RegExp(`${KNOWN_COOKIE}=([\\w-]{1,64})\\.([\\w-]{20,})`));
+  const m = (request.headers.get("Cookie") ?? "").match(new RegExp(`(?:^|;\\s*)${KNOWN_COOKIE}=([\\w-]{1,64})\\.([\\w-]{20,})`));
   if (!m) return false;
   const expected = await mac(env, m[1]);
   if (expected.length !== m[2].length) return false;

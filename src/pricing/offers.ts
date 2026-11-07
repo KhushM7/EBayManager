@@ -1,12 +1,12 @@
 import type { Decision, MarketState } from "./model";
 import { endPrice } from "./model";
+import { r2 } from "../util";
 
 // Best Offers judged against the pricing engine (docs/pricing-engine.md, "Offers"). The principle is the
 // seller's reservation value: accept an offer when it's worth more than carrying on — listing at the
 // engine's recommended price and waiting for a buyer, with the wait's holding cost and impatience counted.
 // Otherwise counter at a price that is, never below K's floor or the market's value floor. Pure: no I/O.
 
-const r2 = (x: number) => Math.round(x * 100) / 100;
 
 export interface OfferInput {
   /** The buyer's offer, item price (eBay offers exclude postage). */

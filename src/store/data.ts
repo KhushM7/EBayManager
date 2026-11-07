@@ -7,8 +7,8 @@ import { hashId, pad13, seqId, type Doc, type DocStore, type PatchOp } from "./d
 const strip = ({ id, pk, type, _etag, ttl, ...r }: any) => r;
 const safeKey = (k: string) => /^[\w:.-]{1,200}$/.test(k);
 
-/** Document ids, shared with the D1 importer (src/store/migrate.ts) so both write the same shapes. */
-export const docIds = {
+/** Document ids for the documents this file writes. */
+const docIds = {
   setting: async (key: string) => `setting:${safeKey(key) ? key : await hashId(key)}`,
   question: async (id: string) => `q:${safeKey(id) ? id : await hashId(id)}`,
   offer: async (id: string) => `o:${safeKey(id) ? id : await hashId(id)}`,

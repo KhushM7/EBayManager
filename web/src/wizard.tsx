@@ -11,7 +11,7 @@ import type { ComponentChildren, RefObject } from "preact";
 import { useEffect, useRef, useState, type Dispatch, type StateUpdater } from "preact/hooks";
 import { api, apiJob, SignedOut } from "./api";
 import { CameraAssistant, Findings } from "./camera";
-import { ago, money } from "./format";
+import { ago, money, plural } from "./format";
 import { bitsToHex, CHECKLIST, hexToBits } from "./listing/checks";
 import { blocking, issueCodes, processPhoto, type Processed } from "./listing/photos";
 import { tidy } from "./listing/tidy";
@@ -169,7 +169,6 @@ const draftName = (d: Draft) => d.name || d.listing?.title || d.title || "Untitl
 const photoIssues = (p: DraftPhoto) => (p.use_edited && p.edited?.issues ? p.edited.issues : p.issues);
 
 const num = (s: string) => (s.trim() === "" ? NaN : Number(s));
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 // ---- Small pieces of the look ----
 

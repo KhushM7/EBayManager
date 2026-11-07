@@ -2,7 +2,7 @@ import { motion } from "framer-motion";
 import { useEffect, useState } from "preact/hooks";
 import { api, SignedOut, type Me } from "./api";
 import { Chart, type Point } from "./chart";
-import { ago, money } from "./format";
+import { ago, money, plural } from "./format";
 import { CardLabel, CountUp, EASE_OUT, Icons, item, list, Ring, Sparkline, SPRING } from "./ui";
 
 interface MetricsData {
@@ -24,7 +24,6 @@ const FLAG_NAMES: Record<string, string> = {
   low_click_through: "Seen but not opened",
 };
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const count = (n: number) => String(Math.round(n));
 const usd = (n: number) => "$" + n.toFixed(2);
 const pct = (n: number | null | undefined) => (n == null ? "Not enough data" : `${Math.round(n * 100)}%`);

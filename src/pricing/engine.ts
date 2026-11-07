@@ -16,13 +16,13 @@ import {
   type MarketState,
   type SaleParams,
 } from "./model";
+import { r2, list } from "../util";
 
 // The pricing engine end to end (docs/pricing-engine.md): identify → gather (both sold-data providers
 // pooled, plus eBay's active listings) → match → market state → decide. A bundle is priced as the sum of
 // its parts, each found and matched on its own. Nothing here writes to eBay: the result feeds proposals.
 
 const DAY = 86_400_000;
-const r2 = (x: number) => Math.round(x * 100) / 100;
 
 export interface PriceInput {
   itemId?: string | null;
@@ -364,7 +364,6 @@ const num = (v: any): number | null => {
   const n = Number(typeof v === "object" && v != null ? v["#text"] : v);
   return Number.isFinite(n) ? n : null;
 };
-const list = <T>(v: T | T[] | undefined): T[] => (v == null ? [] : Array.isArray(v) ? v : [v]);
 
 /**
  * What the buyer pays for postage on one of K's listings. A cost of 0 counts as free postage only when eBay

@@ -6,6 +6,7 @@ import { proposeAndNotify } from "./proposals";
 import { currentPricing } from "./pricing/engine";
 import { answerOffer } from "./pricing/offers";
 import { withStyle } from "./style";
+import { stripHtml } from "./util";
 
 // Every 15 minutes: read new buyer questions and Best Offers (read-only polling, so no eBay notification
 // settings need changing), draft a reply or suggest a response with Haiku, and file each as a proposal.
@@ -31,14 +32,6 @@ interface OfferSuggestion {
   reason: string;
 }
 
-const stripHtml = (html: string) =>
-  html
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/\s+/g, " ")
-    .trim();
 
 /** What the drafts may draw on: the listing's own words, never anything else. */
 export async function listingContext(env: Env, itemId: string): Promise<string> {

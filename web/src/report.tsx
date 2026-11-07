@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { useEffect, useState } from "preact/hooks";
 import { api, apiJob, SignedOut } from "./api";
-import { ago, money } from "./format";
+import { ago, money, plural } from "./format";
 import type { ScreenProps } from "./screens";
 import { EASE_OUT, Icons, Ring, SPRING } from "./ui";
 
@@ -86,7 +86,6 @@ interface Report {
   steps: Record<string, string>;
 }
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 function postageText(l: ListingAudit): string | null {
   if (l.collectionOnly || l.postageKind === "collection") return "collection only";

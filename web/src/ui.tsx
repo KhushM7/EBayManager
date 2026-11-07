@@ -53,7 +53,6 @@ export function useFocusFlow() {
   }, []);
 }
 export const SPRING = { type: "spring", stiffness: 420, damping: 32, mass: 0.9 } as const;
-export const SPRING_SOFT = { type: "spring", stiffness: 260, damping: 30 } as const;
 
 /** Page enter/exit: a short fade and a 12px rise, like a native push. */
 export const page: Variants = {

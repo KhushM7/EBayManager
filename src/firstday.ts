@@ -10,6 +10,7 @@ import {
   type RecentSale,
   type SellerRecord,
 } from "./ebay/history";
+import { r2, list, num, stripHtml } from "./util";
 import { getBusinessPolicies, type BusinessPolicies } from "./ebay/sell";
 import { getActiveListings, getItem } from "./ebay/trading";
 import { push } from "./notify";
@@ -33,12 +34,6 @@ import { fileAuditTodos } from "./todos";
 // review, which K starts from the report (one Sonnet run per listing).
 
 const DAY = 86_400_000;
-const r2 = (x: number) => Math.round(x * 100) / 100;
-const list = <T>(v: T | T[] | undefined): T[] => (v == null ? [] : Array.isArray(v) ? v : [v]);
-const num = (v: any): number | null => {
-  const n = Number(typeof v === "object" && v != null ? v["#text"] : v);
-  return v == null || !Number.isFinite(n) ? null : n;
-};
 
 export type Severity = "high" | "medium" | "low";
 export type FixBy = "proposal" | "claude" | "you" | "none";
@@ -135,14 +130,6 @@ export interface AuditReport {
 
 // --- Pure checks (tested in test/firstday.test.ts) ---
 
-export const stripHtml = (html: string) =>
-  html
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/\s+/g, " ")
-    .trim();
 
 const RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 
@@ -533,7 +520,7 @@ export async function runFirstDayAudit(env: Env, opts: { relearnStyle?: boolean 
     return `${listings.length} checked`;
   });
 
-  // 5. Sold history: K's imported sales and eBay's orders (D1), with listing dates where known.
+  // 5. Sold history: K's imported sales and eBay's orders (the store), with listing dates where known.
   let sold = soldSummary([]);
   let unsold: UnsoldAudit[] = [];
   let recent: RecentSale[] = [];

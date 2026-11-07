@@ -2,7 +2,7 @@ import { AnimatePresence, LayoutGroup, motion, useMotionValue, useScroll, useTra
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, apiJob, SignedOut, type Activity as Row, type Device, type Listing, type Me, type Proposal } from "./api";
 import { DraftEditor, EDITABLE } from "./drafts";
-import { ago, daysSince, describe, money } from "./format";
+import { ago, daysSince, describe, money, plural } from "./format";
 import { SoldDataCard } from "./solddata";
 import { BundleAdvice, PriceCheck } from "./pricing";
 import { Todos } from "./todos";
@@ -32,7 +32,6 @@ export function useData<T>(path: string, onSignedOut: () => void) {
   return { data, error, reload };
 }
 
-export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const usd = (n: number) => "$" + (n ?? 0).toFixed(2);
 
 const KIND: Record<string, { label: string; Icon: (p: { size?: number }) => any; tone: string }> = {

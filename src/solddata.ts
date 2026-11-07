@@ -36,22 +36,33 @@ export interface SoldQuery {
   days?: number;
 }
 
-export const providerEnabled = (env: Env, p: Provider) => Boolean(p === "trawl" ? env.TRAWL_API_KEY : env.COMPSAPI_KEY);
+/** Which of a provider's keys: the first, or the second that takes over once the first runs out. */
+export type Slot = 1 | 2;
 
-const month = (now = Date.now()) => new Date(now).toISOString().slice(0, 7);
-
-export async function usedThisMonth(env: Env, p: Provider): Promise<number> {
-  return env.store.solddata.used(p, month());
+/** A provider's keys in the order they're used (K's second free-plan key takes over when the first runs out). */
+export function providerKeys(env: Env, p: Provider): { slot: Slot; key: string }[] {
+  const keys = p === "trawl" ? [env.TRAWL_API_KEY, env.TRAWL_API_KEY_2] : [env.COMPSAPI_KEY, env.COMPSAPI_KEY_2];
+  return keys.map((key, i) => ({ slot: (i + 1) as Slot, key: String(key ?? "").trim() })).filter((k) => k.key);
 }
 
-async function addUsage(env: Env, p: Provider, n: number) {
+export const providerEnabled = (env: Env, p: Provider) => providerKeys(env, p).length > 0;
+
+const month = (now = Date.now()) => new Date(now).toISOString().slice(0, 7);
+// The first key keeps the name its count always had; the second counts separately.
+const usageName = (p: Provider, slot: Slot) => (slot === 1 ? p : `${p}-${slot}`);
+
+export async function usedThisMonth(env: Env, p: Provider, slot: Slot = 1): Promise<number> {
+  return env.store.solddata.used(usageName(p, slot), month());
+}
+
+async function addUsage(env: Env, p: Provider, slot: Slot, n: number) {
   if (n <= 0) return;
-  await env.store.solddata.addUsage(p, month(), n);
+  await env.store.solddata.addUsage(usageName(p, slot), month(), n);
 }
 
 export class QuotaReached extends Error {}
 
-// --- What each provider itself says is left this month ---
+// --- What each provider itself says is left this month, per key ---
 // The app's own count misses searches made with the same key elsewhere (the other environment, scripts), so
 // the provider's figures are the truth: Trawl reports them in headers on every reply, including its free
 // /health call; CompsAPI in X-Quota-* headers (and fields) on every reply, including its free /v1/usage call.
@@ -90,37 +101,53 @@ export function quotaFromHeaders(p: Provider, h: Headers, now = Date.now()): Pro
   return { limit, remaining: Math.max(0, limit - used), resetAt: nextUtcMonth(now), at: now };
 }
 
-const quotaKey = (p: Provider) => `solddata_quota:${p}`;
+const quotaKey = (p: Provider, slot: Slot) => (slot === 1 ? `solddata_quota:${p}` : `solddata_quota:${p}:${slot}`);
 
-async function recordQuota(env: Env, p: Provider, h: Headers) {
+async function recordQuota(env: Env, p: Provider, slot: Slot, h: Headers) {
   const q = quotaFromHeaders(p, h);
-  if (q) await env.store.kv.setJson(quotaKey(p), q).catch(() => null);
+  if (q) await env.store.kv.setJson(quotaKey(p, slot), q).catch(() => null);
 }
 
-/** The provider's last report, if it's for the current allowance window. */
-export async function providerQuota(env: Env, p: Provider, now = Date.now()): Promise<ProviderQuota | null> {
-  const q = await env.store.kv.getJson<ProviderQuota>(quotaKey(p)).catch(() => null);
+/** A key the provider refused as out of credit: recorded as used up until its window resets. */
+async function markUsedUp(env: Env, p: Provider, slot: Slot, now = Date.now()) {
+  const last = await providerQuota(env, p, slot, now);
+  await env.store.kv
+    .setJson(quotaKey(p, slot), { limit: last?.limit ?? MONTHLY_CAP[p], remaining: 0, resetAt: last?.resetAt ?? nextUtcMonth(now), at: now } satisfies ProviderQuota)
+    .catch(() => null);
+}
+
+/** The provider's last report for a key, if it's for the current allowance window. */
+export async function providerQuota(env: Env, p: Provider, slot: Slot = 1, now = Date.now()): Promise<ProviderQuota | null> {
+  const q = await env.store.kv.getJson<ProviderQuota>(quotaKey(p, slot)).catch(() => null);
   return q && now < q.resetAt ? q : null;
 }
 
 /**
- * Asks the provider what's left, through its free call (Trawl /health, CompsAPI /v1/usage: neither uses a
- * search). Reused for `maxAgeMs`; on failure the last report (or null) stands.
+ * Asks the provider what's left on a key, through its free call (Trawl /health, CompsAPI /v1/usage: neither
+ * uses a search). Reused for `maxAgeMs`; on failure the last report (or null) stands.
  */
-export async function refreshQuota(env: Env, p: Provider, maxAgeMs = 5 * 60_000, now = Date.now()): Promise<ProviderQuota | null> {
-  if (!providerEnabled(env, p)) return null;
-  const last = await providerQuota(env, p, now);
+export async function refreshQuota(env: Env, p: Provider, slot: Slot = 1, maxAgeMs = 5 * 60_000, now = Date.now()): Promise<ProviderQuota | null> {
+  const k = providerKeys(env, p).find((x) => x.slot === slot);
+  if (!k) return null;
+  const last = await providerQuota(env, p, slot, now);
   if (last && now - last.at < maxAgeMs) return last;
   try {
     const res =
       p === "trawl"
-        ? await fetch(`${HOSTS.trawl}/health`, { headers: { "x-api-key": env.TRAWL_API_KEY! } })
-        : await fetch(`${HOSTS.compsapi}/v1/usage`, { headers: { "X-API-Key": env.COMPSAPI_KEY!, "User-Agent": "EBayManager/1.0", Accept: "application/json" } });
-    await recordQuota(env, p, res.headers);
+        ? await fetch(`${HOSTS.trawl}/health`, { headers: { "x-api-key": k.key } })
+        : await fetch(`${HOSTS.compsapi}/v1/usage`, { headers: { "X-API-Key": k.key, "User-Agent": "EBayManager/1.0", Accept: "application/json" } });
+    await recordQuota(env, p, slot, res.headers);
   } catch {
     // Keep the last report.
   }
-  return providerQuota(env, p, now);
+  return providerQuota(env, p, slot, now);
+}
+
+/** Whether a key has searches left this month: the provider's figure when known, else the app's own count. */
+export async function keyHasSearches(env: Env, p: Provider, slot: Slot): Promise<boolean> {
+  const q = await providerQuota(env, p, slot);
+  if (q) return q.remaining > 0;
+  return (await usedThisMonth(env, p, slot)) < MONTHLY_CAP[p];
 }
 
 // Bump the version when parsing changes, so cached results are re-fetched in the new form.
@@ -130,7 +157,7 @@ const cacheKey = (p: Provider, q: SoldQuery) =>
 
 // --- Provider calls ---
 
-async function callTrawl(env: Env, q: SoldQuery): Promise<{ sales: SoldSale[]; cost: number }> {
+async function callTrawl(env: Env, q: SoldQuery, k: { slot: Slot; key: string }): Promise<{ sales: SoldSale[]; cost: number }> {
   const u = new URL(`${HOSTS.trawl}/ebay/v1/sold`);
   u.searchParams.set("query", q.words);
   u.searchParams.set("site", "EBAY_GB");
@@ -138,8 +165,8 @@ async function callTrawl(env: Env, q: SoldQuery): Promise<{ sales: SoldSale[]; c
   if (q.condition) u.searchParams.set("condition", q.condition);
   if (q.categoryId) u.searchParams.set("category", q.categoryId);
   u.searchParams.set("date_from", new Date(Date.now() - (q.days ?? 365) * DAY).toISOString().slice(0, 10));
-  const res = await fetch(u, { headers: { "x-api-key": env.TRAWL_API_KEY!, Accept: "application/json" } });
-  await recordQuota(env, "trawl", res.headers);
+  const res = await fetch(u, { headers: { "x-api-key": k.key, Accept: "application/json" } });
+  await recordQuota(env, "trawl", k.slot, res.headers);
   if (res.status === 429 && !res.headers.get("Retry-After")) throw new QuotaReached("Trawl's monthly credits are used up");
   if (!res.ok) throw new Error(`Trawl search failed: ${res.status}`);
   const data: any = await res.json();
@@ -173,7 +200,7 @@ export function parseTrawl(data: any): SoldSale[] {
     }));
 }
 
-async function callCompsApi(env: Env, q: SoldQuery): Promise<{ sales: SoldSale[]; cost: number }> {
+async function callCompsApi(env: Env, q: SoldQuery, k: { slot: Slot; key: string }): Promise<{ sales: SoldSale[]; cost: number }> {
   const u = new URL(`${HOSTS.compsapi}/v1/sold`);
   u.searchParams.set("q", q.words);
   u.searchParams.set("site", "UK");
@@ -183,8 +210,8 @@ async function callCompsApi(env: Env, q: SoldQuery): Promise<{ sales: SoldSale[]
   u.searchParams.set("days", String(Math.min(q.days ?? 365, 365)));
   if (q.condition) u.searchParams.set("condition", q.condition);
   if (q.categoryId) u.searchParams.set("category", q.categoryId);
-  const res = await fetch(u, { headers: { "X-API-Key": env.COMPSAPI_KEY!, "User-Agent": "EBayManager/1.0", Accept: "application/json" } });
-  await recordQuota(env, "compsapi", res.headers);
+  const res = await fetch(u, { headers: { "X-API-Key": k.key, "User-Agent": "EBayManager/1.0", Accept: "application/json" } });
+  await recordQuota(env, "compsapi", k.slot, res.headers);
   if (res.status === 429 && !res.headers.get("Retry-After")) throw new QuotaReached("CompsAPI's monthly requests are used up");
   if (!res.ok) throw new Error(`CompsAPI search failed: ${res.status}`);
   return { sales: parseCompsApi(await res.json()), cost: 1 };
@@ -217,21 +244,30 @@ export function parseCompsApi(data: any): SoldSale[] {
     .filter((s): s is SoldSale => s !== null);
 }
 
-/** Sold sales for a search: from the 30-day cache, else one call within the provider's monthly cap. */
+/**
+ * Sold sales for a search: from the 30-day cache, else one call on the first key with searches left this month.
+ * When a key runs out (by the provider's figures, the app's count, or the provider refusing it), the next key
+ * takes over.
+ */
 export async function searchSold(env: Env, p: Provider, q: SoldQuery): Promise<{ sales: SoldSale[]; cached: boolean }> {
   if (!providerEnabled(env, p)) throw new Error(`${p} isn't set up (no API key)`);
   const key = cacheKey(p, q);
   const hit = await env.store.solddata.cacheGet(key, Date.now() - CACHE_DAYS * DAY);
   if (hit) return { sales: JSON.parse(hit), cached: true };
 
-  // The provider's own figure first (it sees every search on the key), then the app's hard cap.
-  const reported = await providerQuota(env, p);
-  if (reported && reported.remaining <= 0) throw new QuotaReached(`${p} says this month's ${reported.limit} searches are used up`);
-  if ((await usedThisMonth(env, p)) >= MONTHLY_CAP[p]) throw new QuotaReached(`${p} has used this month's ${MONTHLY_CAP[p]} searches`);
-  const { sales, cost } = p === "trawl" ? await callTrawl(env, q) : await callCompsApi(env, q);
-  await addUsage(env, p, cost);
-  await env.store.solddata.cachePut(key, p, Date.now(), JSON.stringify(sales), CACHE_DAYS);
-  return { sales, cached: false };
+  for (const k of providerKeys(env, p)) {
+    if (!(await keyHasSearches(env, p, k.slot))) continue;
+    try {
+      const { sales, cost } = p === "trawl" ? await callTrawl(env, q, k) : await callCompsApi(env, q, k);
+      await addUsage(env, p, k.slot, cost);
+      await env.store.solddata.cachePut(key, p, Date.now(), JSON.stringify(sales), CACHE_DAYS);
+      return { sales, cached: false };
+    } catch (e) {
+      if (!(e instanceof QuotaReached)) throw e;
+      await markUsedUp(env, p, k.slot);
+    }
+  }
+  throw new QuotaReached(`${p} has no searches left this month on ${providerKeys(env, p).length > 1 ? "either key" : "its key"}`);
 }
 
 // --- From sales to an estimate ---

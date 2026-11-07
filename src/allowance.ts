@@ -1,7 +1,7 @@
 import type { Env } from "./env";
 import { push } from "./notify";
 import { CLAUDE_DAILY_BUDGET_USD } from "./rules";
-import { MONTHLY_CAP, providerEnabled, refreshQuota, usedThisMonth, type Provider } from "./solddata";
+import { MONTHLY_CAP, providerEnabled, providerKeys, refreshQuota, usedThisMonth, type Provider, type Slot } from "./solddata";
 import type { TodoInput } from "./store/todos";
 
 // What's left of each paid allowance the app uses: Claude credit (and today's budget) and the sold-data
@@ -15,6 +15,11 @@ import type { TodoInput } from "./store/todos";
 export const LOW_SHARE = 0.2;
 /** Claude credit counts as low at or below this many dollars, whatever the share. */
 export const CLAUDE_LOW_USD = 2;
+/**
+ * Sold data (K, 2026-11-07): alert only when the first key is used up and the second is below this share
+ * (with one key, when it is below this share).
+ */
+export const KEY_LOW_SHARE = 0.1;
 
 const CREDIT_KEY = "claude_credit";
 
@@ -31,6 +36,8 @@ export interface Allowance {
   /** Extra lines (today's budget, when the balance was entered). */
   notes: string[];
   level: "ok" | "low" | "out" | "unknown" | "off";
+  /** Sold data: each key's own figures, and which one searches use now. */
+  keys?: { slot: Slot; left: number; total: number; inUse: boolean; reported: boolean }[];
 }
 
 const money = (n: number) => `$${n.toFixed(2)}`;
@@ -86,17 +93,41 @@ export async function allowances(env: Env, now = Date.now()): Promise<Allowance[
     (["trawl", "compsapi"] as Provider[]).map(async (p): Promise<Allowance> => {
       const name = p === "trawl" ? "Trawl (sold prices)" : "CompsAPI (sold prices)";
       if (!providerEnabled(env, p)) return { id: p, name, left: null, total: null, unit: "searches", summary: "Not set up", notes: [], level: "off" };
-      // The provider's own figures (free to ask for, and they include searches made outside this app); the
-      // app's own count only if the provider can't be reached.
-      const q = await refreshQuota(env, p, 5 * 60_000, now);
-      const cap = q?.limit ?? MONTHLY_CAP[p];
-      const left = q ? q.remaining : Math.max(0, cap - (await usedThisMonth(env, p)));
-      const level = left <= 0 ? "out" : cap > 0 && left / cap <= LOW_SHARE ? "low" : "ok";
-      const resets = `Resets ${new Date(q?.resetAt ?? Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth() + 1, 1)).toISOString().slice(0, 10)}.`;
-      const source = q
-        ? `As reported by ${p === "trawl" ? "Trawl" : "CompsAPI"} ${minutesAgo(now - q.at)}.`
-        : `Counted by this app only (${p === "trawl" ? "Trawl" : "CompsAPI"} couldn't be reached): searches made elsewhere with the same key aren't included.`;
-      return { id: p, name, left, total: cap, unit: "searches", summary: `${left} of ${cap} searches left this month`, notes: [resets, source], level };
+      const who = p === "trawl" ? "Trawl" : "CompsAPI";
+      // Each key's own figures from the provider (free to ask for, and they include searches made outside
+      // this app); the app's own count only if the provider can't be reached.
+      const keys = [];
+      let resetAt: number | null = null;
+      let oldest: number | null = null;
+      for (const k of providerKeys(env, p)) {
+        const q = await refreshQuota(env, p, k.slot, 5 * 60_000, now);
+        const total = q?.limit ?? MONTHLY_CAP[p];
+        const left = q ? q.remaining : Math.max(0, total - (await usedThisMonth(env, p, k.slot)));
+        if (q) {
+          resetAt = Math.min(resetAt ?? Infinity, q.resetAt);
+          oldest = Math.min(oldest ?? Infinity, q.at);
+        }
+        keys.push({ slot: k.slot, left, total, inUse: false, reported: Boolean(q) });
+      }
+      const inUse = keys.find((k) => k.left > 0);
+      if (inUse) inUse.inUse = true;
+      const left = keys.reduce((s, k) => s + k.left, 0);
+      const total = keys.reduce((s, k) => s + k.total, 0);
+      // The alert rule: with two keys, the first used up and the second below 10%; with one, it below 10%.
+      const [first, second] = keys;
+      const low = second ? first.left <= 0 && second.left / second.total < KEY_LOW_SHARE : first.left / first.total < KEY_LOW_SHARE;
+      const level = left <= 0 ? "out" : low ? "low" : "ok";
+      const resets = `Resets ${new Date(resetAt ?? Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth() + 1, 1)).toISOString().slice(0, 10)}.`;
+      const source = keys.every((k) => k.reported)
+        ? `As reported by ${who} ${minutesAgo(now - (oldest ?? now))}.`
+        : `Partly counted by this app (${who} couldn't be reached): searches made elsewhere with the same key aren't included.`;
+      const summary =
+        keys.length > 1
+          ? inUse
+            ? `Key ${inUse.slot} in use: ${inUse.left} of ${inUse.total} left`
+            : "Both keys used up"
+          : `${left} of ${total} searches left this month`;
+      return { id: p, name, left, total, unit: "searches", summary, notes: [resets, source], level, keys };
     }),
   );
   return [claude, ...sold];
@@ -121,8 +152,10 @@ export async function checkAllowances(env: Env, now = Date.now()): Promise<strin
             ? "Claude's credit has run out: listing checks, reviews and reply drafts will stop until it's topped up."
             : `Claude's credit is running low: ${a.summary}. Top it up in the Claude Console, then enter the new balance in Settings.`
           : out
-            ? `${a.name} has used all ${a.total} of this month's searches. Prices use the other provider and cached results until the 1st.`
-            : `${a.name}: ${a.summary}.`;
+            ? `${a.name} has used all of this month's searches${(a.keys?.length ?? 0) > 1 ? " on both keys" : ""}. Prices use the other provider and cached results until it resets.`
+            : (a.keys?.length ?? 0) > 1
+              ? `${a.name}: the first key is used up and the second has ${a.keys![1].left} of ${a.keys![1].total} searches left this month.`
+              : `${a.name}: ${a.summary}.`;
       return {
         code: CODE,
         kind: "you",

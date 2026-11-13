@@ -2,19 +2,23 @@ import type { Env } from "../env";
 import { userToken } from "./auth";
 import { assertRest } from "./allowlist";
 import { ebayHosts } from "./hosts";
+import { watched } from "../services";
 
 // Read-only REST calls to the Sell APIs (Fulfillment orders, Analytics traffic). GET only; nothing here
 // changes the account, and the read-only scopes cover both.
 
 async function sellGet(env: Env, path: string): Promise<any> {
   assertRest("GET", `${ebayHosts(env).api}${path}`);
-  const res = await fetch(`${ebayHosts(env).api}${path}`, {
-    headers: {
-      Authorization: `Bearer ${await userToken(env)}`,
-      "X-EBAY-C-MARKETPLACE-ID": env.EBAY_MARKETPLACE,
-      Accept: "application/json",
-    },
-  });
+  const token = await userToken(env);
+  const res = await watched(env, "ebay", () =>
+    fetch(`${ebayHosts(env).api}${path}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": env.EBAY_MARKETPLACE,
+        Accept: "application/json",
+      },
+    }),
+  );
   if (!res.ok) throw new Error(`GET ${path.split("?")[0]} failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
   return res.json();
 }
@@ -93,16 +97,19 @@ export function parseTraffic(data: any): { itemId: string; views: number; impres
 /** The Recommendation API's find call is a read sent as POST (it takes a list of listing IDs). */
 async function sellFind(env: Env, path: string, body: unknown): Promise<any> {
   assertRest("POST", `${ebayHosts(env).api}${path}`);
-  const res = await fetch(`${ebayHosts(env).api}${path}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${await userToken(env)}`,
-      "X-EBAY-C-MARKETPLACE-ID": env.EBAY_MARKETPLACE,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  const token = await userToken(env);
+  const res = await watched(env, "ebay", () =>
+    fetch(`${ebayHosts(env).api}${path}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": env.EBAY_MARKETPLACE,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(body),
+    }),
+  );
   if (res.status === 204) return {};
   if (!res.ok) throw new Error(`POST ${path.split("?")[0]} failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
   return res.json();

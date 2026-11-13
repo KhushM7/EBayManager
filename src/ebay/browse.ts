@@ -2,6 +2,7 @@ import type { Env } from "../env";
 import { assertRest } from "./allowlist";
 import { appToken, compsAccess } from "./auth";
 import { ebayHosts } from "./hosts";
+import { watched } from "../services";
 
 export interface Comp {
   itemId: string;
@@ -38,12 +39,14 @@ export async function searchActiveComps(
   if (opts.categoryId) u.searchParams.set("category_ids", opts.categoryId);
 
   assertRest("GET", u.toString());
-  const res = await fetch(u, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "X-EBAY-C-MARKETPLACE-ID": env.EBAY_MARKETPLACE,
-    },
-  });
+  const res = await watched(env, "ebay", () =>
+    fetch(u, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": env.EBAY_MARKETPLACE,
+      },
+    }),
+  );
   if (!res.ok) throw new Error(`Browse search failed: ${res.status} ${await res.text()}`);
   const data: any = await res.json();
   const comps: Comp[] = (data.itemSummaries ?? []).map((s: any) => ({
@@ -63,7 +66,8 @@ export async function categoryAspects(env: Env, categoryId: string): Promise<{ n
   const u = new URL(`${ebayHosts(env).api}/commerce/taxonomy/v1/category_tree/3/get_item_aspects_for_category`);
   u.searchParams.set("category_id", categoryId);
   assertRest("GET", u.toString());
-  const res = await fetch(u, { headers: { Authorization: `Bearer ${await appToken(env)}` } });
+  const token = await appToken(env);
+  const res = await watched(env, "ebay", () => fetch(u, { headers: { Authorization: `Bearer ${token}` } }));
   if (!res.ok) throw new Error(`Taxonomy aspects failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
   return toAspects(await res.json());
 }
@@ -80,7 +84,8 @@ export async function categorySuggestions(env: Env, q: string): Promise<Category
   const u = new URL(`${ebayHosts(env).api}/commerce/taxonomy/v1/category_tree/3/get_category_suggestions`);
   u.searchParams.set("q", q.slice(0, 350));
   assertRest("GET", u.toString());
-  const res = await fetch(u, { headers: { Authorization: `Bearer ${await appToken(env)}` } });
+  const token = await appToken(env);
+  const res = await watched(env, "ebay", () => fetch(u, { headers: { Authorization: `Bearer ${token}` } }));
   if (!res.ok) throw new Error(`Category suggestions failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
   return toCategoryOptions(await res.json());
 }
@@ -111,7 +116,8 @@ export async function categoryAspectDetails(env: Env, categoryId: string): Promi
   const u = new URL(`${ebayHosts(env).api}/commerce/taxonomy/v1/category_tree/3/get_item_aspects_for_category`);
   u.searchParams.set("category_id", categoryId);
   assertRest("GET", u.toString());
-  const res = await fetch(u, { headers: { Authorization: `Bearer ${await appToken(env)}` } });
+  const token = await appToken(env);
+  const res = await watched(env, "ebay", () => fetch(u, { headers: { Authorization: `Bearer ${token}` } }));
   if (!res.ok) throw new Error(`Taxonomy aspects failed: ${res.status} ${(await res.text()).slice(0, 200)}`);
   return toAspectDetails(await res.json());
 }

@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { Env } from "./env";
-import { client, logUsage, MODELS, type MessagesApi } from "./claude";
+import { client, createMessage, logUsage, MODELS, type MessagesApi } from "./claude";
 import { categoryAspects } from "./ebay/browse";
 import { list, stripHtml as strip } from "./util";
 
@@ -150,7 +150,7 @@ export async function lookupSpecs(env: Env, item: any, wanted: string[], api?: M
   let cost = 0;
   let recorded: Parameters<typeof verifySpecs>[0] | null = null;
   for (let turn = 0; turn < 6 && !recorded; turn++) {
-    const response = await messagesApi.create({
+    const response = await createMessage(env, messagesApi, {
       model: MODELS.audit,
       max_tokens: 16000,
       system: [{ type: "text", text: SPECS_SYSTEM, cache_control: { type: "ephemeral" } }],

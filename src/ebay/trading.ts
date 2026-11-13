@@ -3,6 +3,7 @@ import type { Env } from "../env";
 import { userToken } from "./auth";
 import { assertRest, assertTrading, REST_WRITE, TRADING_READ } from "./allowlist";
 import { ebayHosts, isEbayPictureHost, PRODUCTION_HOSTS } from "./hosts";
+import { watched } from "../services";
 
 const COMPAT_LEVEL = "1349";
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_" });
@@ -29,17 +30,20 @@ export async function tradingRequest(env: Env, call: string, innerXml: string): 
   ${innerXml}
 </${call}Request>`;
   assertTrading(call, "any");
-  const res = await fetch(`${ebayHosts(env).api}/ws/api.dll`, {
-    method: "POST",
-    headers: {
-      "X-EBAY-API-CALL-NAME": call,
-      "X-EBAY-API-SITEID": env.EBAY_SITE_ID,
-      "X-EBAY-API-COMPATIBILITY-LEVEL": COMPAT_LEVEL,
-      "X-EBAY-API-IAF-TOKEN": await userToken(env),
-      "Content-Type": "text/xml",
-    },
-    body,
-  });
+  const token = await userToken(env);
+  const res = await watched(env, "ebay", () =>
+    fetch(`${ebayHosts(env).api}/ws/api.dll`, {
+      method: "POST",
+      headers: {
+        "X-EBAY-API-CALL-NAME": call,
+        "X-EBAY-API-SITEID": env.EBAY_SITE_ID,
+        "X-EBAY-API-COMPATIBILITY-LEVEL": COMPAT_LEVEL,
+        "X-EBAY-API-IAF-TOKEN": token,
+        "Content-Type": "text/xml",
+      },
+      body,
+    }),
+  );
   return parseTradingResponse(call, await res.text());
 }
 

@@ -12,6 +12,7 @@ import { reviewPrices, type ReviewOut } from "./pricing/review";
 import { fileHealthTodos, fileOwnPriceReminders, filePriceQuestions, lastSentence } from "./todos";
 import { reviewPromotions } from "./promotion";
 import { checkAllowances } from "./allowance";
+import { checkServices } from "./services";
 import { providerEnabled } from "./solddata";
 import { auditDone, runFirstDayAudit } from "./firstday";
 import { cleanUpDrafts } from "./drafts";
@@ -226,6 +227,10 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
     const r = await runFirstDayAudit(env);
     return `${r.findings.length} findings, ${r.proposals.length} proposals`;
   });
+
+  // Last, so it sees every call this run made: a service that's down (eBay sign-in, Claude, sold data) becomes
+  // an Inbox to-do with a notification (src/services.ts).
+  await step(steps, "services", async () => checkServices(env));
 
   const made = (await env.store.proposals.listWhere([{ f: "created_at", op: ">=", v: at }])).length;
   const result: NightlyResult = { at, steps, flagged, triaged, proposals: made };

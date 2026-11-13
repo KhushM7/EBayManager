@@ -24,6 +24,8 @@ export interface Me {
   writesBlocked: string | null;
   ebayConnected: boolean;
   ebayScopes: "read-only" | "full" | null;
+  /** eBay stopped accepting the saved sign-in (after a username or password change): sign in again. */
+  ebayNeedsReconnect?: boolean;
   vapidPublicKey: string | null;
   lastPushAt: number | null;
 }

@@ -656,6 +656,14 @@ interface Usage {
   dailyBudgetUsd: number;
   apiKeySet: boolean;
   allowances?: Allowance[];
+  services?: ServiceStatus[];
+}
+
+interface ServiceStatus {
+  id: string;
+  name: string;
+  level: "ok" | "failing" | "down";
+  summary: string;
 }
 
 interface People {
@@ -916,7 +924,7 @@ function ConnectionSection({ me }: { me: Me }) {
         </div>
         <div>
           <dt>Connected</dt>
-          <dd>{me.ebayConnected ? "Yes" : "Not yet"}</dd>
+          <dd>{me.ebayConnected ? (me.ebayNeedsReconnect ? "Sign-in rejected" : "Yes") : "Not yet"}</dd>
         </div>
         <div>
           <dt>Permissions</dt>
@@ -934,7 +942,24 @@ function ConnectionSection({ me }: { me: Me }) {
           </a>
         </p>
       )}
-      {owner && me.ebayConnected && me.writeMode === "approval" && me.ebayScopes === "read-only" && (
+      {me.ebayConnected && me.ebayNeedsReconnect && (
+        <div class="evidence mt-4" role="alert">
+          <p class="text-sm font-semibold">eBay has stopped accepting the app's sign-in.</p>
+          <p class="mt-1 text-sm">
+            This happens when the eBay username or password changes. Until you sign in again, the app can't read listings, orders or buyer messages, or send approved changes.
+          </p>
+          {owner ? (
+            <p class="mt-3">
+              <a class="btn btn-primary" href="/oauth/start">
+                Reconnect eBay
+              </a>
+            </p>
+          ) : (
+            <p class="mt-2 text-sm text-muted">Only the owner can reconnect eBay.</p>
+          )}
+        </div>
+      )}
+      {owner && me.ebayConnected && !me.ebayNeedsReconnect && me.writeMode === "approval" && me.ebayScopes === "read-only" && (
         <div class="evidence mt-4">
           <p class="text-sm">Changes are switched on, but eBay is still connected read-only, so approved changes can't be sent yet. Sign in to eBay again and accept the full permission.</p>
           <p class="mt-3">
@@ -954,6 +979,12 @@ const LEVEL: Record<Allowance["level"], { word: string; cls: string; bar: string
   out: { word: "Used up", cls: "state-decide", bar: "var(--red)" },
   unknown: { word: "Balance needed", cls: "state-info", bar: "var(--blue)" },
   off: { word: "Not set up", cls: "state-off", bar: "var(--muted)" },
+};
+
+const SERVICE_LEVEL: Record<ServiceStatus["level"], { word: string; cls: string }> = {
+  ok: { word: "Working", cls: "state-applied" },
+  failing: { word: "Retrying", cls: "state-held" },
+  down: { word: "Not working", cls: "state-decide" },
 };
 
 function AllowanceRow({ a }: { a: Allowance }) {
@@ -1045,6 +1076,21 @@ function UsageSection({ me, usage, run, busy }: { me: Me; usage: ReturnType<type
         </ul>
         {owner && <CreditForm usage={u} run={run} busy={busy} reload={usage.reload} />}
       </Section>
+      {u.services && (
+        <Section title="Outside services" sub="Whether eBay, Claude, the sold-price providers and Parcel2Go are answering. When one stops working, you get a to-do in the Inbox and a notification.">
+          <ul class="grid gap-2 p-0">
+            {u.services.map((s) => (
+              <li class="list-none rounded-xl border border-line bg-surface-2 px-4 py-3" key={s.id}>
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <span class="font-semibold">{s.name}</span>
+                  <span class={`state ${SERVICE_LEVEL[s.level].cls}`}>{SERVICE_LEVEL[s.level].word}</span>
+                </div>
+                {s.level !== "ok" || s.summary !== "Working" ? <p class="mt-1 text-sm text-muted break-words">{s.summary}</p> : null}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
       <Section title="Claude" sub="Claude Sonnet writes listings and reviews them; Claude Haiku does the nightly checks and reply drafts.">
         <dl class="figures">
           <div>
@@ -1126,12 +1172,13 @@ export function Settings(props: ScreenProps) {
   // One line under each menu entry saying how things stand.
   const claude = usage.data?.allowances?.find((a) => a.id === "claude");
   const lowCount = (usage.data?.allowances ?? []).filter((a) => a.level === "low" || a.level === "out").length;
+  const downCount = (usage.data?.services ?? []).filter((s) => s.level === "down").length;
   const status: Record<SectionId, string> = {
     account: `${me.user.name}, ${owner ? "owner" : "manager"}`,
     notifications: permission === "granted" ? `On · ${plural(devices.data?.length ?? 0, "device")}` : permission === "denied" ? "Blocked here" : "Off on this device",
-    connection: `${me.ebayEnv === "production" ? "Live" : "Sandbox"} · ${me.ebayConnected ? (me.ebayScopes === "read-only" ? "read-only" : "full permission") : "not connected"}`,
+    connection: `${me.ebayEnv === "production" ? "Live" : "Sandbox"} · ${me.ebayConnected ? (me.ebayNeedsReconnect ? "reconnect needed" : me.ebayScopes === "read-only" ? "read-only" : "full permission") : "not connected"}`,
     style: "How Claude's reply drafts sound",
-    usage: lowCount ? `${plural(lowCount, "allowance")} running low` : claude?.left != null ? `Claude ${usd(claude.left)} left` : "Claude spend and sold-data searches",
+    usage: downCount ? `${plural(downCount, "service")} not working` : lowCount ? `${plural(lowCount, "allowance")} running low` : claude?.left != null ? `Claude ${usd(claude.left)} left` : "Claude spend and sold-data searches",
   };
 
   const body = (s: SectionId) =>

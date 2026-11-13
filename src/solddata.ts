@@ -1,4 +1,5 @@
 import type { Env } from "./env";
+import { watched } from "./services";
 
 // Third-party sold-price data (docs/sold-price-data.md): Trawl (trawl.dev) and CompsAPI (compsapi.com), for
 // ebay.co.uk. Neither is an official eBay API, so: only search words are sent (never K's item IDs or account),
@@ -165,7 +166,7 @@ async function callTrawl(env: Env, q: SoldQuery, k: { slot: Slot; key: string })
   if (q.condition) u.searchParams.set("condition", q.condition);
   if (q.categoryId) u.searchParams.set("category", q.categoryId);
   u.searchParams.set("date_from", new Date(Date.now() - (q.days ?? 365) * DAY).toISOString().slice(0, 10));
-  const res = await fetch(u, { headers: { "x-api-key": k.key, Accept: "application/json" } });
+  const res = await watched(env, "trawl", () => fetch(u, { headers: { "x-api-key": k.key, Accept: "application/json" } }), { ignore429: true });
   await recordQuota(env, "trawl", k.slot, res.headers);
   if (res.status === 429 && !res.headers.get("Retry-After")) throw new QuotaReached("Trawl's monthly credits are used up");
   if (!res.ok) throw new Error(`Trawl search failed: ${res.status}`);
@@ -210,7 +211,7 @@ async function callCompsApi(env: Env, q: SoldQuery, k: { slot: Slot; key: string
   u.searchParams.set("days", String(Math.min(q.days ?? 365, 365)));
   if (q.condition) u.searchParams.set("condition", q.condition);
   if (q.categoryId) u.searchParams.set("category", q.categoryId);
-  const res = await fetch(u, { headers: { "X-API-Key": k.key, "User-Agent": "EBayManager/1.0", Accept: "application/json" } });
+  const res = await watched(env, "compsapi", () => fetch(u, { headers: { "X-API-Key": k.key, "User-Agent": "EBayManager/1.0", Accept: "application/json" } }), { ignore429: true });
   await recordQuota(env, "compsapi", k.slot, res.headers);
   if (res.status === 429 && !res.headers.get("Retry-After")) throw new QuotaReached("CompsAPI's monthly requests are used up");
   if (!res.ok) throw new Error(`CompsAPI search failed: ${res.status}`);

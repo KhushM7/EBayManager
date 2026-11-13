@@ -14,8 +14,7 @@ import { CameraAssistant, Findings } from "./camera";
 import { ago, money, plural } from "./format";
 import { bitsToHex, CHECKLIST, hexToBits } from "./listing/checks";
 import { blocking, issueCodes, processPhoto, type Processed } from "./listing/photos";
-import { tidy } from "./listing/tidy";
-import { PhotoAdjust } from "./listing/adjust";
+import { PhotoEditor } from "./listing/editor";
 import { ArrangePhotos } from "./listing/arrange";
 import { gradePhoto, type PhotoGrade } from "./photocheck";
 import type { ScreenProps } from "./screens";
@@ -109,7 +108,19 @@ const ISSUE_WORD: Record<string, string> = {
   crop: "Odd shape",
   duplicate: "Same as another",
 };
-const EDIT_WORD: Record<string, string> = { white_balance: "white balance", exposure: "exposure", background: "background to white", crop: "cropped", rotate: "rotated" };
+const EDIT_WORD: Record<string, string> = {
+  white_balance: "white balance",
+  exposure: "brightness",
+  contrast: "contrast",
+  sharpen: "sharpened",
+  background: "background to white",
+  crop: "cropped",
+  rotate: "rotated",
+  straighten: "straightened",
+  ai_background: "background removed",
+  ai_erase: "clutter removed",
+  ai_upscale: "upscaled",
+};
 const CONDITIONS = [
   ["new", "New", "Sealed, never opened"],
   ["opened", "Opened, never used", "The box has been opened, the item hasn't been used"],
@@ -874,7 +885,7 @@ function PhotosStep(props: {
   );
 }
 
-/** One uploaded photo: order, remove, and the background tidy-up (ordinary edits only; the original is kept). */
+/** One uploaded photo: order, the editor (crop, light, Magic tools; the original is kept), and its tips. */
 function PhotoCard(props: {
   ph: DraftPhoto;
   i: number;
@@ -890,8 +901,9 @@ function PhotoCard(props: {
   onError: (e: unknown) => void;
 }) {
   const { ph, i, last, open, draftId } = props;
-  const [preview, setPreview] = useState<{ url: string; blob: Blob; edits: string[] } | null>(null);
-  const [adjusting, setAdjusting] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [tips, setTips] = useState(false);
+  const [switching, setSwitching] = useState(false);
   /** Edits already on the version in use, so a second edit (a crop after a tidy) keeps both in the record. */
   const priorEdits = ph.use_edited && ph.edited ? ph.edited.edits : [];
   const saveEdited = async (blob: Blob, edits: string[], grade?: PhotoGrade) => {
@@ -900,114 +912,88 @@ function PhotoCard(props: {
     props.onChanged(await sendJpeg(`/drafts/${draftId}/photos/${ph.id}/edited?${q}`, blob));
     if (grade) props.onGraded(grade);
   };
-  const [refused, setRefused] = useState<string | null>(null);
-  const [working, setWorking] = useState(false);
-
-  const runTidy = async () => {
-    setWorking(true);
-    setRefused(null);
-    try {
-      // Tidies the version in use (which may already be cropped).
-      const img = new Image();
-      img.src = photoSrc(ph);
-      await img.decode();
-      const c = document.createElement("canvas");
-      c.width = img.naturalWidth;
-      c.height = img.naturalHeight;
-      const ctx = c.getContext("2d", { willReadFrequently: true })!;
-      ctx.drawImage(img, 0, 0);
-      const r = tidy({ data: ctx.getImageData(0, 0, c.width, c.height).data, w: c.width, h: c.height });
-      if ("refused" in r) return setRefused(r.refused);
-      const out = document.createElement("canvas");
-      out.width = r.image.w;
-      out.height = r.image.h;
-      out.getContext("2d")!.putImageData(new ImageData(r.image.data as Uint8ClampedArray<ArrayBuffer>, r.image.w, r.image.h), 0, 0);
-      const blob = await new Promise<Blob>((ok, no) => out.toBlob((b) => (b ? ok(b) : no(new Error("Couldn't prepare the tidied photo"))), "image/jpeg", 0.9));
-      setPreview({ url: out.toDataURL("image/jpeg", 0.6), blob, edits: r.edits });
-    } catch (e) {
-      props.onError(e);
-    } finally {
-      setWorking(false);
-    }
-  };
-  const useTidied = async () => {
-    if (!preview) return;
-    setWorking(true);
-    try {
-      await saveEdited(preview.blob, preview.edits, await gradePhoto(preview.blob).catch(() => undefined));
-      setPreview(null);
-    } catch (e) {
-      props.onError(e);
-    } finally {
-      setWorking(false);
-    }
-  };
   const choose = async (edited: boolean) => {
+    if (switching || edited === Boolean(ph.use_edited)) return;
+    setSwitching(true);
     try {
       props.onChanged(await api<Draft>(`/drafts/${draftId}/photos/${ph.id}/use`, { body: { edited } }));
     } catch (e) {
       props.onError(e);
+    } finally {
+      setSwitching(false);
     }
   };
-  const disabled = props.busy !== null || working;
+  const disabled = props.busy !== null || switching;
+  const advice = props.grade ? props.grade.findings.filter((f) => f.tone !== "good") : [];
+  const issueWords = !props.grade ? photoIssues(ph).map((code) => ISSUE_WORD[code] ?? code) : [];
+  const tipCount = advice.length || issueWords.length;
 
   return (
     <>
       <CameraAssistant url={photoSrc(ph)} grade={props.grade} scanning={false} label={`Photo ${i + 1}`} onRemove={open ? props.onRemove : undefined} />
-      <div class="mt-2 flex flex-wrap gap-1.5">
+      <div class="mt-2.5 flex flex-wrap items-center gap-1.5">
         {i === 0 && <Chip tone="accent">Main photo</Chip>}
-        {ph.use_edited && ph.edited && <Chip tone="good">Edited: {ph.edited.edits.map((e) => EDIT_WORD[e] ?? e).join(", ")}</Chip>}
-        {!props.grade && photoIssues(ph).map((code) => <Chip key={code} tone="warn">{ISSUE_WORD[code] ?? code}</Chip>)}
+        {ph.use_edited && ph.edited && (
+          <span title={ph.edited.edits.map((e) => EDIT_WORD[e] ?? e).join(", ")}>
+            <Chip tone="good">Edited</Chip>
+          </span>
+        )}
+        {tipCount > 0 && (
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            class={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold transition-colors ${tips ? "bg-yellow text-black" : "bg-yellow-soft text-yellow hover:bg-yellow/20"}`}
+            aria-expanded={tips}
+            onClick={() => setTips(!tips)}
+          >
+            <Icons.sparkles size={12} /> {plural(tipCount, "tip")}
+            <motion.span animate={{ rotate: tips ? 180 : 0 }} transition={{ duration: 0.2 }} class="grid">
+              <Icons.chevron size={12} />
+            </motion.span>
+          </motion.button>
+        )}
       </div>
-      {props.grade && props.grade.findings.some((f) => f.tone !== "good") && <Findings grade={props.grade} />}
-      {preview && (
-        <div class="card mt-3">
-          <p class="text-sm">Tidied: {preview.edits.map((e) => EDIT_WORD[e] ?? e).join(", ")}. Nothing on the item itself was changed.</p>
-          <img src={preview.url} alt="Tidied version" class="mt-3 w-full rounded-xl" />
-          <div class="mt-3 flex flex-wrap gap-2">
-            <button class="btn btn-primary" disabled={working} onClick={useTidied}>
-              Use tidied
-            </button>
-            <button class="btn btn-text" onClick={() => setPreview(null)}>
-              Keep original
-            </button>
-          </div>
-        </div>
-      )}
-      {refused && <p class="mt-2 rounded-xl bg-yellow-soft px-3 py-2 text-sm text-yellow">{refused}</p>}
+      <AnimatePresence initial={false}>
+        {tips && tipCount > 0 && (
+          <motion.ul class="m-0 grid gap-1 overflow-hidden p-0" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.28, ease: EASE_OUT }}>
+            {(advice.length ? advice.map((f) => f.text) : issueWords).map((t) => (
+              <li key={t} class="flex list-none items-start gap-2 pt-1.5 text-[13px] text-ink-2 first:pt-2">
+                <span class="mt-1.5 size-1.5 flex-none rounded-full bg-yellow" />
+                {t}
+              </li>
+            ))}
+          </motion.ul>
+        )}
+      </AnimatePresence>
       {open && (
-        <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-          <button class="btn-link" disabled={i === 0 || disabled} onClick={() => props.onMove(-1)} aria-label={`Move photo ${i + 1} earlier`}>
-            ← Earlier
-          </button>
-          <button class="btn-link" disabled={last || disabled} onClick={() => props.onMove(1)} aria-label={`Move photo ${i + 1} later`}>
-            Later →
-          </button>
-          <button class="btn-link" disabled={disabled} onClick={() => setAdjusting(true)}>
-            Adjust (rotate, crop, centre)
-          </button>
-          {!(ph.use_edited && ph.edited?.edits.includes("background")) && (
-            <button class="btn-link" disabled={disabled} onClick={runTidy}>
-              {working ? "Tidying…" : "Tidy background"}
-            </button>
-          )}
+        <div class="mt-3 flex items-center gap-2">
+          <div class="flex items-center rounded-full border border-line bg-surface-2 p-0.5">
+            <motion.button whileTap={{ scale: 0.88 }} class="grid size-9 place-items-center rounded-full text-ink-2 hover:bg-surface-3 disabled:opacity-30" disabled={i === 0 || disabled} onClick={() => props.onMove(-1)} aria-label={`Move photo ${i + 1} earlier`} title="Earlier">
+              <Icons.chevronLeft size={18} />
+            </motion.button>
+            <motion.button whileTap={{ scale: 0.88 }} class="grid size-9 place-items-center rounded-full text-ink-2 hover:bg-surface-3 disabled:opacity-30" disabled={last || disabled} onClick={() => props.onMove(1)} aria-label={`Move photo ${i + 1} later`} title="Later">
+              <Icons.chevronRight size={18} />
+            </motion.button>
+          </div>
           {ph.edited && (
-            <button class="btn-link" disabled={disabled} onClick={() => choose(!ph.use_edited)}>
-              {ph.use_edited ? "Use original" : "Use edited"}
-            </button>
+            <div class="relative flex items-center rounded-full border border-line bg-surface-2 p-0.5 text-xs font-semibold" role="group" aria-label="Which version to use">
+              {[false, true].map((ed) => {
+                const on = Boolean(ph.use_edited) === ed;
+                return (
+                  <button key={String(ed)} class={`relative h-9 rounded-full px-3 transition-colors ${on ? "text-ink" : "text-muted hover:text-ink-2"}`} aria-pressed={on} disabled={disabled} onClick={() => choose(ed)}>
+                    {on && <motion.span layoutId={`ver-${ph.id}`} class="absolute inset-0 rounded-full bg-surface-3 shadow-card" transition={SPRING} />}
+                    <span class="relative">{ed ? "Edited" : "Original"}</span>
+                  </button>
+                );
+              })}
+            </div>
           )}
+          <motion.button whileTap={{ scale: 0.95 }} class="btn btn-primary ml-auto h-10 px-4" disabled={disabled} onClick={() => setEditing(true)}>
+            <Icons.pencil size={15} /> Edit
+          </motion.button>
         </div>
       )}
-      {adjusting && (
-        <PhotoAdjust
-          src={photoSrc(ph)}
-          onCancel={() => setAdjusting(false)}
-          onSave={async (blob, grade, edits) => {
-            await saveEdited(blob, edits, grade);
-            setAdjusting(false);
-          }}
-        />
-      )}
+      {/* The editor fades itself out and then calls onClose (no AnimatePresence: see PhotoEditor). */}
+      {editing && <PhotoEditor src={photoSrc(ph)} onClose={() => setEditing(false)} onSave={(blob, grade, edits) => saveEdited(blob, edits, grade)} />}
     </>
   );
 }

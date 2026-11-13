@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { gradeWord, type PhotoGrade } from "./photocheck";
 import { EASE_OUT, Icons, SPRING } from "./ui";
 
-const tone = (score: number) => (score >= 85 ? "var(--green)" : score >= 65 ? "var(--blue)" : score >= 40 ? "var(--yellow)" : "var(--red)");
+export const tone = (score: number) => (score >= 85 ? "var(--green)" : score >= 65 ? "var(--blue)" : score >= 40 ? "var(--yellow)" : "var(--red)");
 
 export function CameraAssistant({ url, grade, scanning, onRemove, label }: { url: string; grade: PhotoGrade | null; scanning: boolean; onRemove?: () => void; label?: string }) {
   const c = grade ? tone(grade.score) : "var(--accent)";

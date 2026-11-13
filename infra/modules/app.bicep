@@ -42,6 +42,8 @@ var secrets = [
   'NTFY_TOPIC'
   'PEOPLE'
   'SIGNIN_PATH'
+  'IMAGEAI_URL'
+  'IMAGEAI_KEY'
 ]
 
 var roles = {

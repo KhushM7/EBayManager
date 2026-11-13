@@ -11,8 +11,8 @@ import type { TodoInput } from "./store/todos";
 // "auth" failures (a rejected key or sign-in, no credit) never fix themselves, so they alert on the next check.
 // Other failures (timeouts, 5xx, overloaded) alert only when they persist: 3 or more in a row over 10 minutes.
 
-export type Service = "ebay_account" | "ebay" | "claude" | "trawl" | "compsapi" | "parcel2go";
-export const SERVICES: Service[] = ["ebay_account", "ebay", "claude", "trawl", "compsapi", "parcel2go"];
+export type Service = "ebay_account" | "ebay" | "claude" | "trawl" | "compsapi" | "parcel2go" | "imageai";
+export const SERVICES: Service[] = ["ebay_account", "ebay", "claude", "trawl", "compsapi", "parcel2go", "imageai"];
 
 export type FailureKind = "auth" | "error";
 
@@ -131,6 +131,7 @@ const NAMES: Record<Service, string> = {
   trawl: "Trawl",
   compsapi: "CompsAPI",
   parcel2go: "Parcel2Go",
+  imageai: "Photo AI",
 };
 
 const time = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ") + " UTC";
@@ -185,6 +186,13 @@ export function serviceTodo(s: Service, st: ServiceState): TodoInput {
           ? "Parcel2Go refused the app's credentials, so postage can't be quoted for new listings. Type the postage yourself for now."
           : "Postage quotes keep failing. Type the postage yourself for new listings meanwhile.",
       );
+    case "imageai":
+      return t(
+        auth ? "Photo AI rejected the app's key" : "Photo AI isn't answering",
+        auth
+          ? "The photo AI service (background removal, spot removal, upscale) refused the app's key. IMAGEAI_KEY must be the same for the app and the container: upload it again with scripts/azure-secrets.mjs, then restart the container app (docs/imageai.md)."
+          : "Background removal, spot removal and upscale keep failing; the other photo tools still work. The service starts from zero on first use, which can take a minute. If it keeps failing, check the container app in the Azure portal (docs/imageai.md).",
+      );
   }
 }
 
@@ -199,8 +207,9 @@ export interface ServiceStatus {
 
 /** Each service's state in plain words, for Settings. */
 export async function serviceStatuses(env: Env): Promise<ServiceStatus[]> {
+  // Photo AI is listed only once it's set up (IMAGEAI_URL): until then it does nothing and costs nothing.
   return Promise.all(
-    SERVICES.map(async (s) => {
+    SERVICES.filter((s) => s !== "imageai" || env.IMAGEAI_URL).map(async (s) => {
       const st = await serviceState(env, s);
       const level = isDown(st) ? "down" : st.failures ? "failing" : "ok";
       const summary =

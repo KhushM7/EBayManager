@@ -67,6 +67,8 @@ export function azureEnv(): Omit<Env, "enqueue"> {
     PARCEL2GO_CLIENT_ID: opt("PARCEL2GO_CLIENT_ID"),
     PARCEL2GO_CLIENT_SECRET: opt("PARCEL2GO_CLIENT_SECRET"),
     PARCEL2GO_SANDBOX: opt("PARCEL2GO_SANDBOX"),
+    IMAGEAI_URL: opt("IMAGEAI_URL"),
+    IMAGEAI_KEY: opt("IMAGEAI_KEY"),
     MCP_TOKEN: v.MCP_TOKEN ?? "",
     SIGNING_KEY: v.SIGNING_KEY ?? "",
     NTFY_TOPIC: v.NTFY_TOPIC ?? "",

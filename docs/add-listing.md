@@ -64,10 +64,10 @@ The screens are built in the current design. K's UI update, which is coming, the
 1. **Who lists:** any of the three people can draft and approve a new listing, as with other labels.
 2. **Postage: live carrier rates.** The draft shows real prices for the parcel's size and weight, and suggests the cheapest suitable service, rounded up (K prefers charging a little more and refunding). Open: the data source (below).
 3. **Photo cleanup:** a listing's photos are deleted from our storage 30 days after it's published; an abandoned draft's photos after 30 days too. eBay keeps its own copies.
-4. **Background tidy-up: yes, ordinary photo edits only.** Nothing AI-generated, and nothing a buyer could call a fake photo of the item:
-   - Allowed (what anyone could do in a basic editor): crop and straighten, exposure, contrast and white balance on the whole photo, and brightening the plain background to white with an edge-based "magic wand" selection that stops at the item's outline.
-   - Never: generative fill, AI background replacement, removing or adding objects, retouching marks, scratches or wear, or changing the item's colour or shape. Flaws must stay visible (eBay requires photos to show the actual item).
-   - Done with plain image operations (no image-generation model), the original kept, a before-and-after shown, and K chooses per photo. Off for a photo where the selection would touch the item.
+4. **Photo edits: the item must stay true, its surroundings can be cleaned up** (revised by K on 2026-11-13; it was "ordinary edits only, nothing AI"). eBay itself offers AI background removal, so AI tools are now allowed around the item:
+   - **Allowed:** crop and straighten, exposure, contrast, white balance and sharpening on the whole photo; brightening a plain background to white (the edge-based "magic wand"); **AI background removal** (the item cut out onto white); **spot removal of clutter around the item** (a cable, a box or a mark on the wall behind it, filled from the surrounding texture by LaMa); and **AI upscale** for quality and resolution (Real-ESRGAN, up to 2400 px). These run in K's own container ([imageai.md](imageai.md)) and cost nothing unless used.
+   - **Never:** removing, hiding or retouching anything on the item itself (marks, scratches, wear, damage, missing parts), changing its colour, shape or size, or adding objects that aren't there. Flaws must stay visible: eBay requires photos to show the actual item, and a buyer must be able to trust them. The spot-removal brush is for the background only, and the editor says so.
+   - **Always:** the original is kept and one tap switches back. Every edit is recorded on the photo (`ALLOWED_EDITS` in `src/drafts.ts`: `ai_background`, `ai_erase`, `ai_upscale` and the ordinary ones), and the photo checks run again on the result.
 
 ## Photo tools and drafts (K, 2026-11-07)
 

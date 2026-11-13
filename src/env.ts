@@ -56,6 +56,9 @@ export interface Env {
   PARCEL2GO_CLIENT_ID?: string;
   PARCEL2GO_CLIENT_SECRET?: string;
   PARCEL2GO_SANDBOX?: string;
+  /** The self-hosted photo AI container (imageai/, docs/imageai.md): its https address and shared key. Unset: not set up. */
+  IMAGEAI_URL?: string;
+  IMAGEAI_KEY?: string;
   MCP_TOKEN: string;
   SIGNING_KEY: string;
   NTFY_TOPIC: string;

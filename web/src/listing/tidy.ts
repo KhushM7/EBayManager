@@ -58,7 +58,14 @@ export function edgeColour(img: Rgba): [number, number, number] {
   return [median(r), median(g), median(b)];
 }
 
-export function tidy(input: Rgba): TidyResult | TidyRefusal {
+/** What to do: by default all of it; the editor's "White background" only whitens (no light change, no crop). */
+export interface TidyOptions {
+  balance?: boolean;
+  crop?: boolean;
+}
+
+export function tidy(input: Rgba, opts: TidyOptions = {}): TidyResult | TidyRefusal {
+  const balance = opts.balance !== false;
   const { w, h } = input;
   const data = new Uint8ClampedArray(input.data);
   const bg = edgeColour({ data, w, h });
@@ -73,9 +80,9 @@ export function tidy(input: Rgba): TidyResult | TidyRefusal {
   const grey = (bg[0] + bg[1] + bg[2]) / 3;
   const wb = bg.map((c) => (c > 0 ? grey / c : 1));
   const exposure = bgLum < 238 ? Math.min(1.3, 245 / Math.max(1, grey)) : 1;
-  const gains = wb.map((g) => g * exposure);
-  if (wb.some((g) => Math.abs(g - 1) > 0.03)) edits.push("white_balance");
-  if (exposure > 1.02) edits.push("exposure");
+  const gains = balance ? wb.map((g) => g * exposure) : [1, 1, 1];
+  if (balance && wb.some((g) => Math.abs(g - 1) > 0.03)) edits.push("white_balance");
+  if (balance && exposure > 1.02) edits.push("exposure");
   if (edits.length) for (let i = 0; i < data.length; i += 4) for (let c = 0; c < 3; c++) data[i + c] = data[i + c] * gains[c];
   const bg2 = bg.map((c, i) => Math.min(255, c * gains[i]));
 
@@ -152,7 +159,7 @@ export function tidy(input: Rgba): TidyResult | TidyRefusal {
   const cy1 = Math.min(h - 1, y1 + margin);
   const cw = cx1 - cx0 + 1;
   const ch = cy1 - cy0 + 1;
-  if (x1 >= 0 && cw * ch < w * h * 0.85 && Math.max(cw, ch) >= Math.min(MIN_CROP_SIDE, Math.max(w, h))) {
+  if (opts.crop !== false && x1 >= 0 && cw * ch < w * h * 0.85 && Math.max(cw, ch) >= Math.min(MIN_CROP_SIDE, Math.max(w, h))) {
     const out = new Uint8ClampedArray(cw * ch * 4);
     for (let y = 0; y < ch; y++) out.set(data.subarray(((cy0 + y) * w + cx0) * 4, ((cy0 + y) * w + cx0 + cw) * 4), y * cw * 4);
     edits.push("crop");

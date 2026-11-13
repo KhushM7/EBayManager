@@ -83,6 +83,24 @@ const todos = [
 
 const devices = [{ endpoint: "https://fcm.googleapis.com/fcm/send/abc", user_agent: "Mozilla/5.0 (Linux; Android 15) Chrome/141.0", created_at: now - 26 * h, last_ok_at: now - 2 * h, last_error: null }];
 
+/** One file from a multipart/form-data body (dev only). */
+function multipartFile(raw: Buffer, contentType: string, name: string): { bytes: Buffer; type: string } | null {
+  const boundary = /boundary=(?:"([^"]+)"|([^;]+))/.exec(contentType);
+  if (!boundary) return null;
+  const sep = Buffer.from(`--${boundary[1] ?? boundary[2]}`);
+  let at = raw.indexOf(sep);
+  while (at >= 0) {
+    const next = raw.indexOf(sep, at + sep.length);
+    if (next < 0) break;
+    const part = raw.subarray(at + sep.length + 2, next - 2);
+    const headEnd = part.indexOf("\r\n\r\n");
+    const head = part.subarray(0, headEnd).toString();
+    if (head.includes(`name="${name}"`)) return { bytes: part.subarray(headEnd + 4), type: /Content-Type:\s*([^\r\n]+)/i.exec(head)?.[1] ?? "image/jpeg" };
+    at = next;
+  }
+  return null;
+}
+
 export function mockApi(): Plugin {
   return {
     name: "mock-api",
@@ -101,6 +119,19 @@ export function mockApi(): Plugin {
         const send = (d: unknown, status = 200) => { res.statusCode = status; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(d)); };
         const p = url.pathname.slice(4);
         if (process.env.MOCK === "signedout" && p !== "/login") return send({ error: "Sign in" }, 401);
+        // The photo editor's AI tools (src/imageai.ts): hands the photo back after a pause, as if edited.
+        // MOCK_AI=off answers "not set up"; MOCK_AI_SLOW=1 takes long enough to show the "waking" message.
+        const ai = p.match(/^\/photo-ai\/(remove_background|erase|upscale)$/);
+        if (ai && req.method === "POST") {
+          const image = multipartFile(raw, String(req.headers["content-type"] ?? ""), "image");
+          if (!image) return send({ error: 'Send the photo as "image".' }, 400);
+          await new Promise((r) => setTimeout(r, process.env.MOCK_AI_SLOW ? 8000 : 2500));
+          if (process.env.MOCK_AI === "off") return send({ error: "AI tools aren't set up yet.", code: "not_set_up" }, 503);
+          res.statusCode = 200;
+          res.setHeader("Content-Type", image.type);
+          res.setHeader("X-Edit", { remove_background: "ai_background", erase: "ai_erase", upscale: "ai_upscale" }[ai[1]]!);
+          return res.end(image.bytes);
+        }
         if (p === "/me") return send(me);
         // New listing: the real drafts server with stand-ins (mock-drafts.ts); its labels join the sample Inbox.
         if (process.env.MOCK !== "signedout" && (await draftsMock(server, req, res, raw, { proposals }))) return;

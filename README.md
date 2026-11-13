@@ -121,6 +121,7 @@ Measured from the app's own logs (2026-11-03 to 2026-11-07) and Azure's publishe
 | **Cosmos DB** | Free tier: one account, both databases | **£0** |
 | **Blob Storage, queue, Key Vault, logs** | Photos (deleted 30 days after listing), jobs, secrets, logs capped at 0.15 GB a day | **Pennies, under £1** |
 | **Sold-price data** | Trawl and CompsAPI, hard monthly caps (250 and 100 look-ups) | Their plans' prices; capped |
+| **Photo AI (Container Apps)** | Background removal, spot removal and upscale in K's own container, scaled to zero ([docs/imageai.md](docs/imageai.md)) | **£0 when not used.** Billed only while an edit runs (plus 2 minutes before it scales back to zero), inside Azure's monthly free grant at this use |
 | **Azure in total** | | **About £0 to £3 a month.** A budget alert emails you at 50% and 100% of $5 |
 
 So far: production Claude $1.39 in 5 days (mostly the one-off first-day audit and spec look-ups), Sandbox $1.12.

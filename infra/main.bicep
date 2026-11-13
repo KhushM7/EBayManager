@@ -32,6 +32,13 @@ param budgetStart string = '2026-11-01'
 @description('Create the monthly budget alert (turn off if the subscription offer does not support budgets).')
 param createBudget bool = true
 
+@description('The photo AI container image (docs/imageai.md). Empty: the service is not deployed (and nothing is billed).')
+param imageAiImage string = ''
+
+@secure()
+@description('The photo AI shared key (IMAGEAI_KEY), passed by scripts/azure-infra.mjs from the vars file.')
+param imageAiKey string = ''
+
 var suffix = take(uniqueString(subscription().id), 6)
 var sharedRgName = 'rg-ebay-shared'
 var envRgName = 'rg-ebay-${env}'
@@ -87,6 +94,21 @@ module cosmosAccess 'modules/cosmos-access.bicep' = {
   }
 }
 
+// The photo AI service, scaled to zero (docs/imageai.md). Deployed only once an image is named; its secret
+// IMAGEAI-KEY must already be in the vault (scripts/make-keys.mjs, then scripts/azure-secrets.mjs).
+module imageai 'modules/imageai.bicep' = if (!empty(imageAiImage)) {
+  name: 'imageai-${env}'
+  scope: envRg
+  params: {
+    env: env
+    location: location
+    suffix: suffix
+    vaultName: app.outputs.keyVaultName
+    image: imageAiImage
+    key: imageAiKey
+  }
+}
+
 resource budget 'Microsoft.Consumption/budgets@2023-11-01' = if (createBudget) {
   name: 'ebay-monthly'
   properties: {
@@ -109,3 +131,4 @@ output storageAccountName string = app.outputs.storageAccountName
 output resourceGroup string = envRgName
 output cosmosAccount string = cosmosName
 output cosmosEndpoint string = cosmos.outputs.endpoint
+output imageAiUrl string = empty(imageAiImage) ? '' : imageai!.outputs.url

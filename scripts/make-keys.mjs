@@ -21,6 +21,8 @@ add("SIGNING_KEY", randomBytes(48).toString("base64url"));
 add("DASHBOARD_KEY", randomBytes(24).toString("base64url"));
 // eBay accepts 32 to 80 characters: letters, digits, underscore and hyphen.
 add("EBAY_DELETION_TOKEN", randomBytes(36).toString("base64url"));
+// The photo AI container shares this key with the app (docs/imageai.md).
+add("IMAGEAI_KEY", randomBytes(32).toString("base64url"));
 if (!has("VAPID_KEY")) {
   const pair = await webcrypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
   const { kty, crv, x, y, d } = await webcrypto.subtle.exportKey("jwk", pair.privateKey);

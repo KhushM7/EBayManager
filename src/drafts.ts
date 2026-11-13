@@ -15,8 +15,8 @@ const json = (data: unknown, status = 200) => Response.json(data, { status, head
 export const MAX_OPEN_DRAFTS = 50;
 export const DRAFT_ABANDON_DAYS = 30;
 export const PUBLISHED_PHOTO_DAYS = 30;
-/** The ordinary edits a tidied copy may record (docs/add-listing.md, decision 4): nothing generative. */
-export const ALLOWED_EDITS = ["rotate", "crop", "straighten", "exposure", "contrast", "white_balance", "background"];
+/** The edits an edited copy may record (docs/add-listing.md, decision 4): ordinary edits, and since 2026-11-13 the photo AI tools (src/imageai.ts). */
+export const ALLOWED_EDITS = ["rotate", "crop", "straighten", "exposure", "contrast", "white_balance", "background", "sharpen", "ai_background", "ai_erase", "ai_upscale"];
 
 const photoKey = (draftId: string, photoId: string, suffix = "") => `drafts/${draftId}/${photoId}${suffix}.jpg`;
 

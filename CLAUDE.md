@@ -4,7 +4,7 @@ Automates K's eBay selling: improve existing listings, re-evaluate unsold ones, 
 
 Full plan (decisions, eBay API map, rollout): https://claude.ai/artifact/JowUE86DsPhFBsswMms8jf
 
-Design docs: [roadmap](docs/roadmap.md), [design system](docs/design-system.md), [pricing engine](docs/pricing-engine.md), [security](docs/security.md), [pricing and promotion](docs/pricing-and-promotion.md), [sold-price data](docs/sold-price-data.md), [listing assistant](docs/listing-assistant.md), [go-live tests](docs/go-live-tests.md), [safety and environments](docs/safety-and-environments.md), [approvals](docs/approvals.md), [app and dashboard](docs/app-and-dashboard.md).
+Design docs: [roadmap](docs/roadmap.md), [design system](docs/design-system.md), [pricing engine](docs/pricing-engine.md), [security](docs/security.md), [pricing and promotion](docs/pricing-and-promotion.md), [sold-price data](docs/sold-price-data.md), [listing assistant](docs/listing-assistant.md), [go-live tests](docs/go-live-tests.md), [safety and environments](docs/safety-and-environments.md), [approvals](docs/approvals.md), [app and dashboard](docs/app-and-dashboard.md), [photo AI](docs/imageai.md).
 
 ## Decisions (2026-11-02)
 
@@ -42,6 +42,10 @@ Design docs: [roadmap](docs/roadmap.md), [design system](docs/design-system.md),
 ## Decisions (2026-11-07, Settings)
 
 - **Settings is organised** (K): the Changes to eBay switch (Pause all changes) leads the page; then Account, Notifications, eBay connection, Reply style, and Usage and APIs (Claude and sold-data allowances, Claude spend). On a phone each section is its own page; on a desktop the menu sits beside it. The sold-price provider comparison and the diagnostics (test notification) were development tools and are removed.
+
+## Decisions (2026-11-13, photo AI)
+
+- **AI photo tools, self-hosted** (K): eBay itself offers AI background removal, so the editor may remove the background (IS-Net, rembg's model), spot-remove clutter around the item (LaMa) and upscale for quality (Real-ESRGAN). Nothing on the item itself may be removed or hidden, and the original is always kept ([add-listing.md](docs/add-listing.md), decision 4). They run in K's own container on Azure Container Apps, scaled to zero, so they cost nothing unless used ([imageai.md](docs/imageai.md)). No paid image API.
 
 ## Decisions (2026-11-07)
 
@@ -92,7 +96,9 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/pricing/` | The pricing engine: `model.ts` (maths, pure), `identify.ts` (Claude identify and match), `engine.ts`, `learn.ts`, `bundles.ts` |
 | `src/solddata.ts`, `src/salesreport.ts` | Trawl and CompsAPI sold data (capped, cached), the Seller Hub orders report import |
 | `src/allowance.ts` | What's left of Claude credit (K enters the Console balance; the app subtracts its logged spend) and the sold-data monthly searches (as Trawl and CompsAPI themselves report them: headers on every reply, and their free `/health` and `/v1/usage` calls; the app's own count only if they can't be reached). Each provider can have a second key (`TRAWL_API_KEY_2`, `COMPSAPI_KEY_2`) that takes over when the first is used up; the sold-data alert opens only when the first key is used up and the second is below 10% (one key: below 10%); low or out opens an Inbox to-do with a notification (15-minute poll and nightly). Shown in Settings → Usage and APIs |
-| `src/services.ts` | Whether each outside service works: eBay sign-in (a revoked refresh token after a username or password change), eBay, Claude, Trawl, CompsAPI, Parcel2Go. Each call records its outcome at its choke point (`watched()`, the token request, `createMessage()`); a rejected key or sign-in alerts at once, other faults after 3 in a row over 10 minutes. The 15-minute poll and the nightly run file an Inbox to-do with a notification and resolve it when the service works again. Settings shows Reconnect eBay and the status of each service |
+| `imageai/`, `infra/modules/imageai.bicep`, `.github/workflows/imageai.yml` | The photo AI container ([imageai.md](docs/imageai.md)): FastAPI and onnxruntime CPU with IS-Net (background removal), LaMa (spot removal) and Real-ESRGAN (upscale), models pinned by SHA-256. It's built by GitHub Actions to a public ghcr.io image and runs on Container Apps Consumption at 0–1 replicas. It's deployed only when `IMAGEAI_IMAGE` names a tag at infrastructure time, and `imageai/test-local.mjs` tries it locally |
+| `src/imageai.ts` | `/api/photo-ai/{remove_background,erase,upscale}`: checks the upload (JPEG or PNG, at most 12 MB and 2400 px, mask the same size), strips metadata, and forwards it with `IMAGEAI_KEY` to `IMAGEAI_URL` (180 s timeout for a cold start). Recorded as the `imageai` service |
+| `src/services.ts` | Whether each outside service works: eBay sign-in (a revoked refresh token after a username or password change), eBay, Claude, Trawl, CompsAPI, Parcel2Go, Photo AI. Each call records its outcome at its choke point (`watched()`, the token request, `createMessage()`); a rejected key or sign-in alerts at once, other faults after 3 in a row over 10 minutes. The 15-minute poll and the nightly run file an Inbox to-do with a notification and resolve it when the service works again. Settings shows Reconnect eBay and the status of each service |
 | `src/ebay/pictures.ts` | Listing pictures for the Listings page, fetched from eBay's picture hosts only and served by the app (`/api/listings/:id/image`), so the CSP stays `'self'` |
 | `src/util.ts` | Small shared helpers (`r2`, `list`, `num`, `stripHtml`) |
 | `src/specs.ts` | Published specifications for an exactly identified product (Sonnet + web search), each with a verified source |

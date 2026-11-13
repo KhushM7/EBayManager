@@ -22,6 +22,7 @@ import { handleDrafts } from "./drafts";
 import { fetchListingPicture } from "./ebay/pictures";
 import { allowances, checkAllowances, setClaudeCredit } from "./allowance";
 import { ebayNeedsReconnect, serviceStatuses } from "./services";
+import { handlePhotoAi } from "./imageai";
 
 // JSON API for the dashboard. Everything except sign-in needs a signed-in person (docs/security.md); some
 // actions are owner-only. Sign-in failures are rate-limited per network.
@@ -99,6 +100,10 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
   // New-listing drafts and their photos (src/drafts.ts).
   const drafts = await handleDrafts(env, request, url, path, user);
   if (drafts) return drafts;
+
+  // Photo AI tools for the editor (src/imageai.ts): owner and managers, like the rest of New listing.
+  const photoAi = path.match(/^\/photo-ai\/([a-z_]+)$/);
+  if (photoAi) return handlePhotoAi(env, request, photoAi[1]);
 
   // The people are set by K with scripts/people.mjs; here the owner can only see them and sign them out.
   if (path === "/people" && method === "GET") return owner ? json({ people: await listPeople(env) }) : ownerOnly();

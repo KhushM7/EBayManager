@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 import { assertRest } from "./allowlist";
 import { ebayHosts, PRODUCTION_HOSTS } from "./hosts";
+import { classifyStatus, recordFailure, recordOk, type Service } from "../services";
 
 // Scope URIs are the same on Sandbox and production.
 const SCOPE = "https://api.ebay.com/oauth/api_scope";
@@ -51,19 +52,36 @@ interface TokenResponse {
   refresh_token_expires_in?: number;
 }
 
-async function tokenRequest(apiHost: string, auth: string, body: Record<string, string>): Promise<TokenResponse> {
+/**
+ * A token request, recorded against a service: K's account sign-in (code exchange, refresh) or eBay itself
+ * (application tokens). eBay answers a revoked refresh token, as after a username or password change, with
+ * 400 invalid_grant: a sign-in K has to redo, not a passing fault.
+ */
+async function tokenRequest(env: Env, service: Service, apiHost: string, auth: string, body: Record<string, string>): Promise<TokenResponse> {
   assertRest("POST", `${apiHost}/identity/v1/oauth2/token`);
-  const res = await fetch(`${apiHost}/identity/v1/oauth2/token`, {
-    method: "POST",
-    headers: { Authorization: auth, "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(body),
-  });
-  if (!res.ok) throw new Error(`eBay token request failed: ${res.status} ${await res.text()}`);
+  let res: Response;
+  try {
+    res = await fetch(`${apiHost}/identity/v1/oauth2/token`, {
+      method: "POST",
+      headers: { Authorization: auth, "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(body),
+    });
+  } catch (e) {
+    await recordFailure(env, service, "error", e);
+    throw e;
+  }
+  if (!res.ok) {
+    const text = await res.text();
+    const kind = res.status === 400 && /invalid_grant|invalid_client/.test(text) ? "auth" : classifyStatus(res.status);
+    if (kind) await recordFailure(env, service, kind, new Error(`eBay token request failed: ${res.status} ${text.slice(0, 200)}`));
+    throw new Error(`eBay token request failed: ${res.status} ${text}`);
+  }
+  await recordOk(env, service);
   return res.json();
 }
 
 export async function exchangeCode(env: Env, code: string, scopes: string[]): Promise<void> {
-  const t = await tokenRequest(ebayHosts(env).api, basic(env.EBAY_APP_ID, env.EBAY_CERT_ID), {
+  const t = await tokenRequest(env, "ebay_account", ebayHosts(env).api, basic(env.EBAY_APP_ID, env.EBAY_CERT_ID), {
     grant_type: "authorization_code",
     code,
     redirect_uri: env.EBAY_RUNAME,
@@ -85,7 +103,7 @@ export async function userToken(env: Env): Promise<string> {
   if (row.access_expires_at - Date.now() > 5 * 60_000) return row.access_token;
 
   // Refresh with the scopes K consented to; asking for more would fail.
-  const t = await tokenRequest(ebayHosts(env).api, basic(env.EBAY_APP_ID, env.EBAY_CERT_ID), {
+  const t = await tokenRequest(env, "ebay_account", ebayHosts(env).api, basic(env.EBAY_APP_ID, env.EBAY_CERT_ID), {
     grant_type: "refresh_token",
     refresh_token: row.refresh_token,
     scope: row.scopes,
@@ -97,16 +115,16 @@ export async function userToken(env: Env): Promise<string> {
 const appTokens = new Map<string, { token: string; expiresAt: number }>();
 
 /** Application token (client credentials) for public eBay APIs; links no seller account. Cached per keyset. */
-async function clientToken(api: string, auth: string): Promise<string> {
+async function clientToken(env: Env, api: string, auth: string): Promise<string> {
   const cached = appTokens.get(api + auth);
   if (cached && cached.expiresAt - Date.now() > 5 * 60_000) return cached.token;
-  const t = await tokenRequest(api, auth, { grant_type: "client_credentials", scope: SCOPE });
+  const t = await tokenRequest(env, "ebay", api, auth, { grant_type: "client_credentials", scope: SCOPE });
   appTokens.set(api + auth, { token: t.access_token, expiresAt: Date.now() + t.expires_in * 1000 });
   return t.access_token;
 }
 
 /** This deployment's own application token (account deletion public keys, Taxonomy). */
-export const appToken = (env: Env) => clientToken(ebayHosts(env).api, basic(env.EBAY_APP_ID, env.EBAY_CERT_ID));
+export const appToken = (env: Env) => clientToken(env, ebayHosts(env).api, basic(env.EBAY_APP_ID, env.EBAY_CERT_ID));
 
 /**
  * Application token for Browse comps. Uses the production keyset when EBAY_COMPS_APP_ID is set, because
@@ -116,5 +134,5 @@ export async function compsAccess(env: Env): Promise<{ token: string; api: strin
   const prod = Boolean(env.EBAY_COMPS_APP_ID && env.EBAY_COMPS_CERT_ID);
   const api = prod ? PRODUCTION_HOSTS.api : ebayHosts(env).api;
   const auth = prod ? basic(env.EBAY_COMPS_APP_ID!, env.EBAY_COMPS_CERT_ID!) : basic(env.EBAY_APP_ID, env.EBAY_CERT_ID);
-  return { token: await clientToken(api, auth), api };
+  return { token: await clientToken(env, api, auth), api };
 }

@@ -1,4 +1,5 @@
 import type { Env } from "./env";
+import { recordFailure, watched } from "./services";
 
 // Postage quotes for a new listing (docs/add-listing.md, K's choice on 2026-11-05): the Parcel2Go Quoting API,
 // kept to the carriers eBay uses for Simple Delivery (Evri, Royal Mail, DHL, InPost), cheapest first.
@@ -34,12 +35,19 @@ let token: { value: string; until: number; base: string } | null = null;
 async function accessToken(env: Env): Promise<string> {
   const b = base(env);
   if (token && token.base === b && token.until > Date.now() + 60_000) return token.value;
-  const res = await fetch(`${b}/auth/connect/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "client_credentials", scope: "public-api", client_id: env.PARCEL2GO_CLIENT_ID!, client_secret: env.PARCEL2GO_CLIENT_SECRET! }),
-  });
-  if (!res.ok) throw new Error(`Parcel2Go sign-in failed (${res.status})`);
+  const res = await watched(env, "parcel2go", () =>
+    fetch(`${b}/auth/connect/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "client_credentials", scope: "public-api", client_id: env.PARCEL2GO_CLIENT_ID!, client_secret: env.PARCEL2GO_CLIENT_SECRET! }),
+    }),
+  );
+  if (!res.ok) {
+    const err = new Error(`Parcel2Go sign-in failed (${res.status})`);
+    // An OAuth server answers wrong credentials with 400 invalid_client: a sign-in to fix, not a passing fault.
+    if (res.status === 400) await recordFailure(env, "parcel2go", "auth", err);
+    throw err;
+  }
   const data: any = await res.json();
   if (!data.access_token) throw new Error("Parcel2Go sign-in returned no token");
   token = { value: String(data.access_token), until: Date.now() + Number(data.expires_in ?? 600) * 1000, base: b };
@@ -87,15 +95,18 @@ export function cheapestAnyCourier(quotes: Quote[]): Quote[] {
 export async function parcelQuotes(env: Env, p: Parcel, valueGbp: number, opts: { anyCourier?: boolean } = {}): Promise<Quote[]> {
   if (!env.PARCEL2GO_CLIENT_ID || !env.PARCEL2GO_CLIENT_SECRET) throw new Error("Postage quotes aren't set up yet (Parcel2Go credentials). Type the postage for now.");
   if (!QUOTE_FORMAT_CONFIRMED) throw new Error("Postage quotes are waiting for Parcel2Go's quote format to be checked on their sandbox. Type the postage for now.");
-  const res = await fetch(`${base(env)}/api/quotes`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${await accessToken(env)}`, "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({
-      CollectionAddress: { Country: "GBR" },
-      DeliveryAddress: { Country: "GBR" },
-      Parcels: [{ Value: Math.max(1, Math.round(valueGbp)), Weight: p.weightKg, Length: p.lengthCm, Width: p.widthCm, Height: p.heightCm }],
+  const bearer = await accessToken(env);
+  const res = await watched(env, "parcel2go", () =>
+    fetch(`${base(env)}/api/quotes`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        CollectionAddress: { Country: "GBR" },
+        DeliveryAddress: { Country: "GBR" },
+        Parcels: [{ Value: Math.max(1, Math.round(valueGbp)), Weight: p.weightKg, Length: p.lengthCm, Width: p.widthCm, Height: p.heightCm }],
+      }),
     }),
-  });
+  );
   if (!res.ok) throw new Error(`Parcel2Go quote failed (${res.status})`);
   const data: any = await res.json();
   const quotes = (Array.isArray(data?.Quotes) ? data.Quotes : []).map(readQuote).filter((q: Quote | null): q is Quote => q != null);

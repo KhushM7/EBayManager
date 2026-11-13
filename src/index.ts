@@ -9,6 +9,7 @@ import { handleMcp } from "./mcp";
 import { envPrefix } from "./notify";
 import { pollInbox } from "./inbox";
 import { checkAllowances } from "./allowance";
+import { checkServices } from "./services";
 import { runNightly } from "./nightly";
 import { decide, getProposal, verifyDecision } from "./proposals";
 
@@ -67,10 +68,15 @@ export async function handle(request: Request, env: Env): Promise<Response> {
 /** The scheduled jobs: the 02:00 UTC nightly run, and the buyer-message poll every 15 minutes. */
 export async function runScheduled(kind: "nightly" | "poll", env: Env) {
   if (kind === "nightly") return runNightly(env);
-  const r = await pollInbox(env);
-  // Allowances running low or out become Inbox to-dos with a notification (store reads only).
-  await checkAllowances(env).catch((e) => console.error(`allowances: ${e instanceof Error ? e.message : String(e)}`));
-  return r;
+  try {
+    return await pollInbox(env);
+  } finally {
+    // Allowances running low or out, and outside services that are down (eBay sign-in, Claude, sold data),
+    // become Inbox to-dos with a notification (store reads only). They run even when the poll failed, as it
+    // does when eBay stops accepting the app's sign-in: that's exactly when K needs to hear.
+    await checkAllowances(env).catch((e) => console.error(`allowances: ${e instanceof Error ? e.message : String(e)}`));
+    await checkServices(env).catch((e) => console.error(`services: ${e instanceof Error ? e.message : String(e)}`));
+  }
 }
 
 export default { fetch: handle };
@@ -140,6 +146,8 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
     if (!started) return html("<h1>This eBay sign-in expired or wasn't started by the owner. Start again from Settings.</h1>", 400);
     const scopes = userScopes(env, started.readonly);
     await exchangeCode(env, code, scopes);
+    // A "Reconnect eBay" to-do closes now rather than at the next poll.
+    await checkServices(env).catch(() => null);
     const kind = scopes === READONLY_SCOPES ? "read-only" : "full";
     return html(`<h1>eBay ${escHtml(env.EBAY_ENV)} connected</h1><p>Scopes: ${kind}. You can close this tab.</p>`);
   }

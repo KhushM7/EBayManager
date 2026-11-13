@@ -72,7 +72,7 @@ export function SparklineWidget({ label, icon, series, format, good = "up" }: { 
 
 /** Store health: each check of the last nightly run ticks in one after another. */
 function HealthChecks({ steps }: { steps: Record<string, string> }) {
-  const names: Record<string, string> = { snapshot: "Listings read from eBay", orders: "Orders synced", traffic: "Views and traffic", health: "Health rules checked", triage: "Claude reviewed flagged listings", pricing: "Prices reviewed", inbox: "Messages checked" };
+  const names: Record<string, string> = { snapshot: "Listings read from eBay", orders: "Orders synced", traffic: "Views and traffic", health: "Health rules checked", triage: "Claude reviewed flagged listings", pricing: "Prices reviewed", inbox: "Messages checked", services: "Outside services checked" };
   return (
     <ul class="m-0 grid gap-2 p-0">
       {Object.entries(steps).map(([k, v], i) => {

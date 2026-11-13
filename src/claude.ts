@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Env } from "./env";
 import { CLAUDE_DAILY_BUDGET_USD } from "./rules";
+import { classifyClaudeError, recordFailure, recordOk } from "./services";
 import { tools } from "./tools";
 
 // Claude, called from the Worker with K's API key. A manual tool-use loop over an allowlist of the tools in
@@ -81,6 +82,18 @@ export async function client(env: Env, api?: MessagesApi): Promise<MessagesApi> 
   return api ?? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }).beta.messages;
 }
 
+/** One Messages API call, its outcome recorded for the service check (src/services.ts). */
+export async function createMessage(env: Env, api: MessagesApi, params: Anthropic.Beta.MessageCreateParamsNonStreaming): Promise<Anthropic.Beta.BetaMessage> {
+  try {
+    const r = await api.create(params);
+    await recordOk(env, "claude");
+    return r;
+  } catch (e) {
+    await recordFailure(env, "claude", classifyClaudeError(e), e);
+    throw e;
+  }
+}
+
 export async function logUsage(env: Env, job: string, requested: Model, response: Anthropic.Beta.BetaMessage): Promise<number> {
   // When a server-side fallback answered, the reply names the model that did: price it at that model's rates.
   const model = (response.model && response.model in PRICES ? response.model : requested) as Model;
@@ -138,7 +151,7 @@ export async function completeOnce<T = string>(
         { type: "text" as const, text: req.prompt },
       ]
     : req.prompt;
-  const response = await messagesApi.create({
+  const response = await createMessage(env, messagesApi, {
     model: req.model,
     max_tokens: req.maxTokens ?? 4000,
     system: [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }],
@@ -194,7 +207,7 @@ export async function runAgent(env: Env, run: AgentRun, api?: MessagesApi): Prom
     // The daily budget holds inside a run too, not only before it starts.
     if (turns > 0 && spentAtStart + total >= CLAUDE_DAILY_BUDGET_USD) break;
     turns++;
-    const response = await messagesApi.create({
+    const response = await createMessage(env, messagesApi, {
       model: run.model,
       max_tokens: 16000,
       system,

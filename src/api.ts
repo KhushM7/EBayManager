@@ -21,6 +21,7 @@ import { reviewPromotions } from "./promotion";
 import { handleDrafts } from "./drafts";
 import { fetchListingPicture } from "./ebay/pictures";
 import { allowances, checkAllowances, setClaudeCredit } from "./allowance";
+import { ebayNeedsReconnect, serviceStatuses } from "./services";
 
 // JSON API for the dashboard. Everything except sign-in needs a signed-in person (docs/security.md); some
 // actions are owner-only. Sign-in failures are rate-limited per network.
@@ -121,6 +122,8 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
       writesBlocked: await gateClosedReason(env),
       ebayConnected: Boolean(connected),
       ebayScopes: connected ? (/sell\.inventory\.readonly/.test(connected.scopes) ? "read-only" : "full") : null,
+      // eBay stopped accepting the saved sign-in (a username or password change revokes it): Settings offers Reconnect.
+      ebayNeedsReconnect: connected ? await ebayNeedsReconnect(env) : false,
       vapidPublicKey: vapidPublicKey(env),
       lastPushAt: lastPush ? Number(lastPush) : null,
     }, 200, mark);
@@ -448,6 +451,7 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
       dailyBudgetUsd: CLAUDE_DAILY_BUDGET_USD,
       apiKeySet: Boolean(env.ANTHROPIC_API_KEY),
       allowances: await allowances(env),
+      services: await serviceStatuses(env),
     });
   }
 

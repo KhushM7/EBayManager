@@ -11,12 +11,12 @@ Decided 2026-11-02, replacing the earlier rule that covered only prices and mess
 | `price` | Price of a listing | Trading `ReviseFixedPriceItem` | **Locked** |
 | `message` | A message to a buyer | Trading `AddMemberMessageRTQ` | **Locked** |
 | `best_offer_response` | Accept, decline or counter a Best Offer | Trading `RespondToBestOffer` | **Locked** |
-| `offer_to_watchers` | Send a discount offer to watchers | Negotiation `sendOfferToInterestedBuyers` | **Locked** |
+| `offer_to_watchers` | Send a small reminder offer to watchers (2% to 5% off, `src/watchers.ts`) | Negotiation `sendOfferToInterestedBuyers` | **Locked** |
 | `create_listing` | Publish a new listing | Trading `AddFixedPriceItem` (Inventory `publishOffer` from Phase 8) | **Locked** |
 | `end_listing` | End a listing early | Trading `EndFixedPriceItem` | **Locked** |
 | `policy` | Return, shipping or payment business policy | Account API | **Locked** |
 | `revise` | Title, item specifics, description, photos, condition text | Trading `ReviseFixedPriceItem` | Eligible |
-| `promote` | Promoted Listings ad rate | Marketing API | Eligible |
+| `promote` | Promoted Listings ad rate (2% to 4%) | Marketing `createCampaign`, `createAdByListingId`, `updateBid`, `deleteAd` | **Locked** |
 | `relist` | Relist an ended, unsold item with no changes | Trading `RelistFixedPriceItem` | Eligible |
 
 The locked list is a constant in `src/rules.ts` (`LOCKED_KINDS`). The dashboard reads it and cannot change it. Changing it needs a code change and a deploy.

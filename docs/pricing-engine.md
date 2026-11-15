@@ -222,3 +222,14 @@ K's rule, now `sellerTarget()` in `model.ts`, used for an ordinary sale (not a f
 The air fryer now prices at £32.49 (the middle of the two new sales), with the used sale set aside and the label saying so. Tests: `test/pricing-seller.test.ts`, one per case above, on the air fryer's numbers.
 
 The nightly price review applies the same rule to live listings every night: as competitors list, sell or change price, the target moves (within the 10% step and the 7-day rule), and the sale model keeps learning how fast K's items sell at each price.
+
+## Revision 5 (2026-11-15): the price, its options and its reason agree; a person can overrule it
+
+Two price screens showed cards that disagreed with their text, one with "Sells sooner" as the dearest card.
+
+- **One floor.** The cheaper option was held up to the market's value floor while the recommended price ignored it. Under the seller's rule the floor is now K's floor and the rule's own (the lowest sale, or the cheaper end of many); the options always ascend, and a cheaper option that can't go below the floor isn't shown.
+- **The reason is written last**, for the price actually chosen, so a figure in the text is the figure on the card. Prices in the text are item prices (each comparable's total less the postage the item is priced with): the buyer pays postage on top, and it's set on the next step.
+- **Holding at the lowest sale** takes the nearest .49 or .99 ending (`endNear`), not the next .99 up.
+- **Nothing in the same condition** (a used item where only new ones sell or are listed): close and different-condition comparables stand in, each adjusted to K's item. Claude's adjustment for new against used runs from about 0.5 (heavy wear, damage, parts missing) to 0.9 (barely used), by the item's known facts. The reason says the prices were adjusted, and the confidence is lowered.
+- **The evidence is shown** (`EvidenceSummary`): live listings and sales, in the same condition and in others, with how many, the cheapest, the middle and the dearest, and what other-condition ones are worth as K's item. Whoever lists the item can then set their own price on the price step (`adjusted`); it still needs approval like any listing.
+- **Days to sell is no longer shown.** It came from the sale model, whose learned settings had drifted until price barely changed the estimate. Each price now says where it sits: cheaper than how many of the live listings, and how many sales went for that price or more. The model still ranks Best Offers and promotion internally; its learning from "a listing gone from the search results was sold" needs a review against production data.

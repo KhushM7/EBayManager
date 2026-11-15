@@ -9,7 +9,13 @@ import { makeZip } from "./make-zip.mjs";
 import { az, envArg, outputs } from "./azure-common.mjs";
 
 const env = envArg();
-const o = outputs(env);
+// From GitHub Actions (.github/workflows/deploy.yml) the app's name and resource group come from the GitHub
+// environment's variables: its Azure identity may publish to the Function App but not read the subscription's
+// deployments, which is where outputs() looks them up.
+const o =
+  process.env.AZURE_FUNCTIONAPP_NAME && process.env.AZURE_RESOURCE_GROUP
+    ? { functionAppName: process.env.AZURE_FUNCTIONAPP_NAME, resourceGroup: process.env.AZURE_RESOURCE_GROUP }
+    : outputs(env);
 
 execSync("npm run typecheck && npm test", { stdio: "inherit" });
 execSync("node scripts/build-azure.mjs", { stdio: "inherit" });

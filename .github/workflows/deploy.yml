@@ -1,0 +1,61 @@
+# Deploys the app to Sandbox or production from GitHub, so no computer with the repo is needed.
+# Started by hand (Actions -> deploy -> Run workflow, or from a Claude session); never by a push.
+#
+# Production waits for K: the "production" GitHub environment has K as its required reviewer, so the job stops
+# until K presses Approve (GitHub website or phone app). It also deploys only from main.
+# Sandbox deploys straight away.
+#
+# It signs in to Azure without any stored password (OpenID Connect): each environment has its own Azure
+# identity that can only publish to that environment's Function App. Set up once with
+# scripts/azure-github-oidc.mjs (README, "Deploying from GitHub").
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Where to deploy
+        type: choice
+        options: [sandbox, production]
+        default: sandbox
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The environment holds this target's Azure ids and, for production, K's approval.
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Production deploys only from main
+        if: inputs.environment == 'production' && github.ref != 'refs/heads/main'
+        run: |
+          echo "Production is deployed from main only (this run is on $GITHUB_REF). Merge first." >&2
+          exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      # Typecheck and tests run inside the deploy script; a failure stops before anything is published.
+      - name: Deploy
+        env:
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_FUNCTIONAPP_NAME: ${{ vars.AZURE_FUNCTIONAPP_NAME }}
+          # The script's own guard against deploying to production by accident. Here K's approval of the
+          # production environment is that deliberate step.
+          EBAY_CONFIRM_PRODUCTION: ${{ inputs.environment == 'production' && 'yes' || '' }}
+        run: node scripts/azure-deploy.mjs ${{ inputs.environment }}

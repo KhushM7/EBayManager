@@ -52,6 +52,22 @@ $env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-secrets.mjs production
 $env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/people.mjs production refresh
 ```
 
+## Deploying from GitHub (no computer needed)
+
+`.github/workflows/deploy.yml` deploys Sandbox or production from GitHub: Actions → deploy → Run workflow, or a Claude session can start it. Production waits until you press Approve (GitHub website or phone app) and deploys only from `main`.
+
+One-time set-up, per environment, from [Azure Cloud Shell](https://shell.azure.com) in any browser (you're already signed in there):
+
+```sh
+git clone https://github.com/KhushM7/EBayManager && cd EBayManager
+node scripts/azure-github-oidc.mjs sandbox
+EBAY_CONFIRM_PRODUCTION=yes node scripts/azure-github-oidc.mjs production
+```
+
+Each run prints five values. In GitHub → Settings → Environments, create `sandbox` and `production` and add the values as that environment's variables. On `production`, tick Required reviewers, add yourself, and allow only `main` under Deployment branches. No password is stored anywhere: GitHub signs in as an Azure identity that can only publish to that one Function App.
+
+Infrastructure and secrets still need the commands above (Cloud Shell works for those too, with `.prod.vars` uploaded for secrets).
+
 ## People: you and up to two managers
 
 People are set **only** from your computer with `scripts/people.mjs`. The app itself has no way to add, change or

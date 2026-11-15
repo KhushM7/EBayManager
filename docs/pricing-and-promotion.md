@@ -59,3 +59,10 @@ eBay's suggested ad rate is usually high. The app proposes promotion only when i
 ## Data the app keeps
 
 `market_snapshots(item_id, taken_at, query, comparables JSON, sold JSON, saturation, target, confidence)`, so every proposal's evidence can be reopened later, and so the app learns how fast items at each price point actually sell.
+
+## 2026-11-15: promotion by views and watchers, applied through the gate; offers to watchers
+
+- **When promotion is proposed** (K): when the listing isn't being seen, not for days listed alone. Not seen means under 100 search impressions in 7 days (a week or more listed), or fewer than 5 views in 7 days with nobody watching after 14 days. A listing with views and watchers doesn't need an ad however long it has sat: its lever is the price or an offer to its watchers. A saturated market is no longer required, only that the market isn't thin; the rate limits, the payback test and the floor check are unchanged.
+- **Applying it**: an approved `promote` label now changes eBay (`src/ebay/write.ts`, `applyPromotion`): the listing's ad is created in the app's one general campaign ("EBayManager general", made on first use), its rate changed, or the ad removed. The gate refuses a rate outside 2% to 4%.
+- **Offers to watchers** (`src/watchers.ts`, K): a reminder to people who liked the item, so the discount is as small as possible: 2% the first time, a point more each time the listing is offered again unsold, never above 5% and never under K's floor. Nightly, for listings eBay says are eligible, at least 7 days listed, with no price change under way and no offer in the last 14 days. Each is an `offer_to_watchers` label K approves; offers run 4 days with no counter-offers. The gate refuses a discount outside 2% to 5%.
+- **Not yet proven on eBay.** The Marketing and Negotiation calls were written without access to eBay's API reference from the build session. Prove each once on Sandbox, then with one real label on production, before relying on them. The 14-day before-and-after promotion review is still to do.

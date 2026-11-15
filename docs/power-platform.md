@@ -103,8 +103,8 @@ agent. Each folder's README has the steps and a "check it" list.
 **4. Production, when Sandbox is right.** The same four commands with `.prod.vars` and
 `$env:EBAY_CONFIRM_PRODUCTION='yes'`, after merging to `main`. Then point the connector's host at production.
 
-To turn either API off again: delete its secret from Key Vault (or remove the line from the vars file and
-upload), and restart the app.
+To turn either API off again: delete its secret from Key Vault and restart the app. (Removing the line from
+the vars file isn't enough: the upload script only adds and replaces.)
 
 ## Questions for K
 

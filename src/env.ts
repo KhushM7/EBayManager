@@ -59,6 +59,15 @@ export interface Env {
   /** The self-hosted photo AI container (imageai/, docs/imageai.md): its https address and shared key. Unset: not set up. */
   IMAGEAI_URL?: string;
   IMAGEAI_KEY?: string;
+  /**
+   * The read-only key for Microsoft Power Platform (src/ro/handler.ts, docs/power-platform.md): reads /api/ro/*
+   * and nothing else. Unset or under 32 characters: that API doesn't exist.
+   */
+  RO_API_KEY?: string;
+  /** The Stock Room intake key (src/intake.ts): may create new-listing drafts and nothing else. Unset: off. */
+  INTAKE_API_KEY?: string;
+  /** Where the nightly run writes the Power BI export files (a private Blob container). Unset: built on request. */
+  exports?: Pick<PhotoStore, "put" | "get">;
   MCP_TOKEN: string;
   SIGNING_KEY: string;
   NTFY_TOPIC: string;

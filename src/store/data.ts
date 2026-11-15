@@ -431,6 +431,16 @@ export function pricingRepo(docs: DocStore) {
           ],
         })
       ).map((d) => strip(d) as DecisionRow),
+    /** Every decision for K's own items since a time, without the stored result (for the read-only exports). */
+    decisionSummaries: async (since: number): Promise<Omit<DecisionRow, "result">[]> =>
+      docs.query<Omit<DecisionRow, "result">>(P, {
+        where: [
+          { f: "type", op: "=", v: "decision" },
+          { f: "at", op: ">", v: since },
+          { f: "item_id", op: "notnull" },
+        ],
+        fields: ["item_id", "at", "grp", "strategy", "price", "total", "market_price", "predicted_days"],
+      }),
     /** Learned parameters for a group, else the global fit. */
     async paramsFor(group: string): Promise<{ tau: number; alpha: number } | null> {
       for (const g of [group, "all"]) {
@@ -612,6 +622,11 @@ export function jobsRepo(docs: DocStore) {
     async latestHealthFlags(): Promise<{ item_id: string; flag: string; detail: string }[]> {
       const [d] = await docs.query<any>(J, { pk: "health", orderBy: ["checked_at", "desc"], limit: 1 });
       return d?.flags ?? [];
+    },
+    /** Every nightly health check since a time, oldest first (for the read-only exports). */
+    async healthRunsSince(since: number): Promise<{ checked_at: number; flags: { item_id: string; flag: string; detail: string }[] }[]> {
+      const rows = await docs.query<any>(J, { pk: "health", where: [{ f: "checked_at", op: ">=", v: since }], orderBy: ["checked_at", "asc"] });
+      return rows.map((d) => ({ checked_at: d.checked_at, flags: d.flags ?? [] }));
     },
     /** A lock that frees itself after ttlSec even if its holder crashes. */
     acquireLock: (name: string, ttlSec: number) => docs.create(J, { id: `lock:${name}`, pk: "lock", type: "lock", at: Date.now(), ttl: ttlSec }),

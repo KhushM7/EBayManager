@@ -1,0 +1,726 @@
+createOrReplace
+
+	expression BaseUrl = "https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+
+	expression ApiKey = "" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+
+	expression fnExport =
+			(name as text) as table =>
+			let
+				// The key goes in a header, so the data source's credential in Power BI is "Anonymous".
+				Raw = Web.Contents(BaseUrl, [RelativePath = "api/ro/export/" & name & ".csv", Headers = [#"X-Api-Key" = ApiKey]]),
+				Csv = Csv.Document(Raw, [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+				Promoted = Table.PromoteHeaders(Csv, [PromoteAllScalars = true])
+			in
+				Promoted
+
+	table Calendar
+		dataCategory: Time
+
+		column Date
+			dataType: dateTime
+			isKey
+			formatString: dd mmm yyyy
+			summarizeBy: none
+			sourceColumn: Date
+
+		column Year
+			dataType: int64
+			summarizeBy: none
+			sourceColumn: Year
+
+		column Month
+			dataType: string
+			summarizeBy: none
+			sourceColumn: Month
+
+		column 'Week Starting'
+			dataType: dateTime
+			formatString: dd mmm yyyy
+			summarizeBy: none
+			sourceColumn: Week Starting
+
+		partition Calendar = m
+			mode: import
+			source =
+					let
+						Start = #date(2025, 1, 1),
+						End = Date.EndOfYear(Date.From(DateTime.LocalNow())),
+						Days = List.Dates(Start, Duration.Days(End - Start) + 1, #duration(1, 0, 0, 0)),
+						AsTable = Table.FromList(Days, Splitter.SplitByNothing(), {"Date"}),
+						Typed = Table.TransformColumnTypes(AsTable, {{"Date", type date}}),
+						Year = Table.AddColumn(Typed, "Year", each Date.Year([Date]), Int64.Type),
+						Month = Table.AddColumn(Year, "Month", each Date.ToText([Date], "yyyy-MM"), type text),
+						Week = Table.AddColumn(Month, "Week Starting", each Date.StartOfWeek([Date], Day.Monday), type date)
+					in
+						Week
+
+	table Listings
+
+		measure 'Active Listings' = COUNTROWS ( Listings )
+			formatString: 0
+
+		measure 'Asking Total £' = SUMX ( Listings, Listings[price] * Listings[quantity] )
+			formatString: £#,0.00
+
+		column item_id
+			dataType: string
+			summarizeBy: none
+			sourceColumn: item_id
+
+		column title
+			dataType: string
+			summarizeBy: none
+			sourceColumn: title
+
+		column price
+			dataType: double
+			summarizeBy: none
+			sourceColumn: price
+
+		column currency
+			dataType: string
+			summarizeBy: none
+			sourceColumn: currency
+
+		column quantity
+			dataType: int64
+			summarizeBy: sum
+			sourceColumn: quantity
+
+		column watchers
+			dataType: int64
+			summarizeBy: sum
+			sourceColumn: watchers
+
+		column views_7d
+			dataType: int64
+			summarizeBy: sum
+			sourceColumn: views_7d
+
+		column impressions_7d
+			dataType: int64
+			summarizeBy: sum
+			sourceColumn: impressions_7d
+
+		column start_date
+			dataType: dateTime
+			formatString: General Date
+			summarizeBy: none
+			sourceColumn: start_date
+
+		column days_listed
+			dataType: int64
+			summarizeBy: none
+			sourceColumn: days_listed
+
+		column health_flags
+			dataType: string
+			summarizeBy: none
+			sourceColumn: health_flags
+
+		column waiting_changes
+			dataType: int64
+			summarizeBy: sum
+			sourceColumn: waiting_changes
+
+		column snapshot_at
+			dataType: dateTime
+			formatString: General Date
+			summarizeBy: none
+			sourceColumn: snapshot_at
+
+		partition Listings = m
+			mode: import
+			source =
+					let
+						Source = fnExport("listings"),
+						Typed = Table.TransformColumnTypes(Source, {{"item_id", type text}, {"title", type text}, {"price", type number}, {"currency", type text}, {"quantity", Int64.Type}, {"watchers", Int64.Type}, {"views_7d", Int64.Type}, {"impressions_7d", Int64.Type}, {"start_date", type datetimezone}, {"days_listed", Int64.Type}, {"health_flags", type text}, {"waiting_changes", Int64.Type}, {"snapshot_at", type datetimezone}}, "en-GB")
+					in
+						Typed
+
+	table ListingsDaily
+
+		column date
+			dataType: dateTime
+			formatString: dd mmm yyyy
+			summarizeBy: none
+			sourceColumn: date
+
+		column active_listings
+			dataType: int64
+			summarizeBy: sum
+			sourceColumn: active_listings
+
+		column asking_total
+			dataType: double
+			summarizeBy: sum
+			sourceColumn: asking_total
+
+		column watchers
+			dataType: int64
+			summarizeBy: sum
+			sourceColumn: watchers
+
+		partition ListingsDaily = m
+			mode: import
+			source =
+					let
+						Source = fnExport("listings_daily"),
+						Typed = Table.TransformColumnTypes(Source, {{"date", type date}, {"active_listings", Int64.Type}, {"asking_total", type number}, {"watchers", Int64.Type}}, "en-GB")
+					in
+						Typed
+
+	table Sales
+
+		measure 'Revenue £' = SUM ( Sales[line_total] )
+			formatString: £#,0.00
+
+		measure 'Items Sold' = SUM ( Sales[quantity] )
+			formatString: 0
+
+		measure 'Avg Sale Price £' = AVERAGE ( Sales[item_price] )
+			formatString: £#,0.00
+
+		measure 'Avg Days to Sell' = AVERAGE ( Sales[days_to_sell] )
+			formatString: 0.0
+
+		measure 'Sell-through' = DIVIDE ( [Items Sold], [Items Sold] + [Active Listings] )
+			formatString: 0%
+
+		column sale_id
+			dataType: string
+			summarizeBy: none
+			sourceColumn: sale_id
+
+		column sold_at
+			dataType: dateTime
+			formatString: General Date
+			summarizeBy: none
+			sourceColumn: sold_at
+
+		column item_id
+			dataType: string
+			summarizeBy: none
+			sourceColumn: item_id
+
+		column title
+			dataType: string
+			summarizeBy: none
+			sourceColumn: title
+
+		column quantity
+			dataType: int64
+			summarizeBy: sum
+			sourceColumn: quantity
+
+		column item_price
+			dataType: double
+			summarizeBy: none
+			sourceColumn: item_price
+
+		column line_total
+			dataType: double
+			summarizeBy: sum
+			sourceColumn: line_total
+
+		column days_to_sell
+			dataType: double
+			summarizeBy: none
+			sourceColumn: days_to_sell
+
+		column source
+			dataType: string
+			summarizeBy: none
+			sourceColumn: source
+
+		column sold_date
+			dataType: dateTime
+			formatString: dd mmm yyyy
+			summarizeBy: none
+			sourceColumn: sold_date
+
+		partition Sales = m
+			mode: import
+			source =
+					let
+						Source = fnExport("sales"),
+						Typed = Table.TransformColumnTypes(Source, {{"sale_id", type text}, {"sold_at", type datetimezone}, {"item_id", type text}, {"title", type text}, {"quantity", Int64.Type}, {"item_price", type number}, {"line_total", type number}, {"days_to_sell", type number}, {"source", type text}}, "en-GB"),
+						WithDate = Table.AddColumn(Typed, "sold_date", each Date.From(DateTimeZone.ToUtc([sold_at])), type date)
+					in
+						WithDate
+
+	table Proposals
+
+		measure Suggested = COUNTROWS ( Proposals )
+			formatString: 0
+
+		measure Approved = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "approved" )
+			formatString: 0
+
+		measure Rejected = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "rejected" )
+			formatString: 0
+
+		measure Expired = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "expired" )
+			formatString: 0
+
+		measure Waiting = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "waiting" )
+			formatString: 0
+
+		measure 'Applied to eBay' = CALCULATE ( COUNTROWS ( Proposals ), Proposals[applied] = TRUE () )
+			formatString: 0
+
+		measure 'Approval Rate' = DIVIDE ( [Approved], [Approved] + [Rejected] )
+			formatString: 0%
+
+		measure 'Human Override Rate' = DIVIDE ( [Rejected], [Approved] + [Rejected] )
+			formatString: 0%
+
+		measure 'Expiry Rate' = DIVIDE ( [Expired], [Suggested] - [Waiting] )
+			formatString: 0%
+
+		measure 'Median Hours to Decide' = MEDIAN ( Proposals[hours_to_decide] )
+			formatString: 0.0
+
+		column id
+			dataType: string
+			summarizeBy: none
+			sourceColumn: id
+
+		column kind
+			dataType: string
+			summarizeBy: none
+			sourceColumn: kind
+
+		column kind_label
+			dataType: string
+			summarizeBy: none
+			sourceColumn: kind_label
+
+		column item_id
+			dataType: string
+			summarizeBy: none
+			sourceColumn: item_id
+
+		column item_title
+			dataType: string
+			summarizeBy: none
+			sourceColumn: item_title
+
+		column status
+			dataType: string
+			summarizeBy: none
+			sourceColumn: status
+
+		column outcome
+			dataType: string
+			summarizeBy: none
+			sourceColumn: outcome
+
+		column applied
+			dataType: boolean
+			summarizeBy: none
+			sourceColumn: applied
+
+		column dry_run
+			dataType: boolean
+			summarizeBy: none
+			sourceColumn: dry_run
+
+		column created_at
+			dataType: dateTime
+			formatString: General Date
+			summarizeBy: none
+			sourceColumn: created_at
+
+		column decided_at
+			dataType: dateTime
+			formatString: General Date
+			summarizeBy: none
+			sourceColumn: decided_at
+
+		column expires_at
+			dataType: dateTime
+			formatString: General Date
+			summarizeBy: none
+			sourceColumn: expires_at
+
+		column hours_to_decide
+			dataType: double
+			summarizeBy: none
+			sourceColumn: hours_to_decide
+
+		column decided_by
+			dataType: string
+			summarizeBy: none
+			sourceColumn: decided_by
+
+		column old_price
+			dataType: double
+			summarizeBy: none
+			sourceColumn: old_price
+
+		column new_price
+			dataType: double
+			summarizeBy: none
+			sourceColumn: new_price
+
+		column created_date
+			dataType: dateTime
+			formatString: dd mmm yyyy
+			summarizeBy: none
+			sourceColumn: created_date
+
+		partition Proposals = m
+			mode: import
+			source =
+					let
+						Source = fnExport("proposals"),
+						Typed = Table.TransformColumnTypes(Source, {{"id", type text}, {"kind", type text}, {"kind_label", type text}, {"item_id", type text}, {"item_title", type text}, {"status", type text}, {"outcome", type text}, {"applied", type logical}, {"dry_run", type logical}, {"created_at", type datetimezone}, {"decided_at", type datetimezone}, {"expires_at", type datetimezone}, {"hours_to_decide", type number}, {"decided_by", type text}, {"old_price", type number}, {"new_price", type number}}, "en-GB"),
+						WithDate = Table.AddColumn(Typed, "created_date", each Date.From(DateTimeZone.ToUtc([created_at])), type date)
+					in
+						WithDate
+
+	table PriceAccuracy
+
+		measure 'Sales Compared' = COUNTROWS ( PriceAccuracy )
+			formatString: 0
+
+		measure 'Mean Abs % Error' = AVERAGE ( PriceAccuracy[abs_pct_error] )
+			formatString: 0.0%
+
+		measure 'Median Abs % Error' = MEDIAN ( PriceAccuracy[abs_pct_error] )
+			formatString: 0.0%
+
+		measure 'Mean Error £' = AVERAGE ( PriceAccuracy[error] )
+			formatString: £#,0.00;-£#,0.00
+
+		measure 'Within 10%' = DIVIDE ( CALCULATE ( COUNTROWS ( PriceAccuracy ), PriceAccuracy[abs_pct_error] <= 0.1 ), [Sales Compared] )
+			formatString: 0%
+
+		measure 'Sold Above Prediction' = DIVIDE ( CALCULATE ( COUNTROWS ( PriceAccuracy ), PriceAccuracy[error] > 0 ), [Sales Compared] )
+			formatString: 0%
+
+		measure 'Priced Before Sale' = DIVIDE ( [Sales Compared], COUNTROWS ( Sales ) )
+			formatString: 0%
+
+		column sale_id
+			dataType: string
+			summarizeBy: none
+			sourceColumn: sale_id
+
+		column sold_at
+			dataType: dateTime
+			formatString: General Date
+			summarizeBy: none
+			sourceColumn: sold_at
+
+		column item_id
+			dataType: string
+			summarizeBy: none
+			sourceColumn: item_id
+
+		column title
+			dataType: string
+			summarizeBy: none
+			sourceColumn: title
+
+		column group
+			dataType: string
+			summarizeBy: none
+			sourceColumn: group
+
+		column strategy
+			dataType: string
+			summarizeBy: none
+			sourceColumn: strategy
+
+		column predicted_at
+			dataType: dateTime
+			formatString: General Date
+			summarizeBy: none
+			sourceColumn: predicted_at
+
+		column days_before_sale
+			dataType: double
+			summarizeBy: none
+			sourceColumn: days_before_sale
+
+		column predicted_price
+			dataType: double
+			summarizeBy: none
+			sourceColumn: predicted_price
+
+		column market_price
+			dataType: double
+			summarizeBy: none
+			sourceColumn: market_price
+
+		column sold_price
+			dataType: double
+			summarizeBy: none
+			sourceColumn: sold_price
+
+		column error
+			dataType: double
+			summarizeBy: sum
+			sourceColumn: error
+
+		column abs_pct_error
+			dataType: double
+			summarizeBy: none
+			sourceColumn: abs_pct_error
+
+		column sold_date
+			dataType: dateTime
+			formatString: dd mmm yyyy
+			summarizeBy: none
+			sourceColumn: sold_date
+
+		partition PriceAccuracy = m
+			mode: import
+			source =
+					let
+						Source = fnExport("price_accuracy"),
+						Typed = Table.TransformColumnTypes(Source, {{"sale_id", type text}, {"sold_at", type datetimezone}, {"item_id", type text}, {"title", type text}, {"group", type text}, {"strategy", type text}, {"predicted_at", type datetimezone}, {"days_before_sale", type number}, {"predicted_price", type number}, {"market_price", type number}, {"sold_price", type number}, {"error", type number}, {"abs_pct_error", type number}}, "en-GB"),
+						WithDate = Table.AddColumn(Typed, "sold_date", each Date.From(DateTimeZone.ToUtc([sold_at])), type date)
+					in
+						WithDate
+
+	table PriceDecisions
+
+		column item_id
+			dataType: string
+			summarizeBy: none
+			sourceColumn: item_id
+
+		column decided_at
+			dataType: dateTime
+			formatString: General Date
+			summarizeBy: none
+			sourceColumn: decided_at
+
+		column group
+			dataType: string
+			summarizeBy: none
+			sourceColumn: group
+
+		column strategy
+			dataType: string
+			summarizeBy: none
+			sourceColumn: strategy
+
+		column suggested_price
+			dataType: double
+			summarizeBy: none
+			sourceColumn: suggested_price
+
+		column suggested_total_with_postage
+			dataType: double
+			summarizeBy: sum
+			sourceColumn: suggested_total_with_postage
+
+		column market_price
+			dataType: double
+			summarizeBy: none
+			sourceColumn: market_price
+
+		column predicted_days
+			dataType: double
+			summarizeBy: none
+			sourceColumn: predicted_days
+
+		column decided_date
+			dataType: dateTime
+			formatString: dd mmm yyyy
+			summarizeBy: none
+			sourceColumn: decided_date
+
+		partition PriceDecisions = m
+			mode: import
+			source =
+					let
+						Source = fnExport("price_decisions"),
+						Typed = Table.TransformColumnTypes(Source, {{"item_id", type text}, {"decided_at", type datetimezone}, {"group", type text}, {"strategy", type text}, {"suggested_price", type number}, {"suggested_total_with_postage", type number}, {"market_price", type number}, {"predicted_days", type number}}, "en-GB"),
+						WithDate = Table.AddColumn(Typed, "decided_date", each Date.From(DateTimeZone.ToUtc([decided_at])), type date)
+					in
+						WithDate
+
+	table HealthFlags
+
+		measure Flags = COUNTROWS ( HealthFlags )
+			formatString: 0
+
+		measure 'Flagged Listings' = DISTINCTCOUNT ( HealthFlags[item_id] )
+			formatString: 0
+
+		measure 'Flagged Then Changed' =
+				VAR flagged = ADDCOLUMNS ( VALUES ( HealthFlags[item_id] ), "@first", CALCULATE ( MIN ( HealthFlags[date] ) ) )
+				RETURN
+					COUNTROWS (
+						FILTER (
+							flagged,
+							VAR i = HealthFlags[item_id]
+							VAR d = [@first]
+							RETURN
+								NOT ISEMPTY ( FILTER ( ALL ( Proposals ), Proposals[item_id] = i && Proposals[applied] = TRUE () && Proposals[created_date] >= d ) )
+						)
+					)
+			formatString: 0
+
+		measure 'Flagged Then Sold' =
+				VAR flagged = ADDCOLUMNS ( VALUES ( HealthFlags[item_id] ), "@first", CALCULATE ( MIN ( HealthFlags[date] ) ) )
+				RETURN
+					COUNTROWS (
+						FILTER (
+							flagged,
+							VAR i = HealthFlags[item_id]
+							VAR d = [@first]
+							RETURN
+								NOT ISEMPTY ( FILTER ( ALL ( Sales ), Sales[item_id] = i && Sales[sold_date] >= d ) )
+						)
+					)
+			formatString: 0
+
+		measure 'Flagged Sold Rate' = DIVIDE ( [Flagged Then Sold], [Flagged Listings] )
+			formatString: 0%
+
+		column date
+			dataType: dateTime
+			formatString: dd mmm yyyy
+			summarizeBy: none
+			sourceColumn: date
+
+		column item_id
+			dataType: string
+			summarizeBy: none
+			sourceColumn: item_id
+
+		column title
+			dataType: string
+			summarizeBy: none
+			sourceColumn: title
+
+		column flag
+			dataType: string
+			summarizeBy: none
+			sourceColumn: flag
+
+		column detail
+			dataType: string
+			summarizeBy: none
+			sourceColumn: detail
+
+		partition HealthFlags = m
+			mode: import
+			source =
+					let
+						Source = fnExport("health_flags"),
+						Typed = Table.TransformColumnTypes(Source, {{"date", type date}, {"item_id", type text}, {"title", type text}, {"flag", type text}, {"detail", type text}}, "en-GB")
+					in
+						Typed
+
+	table ClaudeSpend
+
+		measure 'Claude Cost $' = SUM ( ClaudeSpend[cost_usd] )
+			formatString: $#,0.00
+
+		measure 'Claude Calls' = SUM ( ClaudeSpend[calls] )
+			formatString: #,0
+
+		measure 'Daily Budget $' = MAXX ( ALL ( ClaudeSpend ), ClaudeSpend[daily_budget_usd] )
+			formatString: $#,0.00
+
+		measure 'Avg Daily Cost $' = AVERAGEX ( VALUES ( ClaudeSpend[date] ), [Claude Cost $] )
+			formatString: $#,0.000
+
+		measure 'Days Over Budget' = COUNTROWS ( FILTER ( VALUES ( ClaudeSpend[date] ), [Claude Cost $] > [Daily Budget $] ) ) + 0
+			formatString: 0
+
+		measure 'Budget Used' = DIVIDE ( [Avg Daily Cost $], [Daily Budget $] )
+			formatString: 0%
+
+		measure 'New Listings Submitted' = CALCULATE ( COUNTROWS ( Proposals ), Proposals[kind] = "create_listing" ) + 0
+			formatString: 0
+
+		measure 'Cost per New Listing $' = DIVIDE ( CALCULATE ( [Claude Cost $], ClaudeSpend[job] = "listing" ), [New Listings Submitted] )
+			formatString: $#,0.000
+
+		column date
+			dataType: dateTime
+			formatString: dd mmm yyyy
+			summarizeBy: none
+			sourceColumn: date
+
+		column job
+			dataType: string
+			summarizeBy: none
+			sourceColumn: job
+
+		column model
+			dataType: string
+			summarizeBy: none
+			sourceColumn: model
+
+		column calls
+			dataType: int64
+			summarizeBy: sum
+			sourceColumn: calls
+
+		column input_tokens
+			dataType: int64
+			summarizeBy: sum
+			sourceColumn: input_tokens
+
+		column output_tokens
+			dataType: int64
+			summarizeBy: sum
+			sourceColumn: output_tokens
+
+		column cost_usd
+			dataType: double
+			summarizeBy: sum
+			sourceColumn: cost_usd
+
+		column daily_budget_usd
+			dataType: double
+			summarizeBy: none
+			sourceColumn: daily_budget_usd
+
+		partition ClaudeSpend = m
+			mode: import
+			source =
+					let
+						Source = fnExport("claude_spend"),
+						Typed = Table.TransformColumnTypes(Source, {{"date", type date}, {"job", type text}, {"model", type text}, {"calls", Int64.Type}, {"input_tokens", Int64.Type}, {"output_tokens", Int64.Type}, {"cost_usd", type number}, {"daily_budget_usd", type number}}, "en-GB")
+					in
+						Typed
+
+	relationship ListingsDaily_Calendar
+		fromColumn: ListingsDaily.date
+		toColumn: Calendar.Date
+
+	relationship Sales_Calendar
+		fromColumn: Sales.sold_date
+		toColumn: Calendar.Date
+
+	relationship Proposals_Calendar
+		fromColumn: Proposals.created_date
+		toColumn: Calendar.Date
+
+	relationship PriceAccuracy_Calendar
+		fromColumn: PriceAccuracy.sold_date
+		toColumn: Calendar.Date
+
+	relationship PriceDecisions_Calendar
+		fromColumn: PriceDecisions.decided_date
+		toColumn: Calendar.Date
+
+	relationship HealthFlags_Calendar
+		fromColumn: HealthFlags.date
+		toColumn: Calendar.Date
+
+	relationship ClaudeSpend_Calendar
+		fromColumn: ClaudeSpend.date
+		toColumn: Calendar.Date
+

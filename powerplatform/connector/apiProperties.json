@@ -1,0 +1,22 @@
+{
+  "properties": {
+    "connectionParameters": {
+      "api_key": {
+        "type": "securestring",
+        "uiDefinition": {
+          "displayName": "API key",
+          "description": "The key from EBayManager (RO_API_KEY for the read-only connector, INTAKE_API_KEY for intake).",
+          "tooltip": "Provide the API key",
+          "constraints": {
+            "tabIndex": 2,
+            "clearText": false,
+            "required": "true"
+          }
+        }
+      }
+    },
+    "iconBrandColor": "#3665F3",
+    "capabilities": [],
+    "policyTemplateInstances": []
+  }
+}

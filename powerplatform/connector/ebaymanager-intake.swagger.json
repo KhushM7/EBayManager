@@ -1,0 +1,152 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "EBayManager Stock Room intake",
+    "description": "Sends an item from the Stock Room app to EBayManager as a new-listing draft. It can only make drafts: a draft reaches eBay only after someone finishes it in the app and a person approves it.",
+    "version": "1.0"
+  },
+  "host": "ebay-autopilot-sandbox-wrpoyt.azurewebsites.net",
+  "basePath": "/api/intake",
+  "schemes": [
+    "https"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/drafts": {
+      "post": {
+        "operationId": "CreateDraft",
+        "summary": "Send an item as a draft",
+        "description": "Makes a new-listing draft in EBayManager from a Stock Room item. Sending the same item twice makes one draft.",
+        "x-ms-visibility": "important",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": [
+                "sourceId",
+                "title"
+              ],
+              "properties": {
+                "sourceId": {
+                  "type": "string",
+                  "description": "The Stock Room row's id (letters, digits, - and _).",
+                  "x-ms-summary": "Row id"
+                },
+                "title": {
+                  "type": "string",
+                  "description": "What the item is, in the family's words (up to 80 characters).",
+                  "x-ms-summary": "Item name"
+                },
+                "owner": {
+                  "type": "string",
+                  "description": "Whose it is.",
+                  "x-ms-summary": "Owner"
+                },
+                "location": {
+                  "type": "string",
+                  "description": "Which room or box it is in.",
+                  "x-ms-summary": "Location"
+                },
+                "condition": {
+                  "type": "string",
+                  "description": "Rough condition, in a few words.",
+                  "x-ms-summary": "Condition"
+                },
+                "photoBase64": {
+                  "type": "string",
+                  "description": "One JPEG photo as base64 (at most 6 MB, at least 500 pixels on its long side). Optional.",
+                  "x-ms-summary": "Photo (base64)"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Draft made",
+            "schema": {
+              "$ref": "#/definitions/DraftResult"
+            }
+          },
+          "200": {
+            "description": "Already sent",
+            "schema": {
+              "$ref": "#/definitions/DraftResult"
+            }
+          },
+          "400": {
+            "description": "Something is missing or wrong",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "409": {
+            "description": "Too many drafts open",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "429": {
+            "description": "Too many items today",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "DraftResult": {
+      "type": "object",
+      "properties": {
+        "draftId": {
+          "type": "string",
+          "description": "The draft's id in EBayManager."
+        },
+        "created": {
+          "type": "boolean",
+          "description": "False when this item had already been sent."
+        },
+        "photoAdded": {
+          "type": "boolean",
+          "description": "Whether the photo was saved."
+        },
+        "status": {
+          "type": "string",
+          "description": "What happens next, in words."
+        }
+      }
+    },
+    "Error": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string",
+          "description": "What went wrong."
+        }
+      }
+    }
+  },
+  "securityDefinitions": {
+    "api_key": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-Api-Key"
+    }
+  },
+  "security": [
+    {
+      "api_key": []
+    }
+  ],
+  "tags": []
+}

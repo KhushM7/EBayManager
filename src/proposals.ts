@@ -5,6 +5,7 @@ import { push } from "./notify";
 import { snapshotListings } from "./snapshot";
 import { PROPOSAL_TTL_DAYS } from "./rules";
 import { newProposalId } from "./store/proposals";
+import { signDecision, verifyDecision } from "./links";
 
 export type ProposalKind =
   | "price"
@@ -70,25 +71,8 @@ export async function expireStale(env: Env): Promise<void> {
 
 // --- One-tap approval links. Only a link signed with SIGNING_KEY can approve; Claude never holds that key path. ---
 
-async function hmac(key: string, msg: string): Promise<string> {
-  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), { name: "HMAC", hash: "SHA-256" }, false, [
-    "sign",
-  ]);
-  const sig = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(msg));
-  return btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-export const signDecision = (env: Env, id: string, decision: "approve" | "reject", expiresAt: number) =>
-  hmac(env.SIGNING_KEY, `${id}:${decision}:${expiresAt}`);
-
-export async function verifyDecision(env: Env, id: string, decision: "approve" | "reject", expiresAt: number, sig: string) {
-  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) return false;
-  const expected = await signDecision(env, id, decision, expiresAt);
-  if (expected.length !== sig.length) return false;
-  let diff = 0;
-  for (let i = 0; i < sig.length; i++) diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
-  return diff === 0;
-}
+// The signing itself lives in src/links.ts, which imports nothing that can write, so read-only code can use it.
+export { signDecision, verifyDecision };
 
 /** Signed approve/reject links, valid until the proposal expires. Dry runs get none. */
 export async function decisionLinks(env: Env, p: Proposal) {

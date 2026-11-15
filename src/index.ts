@@ -1,8 +1,10 @@
 import type { Env } from "./env";
 import { consentUrl, exchangeCode, READONLY_SCOPES, userScopes } from "./ebay/auth";
 import { handleAccountDeletion } from "./deletion";
-import { handleApi } from "./api";
-import { finishOAuth, isKnownDevice, startOAuth } from "./auth/users";
+import { clientIp, handleApi } from "./api";
+import { finishOAuth, isKnownDevice, recordFailure, startOAuth, tooManyAttempts } from "./auth/users";
+import { handleReadOnly } from "./ro/handler";
+import { handleIntake } from "./intake";
 import { getSession, keyLoginAllowed, timingSafeEqual } from "./session";
 import { handleSignIn, signinPath } from "./signin";
 import { handleMcp } from "./mcp";
@@ -104,6 +106,13 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
   if (signin && path === signin) return handleSignIn(env, request, url);
   // The Claude connector, with its own token: Sandbox only unless switched on deliberately.
   if (path === "/mcp") return env.MCP_ENABLED === "true" ? handleMcp(env, request) : blank();
+
+  // Microsoft Power Platform (docs/power-platform.md), each with its own key and no session: the read-only API,
+  // and the Stock Room intake that can only make drafts. Without the right key both are the same blank 404.
+  if (path.startsWith("/api/ro/") || path.startsWith("/api/intake/")) {
+    const attempts = { tooMany: (k: string, limit: number, ms: number) => tooManyAttempts(env, k, limit, ms), record: (k: string) => recordFailure(env, k) };
+    return path.startsWith("/api/ro/") ? handleReadOnly(env, request, url, attempts, clientIp(request)) : handleIntake(env, request, url, attempts, clientIp(request));
+  }
 
   // Approval links: the signature is checked first, so a made-up link sees nothing. GET shows the proposal;
   // only the POST from a tap decides (link previews can't approve).

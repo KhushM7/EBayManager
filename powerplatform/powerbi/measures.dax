@@ -1,0 +1,180 @@
+// DAX measures for the Shop Health report. Written by build.mjs: change that, not this.
+// Each is: home table, name, format string, then the expression.
+
+// ===== Pricing accuracy =====
+
+// PriceAccuracy · format 0
+Sales Compared =
+    COUNTROWS ( PriceAccuracy )
+
+// PriceAccuracy · format 0.0%
+Mean Abs % Error =
+    AVERAGE ( PriceAccuracy[abs_pct_error] )
+
+// PriceAccuracy · format 0.0%
+Median Abs % Error =
+    MEDIAN ( PriceAccuracy[abs_pct_error] )
+
+// PriceAccuracy · format £#,0.00;-£#,0.00
+Mean Error £ =
+    AVERAGE ( PriceAccuracy[error] )
+
+// PriceAccuracy · format 0%
+Within 10% =
+    DIVIDE ( CALCULATE ( COUNTROWS ( PriceAccuracy ), PriceAccuracy[abs_pct_error] <= 0.1 ), [Sales Compared] )
+
+// PriceAccuracy · format 0%
+Sold Above Prediction =
+    DIVIDE ( CALCULATE ( COUNTROWS ( PriceAccuracy ), PriceAccuracy[error] > 0 ), [Sales Compared] )
+
+// PriceAccuracy · format 0%
+Priced Before Sale =
+    DIVIDE ( [Sales Compared], COUNTROWS ( Sales ) )
+
+// ===== Approval funnel =====
+
+// Proposals · format 0
+Suggested =
+    COUNTROWS ( Proposals )
+
+// Proposals · format 0
+Approved =
+    CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "approved" )
+
+// Proposals · format 0
+Rejected =
+    CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "rejected" )
+
+// Proposals · format 0
+Expired =
+    CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "expired" )
+
+// Proposals · format 0
+Waiting =
+    CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "waiting" )
+
+// Proposals · format 0
+Applied to eBay =
+    CALCULATE ( COUNTROWS ( Proposals ), Proposals[applied] = TRUE () )
+
+// Proposals · format 0%
+Approval Rate =
+    DIVIDE ( [Approved], [Approved] + [Rejected] )
+
+// Proposals · format 0%
+Human Override Rate =
+    DIVIDE ( [Rejected], [Approved] + [Rejected] )
+
+// Proposals · format 0%
+Expiry Rate =
+    DIVIDE ( [Expired], [Suggested] - [Waiting] )
+
+// Proposals · format 0.0
+Median Hours to Decide =
+    MEDIAN ( Proposals[hours_to_decide] )
+
+// ===== Listing health =====
+
+// HealthFlags · format 0
+Flags =
+    COUNTROWS ( HealthFlags )
+
+// HealthFlags · format 0
+Flagged Listings =
+    DISTINCTCOUNT ( HealthFlags[item_id] )
+
+// HealthFlags · format 0
+Flagged Then Changed =
+    VAR flagged = ADDCOLUMNS ( VALUES ( HealthFlags[item_id] ), "@first", CALCULATE ( MIN ( HealthFlags[date] ) ) )
+    RETURN
+        COUNTROWS (
+            FILTER (
+                flagged,
+                VAR i = HealthFlags[item_id]
+                VAR d = [@first]
+                RETURN
+                    NOT ISEMPTY ( FILTER ( ALL ( Proposals ), Proposals[item_id] = i && Proposals[applied] = TRUE () && Proposals[created_date] >= d ) )
+            )
+        )
+
+// HealthFlags · format 0
+Flagged Then Sold =
+    VAR flagged = ADDCOLUMNS ( VALUES ( HealthFlags[item_id] ), "@first", CALCULATE ( MIN ( HealthFlags[date] ) ) )
+    RETURN
+        COUNTROWS (
+            FILTER (
+                flagged,
+                VAR i = HealthFlags[item_id]
+                VAR d = [@first]
+                RETURN
+                    NOT ISEMPTY ( FILTER ( ALL ( Sales ), Sales[item_id] = i && Sales[sold_date] >= d ) )
+            )
+        )
+
+// HealthFlags · format 0%
+Flagged Sold Rate =
+    DIVIDE ( [Flagged Then Sold], [Flagged Listings] )
+
+// ===== AI cost =====
+
+// ClaudeSpend · format $#,0.00
+Claude Cost $ =
+    SUM ( ClaudeSpend[cost_usd] )
+
+// ClaudeSpend · format #,0
+Claude Calls =
+    SUM ( ClaudeSpend[calls] )
+
+// ClaudeSpend · format $#,0.00
+Daily Budget $ =
+    MAXX ( ALL ( ClaudeSpend ), ClaudeSpend[daily_budget_usd] )
+
+// ClaudeSpend · format $#,0.000
+Avg Daily Cost $ =
+    AVERAGEX ( VALUES ( ClaudeSpend[date] ), [Claude Cost $] )
+
+// ClaudeSpend · format 0
+Days Over Budget =
+    COUNTROWS ( FILTER ( VALUES ( ClaudeSpend[date] ), [Claude Cost $] > [Daily Budget $] ) ) + 0
+
+// ClaudeSpend · format 0%
+Budget Used =
+    DIVIDE ( [Avg Daily Cost $], [Daily Budget $] )
+
+// ClaudeSpend · format 0
+New Listings Submitted =
+    CALCULATE ( COUNTROWS ( Proposals ), Proposals[kind] = "create_listing" ) + 0
+
+// ClaudeSpend · format $#,0.000
+Cost per New Listing $ =
+    DIVIDE ( CALCULATE ( [Claude Cost $], ClaudeSpend[job] = "listing" ), [New Listings Submitted] )
+
+// ===== Sales =====
+
+// Sales · format £#,0.00
+Revenue £ =
+    SUM ( Sales[line_total] )
+
+// Sales · format 0
+Items Sold =
+    SUM ( Sales[quantity] )
+
+// Sales · format £#,0.00
+Avg Sale Price £ =
+    AVERAGE ( Sales[item_price] )
+
+// Sales · format 0.0
+Avg Days to Sell =
+    AVERAGE ( Sales[days_to_sell] )
+
+// Listings · format 0
+Active Listings =
+    COUNTROWS ( Listings )
+
+// Listings · format £#,0.00
+Asking Total £ =
+    SUMX ( Listings, Listings[price] * Listings[quantity] )
+
+// Sales · format 0%
+Sell-through =
+    DIVIDE ( [Items Sold], [Items Sold] + [Active Listings] )

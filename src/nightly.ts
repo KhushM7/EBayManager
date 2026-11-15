@@ -18,6 +18,7 @@ import { checkServices } from "./services";
 import { providerEnabled } from "./solddata";
 import { auditDone, runFirstDayAudit } from "./firstday";
 import { cleanUpDrafts } from "./drafts";
+import { writeExports } from "./ro/export";
 
 // The 02:00 run: read eBay, score listing health by rule, and send only flagged listings to Haiku, which may
 // file proposals for K. Each step runs on its own, so one failure (Sandbox has no traffic data, say) doesn't
@@ -251,6 +252,9 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
     const r = await runFirstDayAudit(env);
     return `${r.findings.length} findings, ${r.proposals.length} proposals`;
   });
+
+  // The Power BI export files (docs/power-platform.md): the read-only tables as CSV, with no buyer details.
+  await step(steps, "exports", async () => writeExports(env, Date.now()));
 
   // Last, so it sees every call this run made: a service that's down (eBay sign-in, Claude, sold data) becomes
   // an Inbox to-do with a notification (src/services.ts).

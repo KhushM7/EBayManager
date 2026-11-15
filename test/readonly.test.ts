@@ -127,10 +127,14 @@ describe("the read-only key", () => {
     }
   });
 
-  it("locks a network out after 20 wrong keys in an hour, even with the right key", async () => {
-    for (let i = 0; i < 20; i++) await call("/api/ro/status", { key: "guess", ip: "5.5.5.5" });
-    expect((await call("/api/ro/status", { ip: "5.5.5.5" })).status).toBe(404);
-    expect((await call("/api/ro/status", { ip: "6.6.6.6" })).status).toBe(200);
+  it("a wrong key writes nothing and locks nobody out: wrong guesses from a shared address can't shut the flows out", async () => {
+    const docs = env.store.docs as any;
+    const create = docs.create.bind(docs);
+    docs.create = () => { throw new Error("a wrong key wrote to the store"); };
+    for (let i = 0; i < 30; i++) expect((await call("/api/ro/status", { key: `guess-${i}`, ip: "5.5.5.5" })).status).toBe(404);
+    for (let i = 0; i < 30; i++) expect((await call("/api/intake/drafts", { key: `guess-${i}`, ip: "5.5.5.5", method: "POST", body: "{}" })).status).toBe(404);
+    docs.create = create;
+    expect((await call("/api/ro/status", { ip: "5.5.5.5" })).status).toBe(200);
   });
 
   it("allows 60 requests a minute", async () => {

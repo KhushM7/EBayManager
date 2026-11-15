@@ -14,7 +14,6 @@ import { acceptPhoto } from "./photos";
 
 export const INTAKE_KEY_HEADER = "X-Api-Key";
 const MIN_KEY_LENGTH = 32;
-const WRONG_KEYS_PER_HOUR = 20;
 /** At most this many intake drafts a day, whatever the flow does. */
 export const INTAKE_DRAFTS_PER_DAY = 30;
 /** Open drafts allowed in all (the same limit as the app, src/drafts.ts). */
@@ -42,20 +41,11 @@ const line = (v: unknown, max: number) =>
         .slice(0, max)
     : "";
 
-export async function handleIntake(
-  env: Env,
-  request: Request,
-  url: URL,
-  attempts: { tooMany(key: string, limit: number, windowMs: number): Promise<boolean>; record(key: string): Promise<void> },
-  ip: string,
-): Promise<Response> {
+export async function handleIntake(env: Env, request: Request, url: URL): Promise<Response> {
   const key = env.INTAKE_API_KEY ?? "";
   if (key.length < MIN_KEY_LENGTH) return blank();
-  if (await attempts.tooMany(`intake:${ip}`, WRONG_KEYS_PER_HOUR, 3_600_000)) return blank();
-  if (!sameKey(request.headers.get(INTAKE_KEY_HEADER) ?? "", key)) {
-    await attempts.record(`intake:${ip}`);
-    return blank();
-  }
+  // A wrong key is answered without touching the store (no lock-out by address: see src/ro/handler.ts).
+  if (!sameKey(request.headers.get(INTAKE_KEY_HEADER) ?? "", key)) return blank();
   if (url.pathname !== "/api/intake/drafts") return json({ error: "Not found" }, 404);
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
 

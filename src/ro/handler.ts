@@ -15,12 +15,13 @@ import { accuracyTable, healthTable, listingsTable, pricingTable, proposalsTable
 //   test/readonly.test.ts follows this file's imports to prove it, and runs every route against a store whose
 //   writes throw. It can't create, approve or reject anything.
 // - No buyer personal data: see src/ro/tables.ts.
-// - Rate limited: 60 requests a minute for the key, and 20 wrong keys an hour per network.
+// - Rate limited: 60 requests a minute. A wrong key is answered without touching the store, and there's no
+//   lock-out to trip: Power Platform calls from addresses many tenants share, so a lock-out by address would
+//   let a stranger's wrong guesses shut K's flows out. The key is 32 random bytes; guessing isn't a way in.
 
 export const RO_KEY_HEADER = "X-Api-Key";
 export const RO_MIN_KEY_LENGTH = 32;
 export const RO_REQUESTS_PER_MINUTE = 60;
-const WRONG_KEYS_PER_HOUR = 20;
 
 const blank = () => new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
 const json = (data: unknown, status = 200, headers: Record<string, string> = {}) => Response.json(data, { status, headers: { "Cache-Control": "no-store", ...headers } });
@@ -122,25 +123,11 @@ const MCP_SERVER = {
   instructions: "Read-only answers about K's eBay shop. Nothing here can change a listing, a price or a proposal: when something is waiting, give the person its link and they decide in the app.",
 };
 
-/**
- * Everything under /api/ro/. `ip` is the caller's address for the wrong-key limit; `attempts` records and
- * counts wrong keys (the sign-in limiter's store, passed in so this file imports no sign-in code).
- */
-export async function handleReadOnly(
-  env: Env,
-  request: Request,
-  url: URL,
-  attempts: { tooMany(key: string, limit: number, windowMs: number): Promise<boolean>; record(key: string): Promise<void> },
-  ip: string,
-): Promise<Response> {
+/** Everything under /api/ro/. */
+export async function handleReadOnly(env: Env, request: Request, url: URL): Promise<Response> {
   const key = env.RO_API_KEY ?? "";
   if (key.length < RO_MIN_KEY_LENGTH) return blank();
-  const sent = request.headers.get(RO_KEY_HEADER) ?? "";
-  if (await attempts.tooMany(`ro:${ip}`, WRONG_KEYS_PER_HOUR, 3_600_000)) return blank();
-  if (!sameKey(sent, key)) {
-    await attempts.record(`ro:${ip}`);
-    return blank();
-  }
+  if (!sameKey(request.headers.get(RO_KEY_HEADER) ?? "", key)) return blank();
   const wait = overLimit(Date.now());
   if (wait != null) return json({ error: "Too many requests. Try again in a minute." }, 429, { "Retry-After": String(wait) });
 

@@ -116,6 +116,20 @@ questions about your items, setting prices directly, and signing other people ou
 **If a manager loses their phone:** sign them out from Settings → People → Sign out everywhere, then
 `people.mjs production new-code --email ...` when they have a new one. To end their access: `remove`.
 
+## Microsoft Power Platform (optional, off until you set it up)
+
+Power BI, Power Automate, Power Apps and Copilot Studio can read EBayManager's data through a read-only API
+with its own key, and the Stock Room app can send items as drafts. Neither can change eBay or decide anything.
+Both are off until their key exists. The steps, the rules and the open questions are in
+[docs/power-platform.md](docs/power-platform.md); what you build in the Microsoft tenant is in
+[powerplatform/](powerplatform/README.md).
+
+```powershell
+node scripts/make-keys.mjs --power-platform   # adds the two keys to .dev.vars (add .prod.vars for production)
+node scripts/azure-infra.mjs sandbox          # the app settings and the exports container
+node scripts/azure-secrets.mjs sandbox        # uploads the keys
+```
+
 ## Finishing touches (one time)
 
 - [ ] Merge the latest work branch into `main` with a pull request (now `photo-tools-and-live-fixes`), so GitHub's main matches what's live.

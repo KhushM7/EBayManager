@@ -75,7 +75,9 @@ same checks as any upload. What the family typed goes in the draft's label only,
 
 ## For K: what to do, in order
 
-Nothing below has been run. Commands are for PowerShell, from the repository.
+Sandbox already runs this branch (deployed 2026-11-15 from GitHub, no keys set): the app works as before and
+both APIs answer the blank 404. Nothing else below has been run, and the nightly export hasn't had its first
+02:00 run yet. Commands are for PowerShell, from the repository.
 
 **1. Read the branch and decide whether to merge it.** Branch `ccr-524a0ecf-2tjk6i`. With no keys set, it
 changes nothing anyone can reach: both APIs answer the blank 404.

@@ -171,12 +171,67 @@ export async function applyApproved(env: Env): Promise<{ id: string; result: str
       await refreshAfterChange(env, "revise");
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (!(e instanceof WriteRefused)) await env.store.proposals.setOutcome(id, { status: "failed", result: msg });
+      if (!(e instanceof WriteRefused)) {
+        await env.store.proposals.setOutcome(id, { status: "failed", result: msg });
+        const p = await getProposal(env, id);
+        if (p) await reportWriteFailure(env, p, msg);
+      }
       out.push({ id, result: msg });
       if (e instanceof WriteRefused && /paused|Writes are off/.test(msg)) break;
     }
   }
   return out;
+}
+
+/** The marker between a to-do's plain words and its raw diagnostics (web/src/todos.tsx shows those as a copyable block). */
+export const DIAGNOSTICS_MARK = "--- diagnostics ---";
+
+const KIND_WORDS: Record<string, string> = {
+  promote: "the promotion change",
+  offer_to_watchers: "the offer to watchers",
+  price: "the price change",
+  revise: "the listing edit",
+  create_listing: "the new listing",
+  message: "the reply",
+  best_offer_response: "the offer answer",
+};
+const failedCode = (kind: string) => `ebay_refused_${kind}`;
+
+/**
+ * eBay refused or failed an approved change (K, 2026-11-15: never silently). An Inbox to-do says so in plain
+ * words and carries the raw diagnostics from the audit log (each call sent for this label, what was sent, and
+ * eBay's whole reply), so K can paste them to whoever fixes it; a notification points to it. One to-do per
+ * listing and kind, refreshed by a later failure and resolved when the same kind of change next goes through.
+ */
+export async function reportWriteFailure(env: Env, p: Pick<Proposal, "id" | "kind" | "item_id" | "payload">, message: string, now = Date.now()) {
+  const what = KIND_WORDS[p.kind] ?? `the ${p.kind.replace(/_/g, " ")}`;
+  const calls = (await env.store.audit.recent(40).catch(() => [])).filter((r) => r.proposal_id === p.id).reverse();
+  const title = (() => {
+    try {
+      return String(JSON.parse(p.payload).itemTitle ?? JSON.parse(p.payload).title ?? "") || null;
+    } catch {
+      return null;
+    }
+  })();
+  const diagnostics = [
+    `time: ${new Date(now).toISOString()}`,
+    `environment: ${env.EBAY_ENV}`,
+    `label: ${p.id} (${p.kind})`,
+    `listing: ${p.item_id ?? "none"}`,
+    `payload: ${p.payload.slice(0, 1500)}`,
+    `error: ${message}`,
+    ...calls.flatMap((c, i) => [`call ${i + 1}: ${c.call} -> ${c.outcome}`, `  sent: ${String(c.request ?? "").slice(0, 2500)}`, `  reply: ${String(c.response ?? "").slice(0, 4000)}`]),
+  ].join("\n");
+  const detail = `You approved ${what}, but eBay didn't accept it, so nothing changed on eBay.\neBay said: ${message.split("\n")[0].slice(0, 300)}\nCopy the diagnostics below to Claude to get it fixed. Approving the label again won't help until then.\n${DIAGNOSTICS_MARK}\n${diagnostics}`;
+  await env.store.todos
+    .sync("gate", { codes: [failedCode(p.kind)], itemIds: p.item_id ? [p.item_id] : null }, [{ code: failedCode(p.kind), kind: "you", itemId: p.item_id, itemTitle: title, subject: p.item_id ? null : p.id, title: `eBay refused ${what}`, detail, fingerprint: `${p.id}:${now}` }], now)
+    .catch(() => null);
+  await push(env, `eBay refused ${what}`, `${title ? `${title.slice(0, 60)}: ` : ""}${message.split("\n")[0].slice(0, 160)} The details are in the Inbox.`, undefined, `refused-${p.id}`).catch(() => null);
+}
+
+/** The same kind of change has now gone through for this listing: its "eBay refused" to-do, if any, is resolved. */
+async function clearWriteFailure(env: Env, p: Pick<Proposal, "kind" | "item_id">, now = Date.now()) {
+  if (p.item_id) await env.store.todos.sync("gate", { codes: [failedCode(p.kind)], itemIds: [p.item_id] }, [], now).catch(() => null);
 }
 
 export const DRY_RUN_AGREED = "Dry run: recorded as approved. Nothing was sent to eBay, and it can't be.";
@@ -230,6 +285,7 @@ export async function decide(env: Env, id: string, decision: "approve" | "reject
     const result = await ebayWrite(env, id);
     await env.store.proposals.setOutcome(id, { status: "applied", result });
     await refreshAfterChange(env, p.kind);
+    await clearWriteFailure(env, p, now);
     return result;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -239,6 +295,7 @@ export async function decide(env: Env, id: string, decision: "approve" | "reject
       return `Approved, not applied: ${msg}`;
     }
     await env.store.proposals.setOutcome(id, { status: "failed", result: msg });
+    await reportWriteFailure(env, p, msg, now);
     return `Failed: ${msg}`;
   }
 }

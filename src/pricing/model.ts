@@ -696,7 +696,12 @@ export interface Outcome {
   sold: boolean;
   /** Fair share of demand per day at the time: d / (n + 1). */
   share: number;
+  /** How much this observation counts in the fit (K's own listings count more); 1 if unset. It is still one observation. */
+  weight?: number;
 }
+
+/** Learned parameters are kept inside these: outside them the sale model stops making sense. */
+export const PARAM_BOUNDS = { tau: [0.03, 0.25], alpha: [0.4, 2.5] } as const;
 
 /**
  * Fits tau and alpha by maximum likelihood on survival data (sold after t days, or still unsold: censored),
@@ -712,14 +717,20 @@ export function fitParams(outcomes: Outcome[], prior: SaleParams = DEFAULT_PARAM
       for (const o of outcomes) {
         const h = Math.min(0.95, o.share * alpha * (2 / (1 + Math.exp((o.rel - 1) / tau))));
         // Exponential survival: log f = log h − h t (sold), log S = −h t (unsold).
-        ll += (o.sold ? Math.log(Math.max(h, 1e-9)) : 0) - h * o.days;
+        ll += (o.weight ?? 1) * ((o.sold ? Math.log(Math.max(h, 1e-9)) : 0) - h * o.days);
       }
       if (ll > bestLl) (bestLl = ll), (fit = { tau, alpha });
     }
+  // A fit that runs to the edge of the search hasn't found anything: the data can't tell (2026-11-15: production
+  // had learned tau 0.35 and alpha 3.2, both at the edge, from a few listings counted many times, so price barely
+  // changed any estimate). That parameter stays at the prior. A very small tau is a real finding and is kept.
+  if (fit.tau >= 0.385) fit = { ...fit, tau: prior.tau };
+  if (fit.alpha <= 0.105 || fit.alpha >= 3.4) fit = { ...fit, alpha: prior.alpha };
+  const clamp = (x: number, [lo, hi]: readonly [number, number]) => Math.min(hi, Math.max(lo, x));
   const w = outcomes.length / (outcomes.length + priorWeight);
   return {
-    tau: Math.round((w * fit.tau + (1 - w) * prior.tau) * 1000) / 1000,
-    alpha: Math.round(Math.exp(w * Math.log(fit.alpha) + (1 - w) * Math.log(prior.alpha)) * 1000) / 1000,
+    tau: Math.round(clamp(w * fit.tau + (1 - w) * prior.tau, PARAM_BOUNDS.tau) * 1000) / 1000,
+    alpha: Math.round(clamp(Math.exp(w * Math.log(fit.alpha) + (1 - w) * Math.log(prior.alpha)), PARAM_BOUNDS.alpha) * 1000) / 1000,
     n: outcomes.length,
   };
 }

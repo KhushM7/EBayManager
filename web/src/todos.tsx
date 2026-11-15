@@ -31,7 +31,37 @@ const KIND: Record<Todo["kind"], [string, string, (p: { size?: number }) => any]
   you: ["text-yellow bg-yellow-soft", "For you to do", Icons.check],
 };
 
-function Detail({ text }: { text: string }) {
+const DIAGNOSTICS_MARK = "--- diagnostics ---";
+
+/** Raw diagnostics on an "eBay refused" to-do (src/proposals.ts): shown as they are, with a button to copy them. */
+function Diagnostics({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () =>
+    navigator.clipboard
+      ?.writeText(text)
+      .then(() => (setCopied(true), setTimeout(() => setCopied(false), 2000)))
+      .catch(() => {});
+  return (
+    <details class="mt-3 text-sm" open>
+      <summary class="cursor-pointer font-semibold">Diagnostics</summary>
+      <pre class="mt-2 max-h-72 overflow-auto rounded-xl border border-line bg-surface p-3 text-xs break-all whitespace-pre-wrap">{text}</pre>
+      <button class="btn btn-secondary mt-2" onClick={copy}>
+        {copied ? "Copied" : "Copy diagnostics"}
+      </button>
+    </details>
+  );
+}
+
+function Detail({ text: full }: { text: string }) {
+  const cut = full.indexOf(DIAGNOSTICS_MARK);
+  if (cut >= 0)
+    return (
+      <>
+        <Detail text={full.slice(0, cut)} />
+        <Diagnostics text={full.slice(cut + DIAGNOSTICS_MARK.length).trim()} />
+      </>
+    );
+  const text = full;
   const lines = text.split("\n").filter(Boolean);
   if (lines.length < 2) return text ? <p>{text}</p> : null;
   return (

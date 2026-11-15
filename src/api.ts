@@ -3,7 +3,8 @@ import { gateClosedReason, setWritesPaused, writesPaused } from "./ebay/write";
 import { runNightly } from "./nightly";
 import { CLAUDE_DAILY_BUDGET_USD } from "./rules";
 import { pollInbox } from "./inbox";
-import { applyApproved, decide, editProposal } from "./proposals";
+import { applyApproved, createProposal, decide, editProposal } from "./proposals";
+import { keyLoginAllowed } from "./session";
 import { saveSubscription, vapidPublicKey } from "./push";
 import { clearCookie, endSession, isKnownDevice, knownDeviceCookie, recordFailure, signOutEverywhere, tooManyAttempts, type Session } from "./auth/users";
 import { listPeople } from "./auth/people";
@@ -83,7 +84,11 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
   if (path === "/login") {
     if (method !== "POST") return json({ error: "Not found" }, 404);
     if (await limited()) return json({ error: "Too many attempts. Wait an hour and try again." }, 429);
-    const cookie = await keyLogin(env, request, (await body(request)).key);
+    // The key comes in the body, or as "Authorization: Bearer <key>": a cloud coding session's network proxy can
+    // add that header itself, so the session signs in to Sandbox without ever holding the key. Same key, same
+    // check, Sandbox only (keyLogin refuses on production).
+    const bearer = /^Bearer (.+)$/.exec(request.headers.get("Authorization") ?? "")?.[1];
+    const cookie = await keyLogin(env, request, (await body(request)).key ?? bearer);
     return cookie ? json({ ok: true }, 200, { "Set-Cookie": cookie }) : fail(401, "Wrong key");
   }
 
@@ -146,6 +151,18 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
         return { ...p, item_title: seen?.title ?? null, item_price: seen?.price ?? null, payload: JSON.parse(p.payload) };
       }),
     );
+  }
+
+  // Sandbox only (the same switch as the test key, never production): files a promotion or offer-to-watchers
+  // label for a listing, so those eBay calls can be proven on Sandbox, where there's no traffic or watchers for
+  // the nightly to propose from. It only files a label: applying it still takes an approval and the write gate.
+  if (path === "/sandbox/propose" && method === "POST") {
+    if (!keyLoginAllowed(env)) return json({ error: "Not found" }, 404);
+    if (!owner) return ownerOnly();
+    const b = await body(request);
+    if (!["promote", "offer_to_watchers"].includes(b.kind) || !/^\d{9,14}$/.test(String(b.itemId))) return json({ error: "Send kind (promote or offer_to_watchers) and itemId" }, 400);
+    const p = await createProposal(env, { kind: b.kind, itemId: String(b.itemId), payload: { ...(typeof b.payload === "object" && b.payload ? b.payload : {}), itemTitle: "Sandbox proof" }, reason: "Filed by hand on Sandbox to prove the eBay call." });
+    return json({ id: p.id });
   }
 
   if (path === "/proposals/decide" && method === "POST") {

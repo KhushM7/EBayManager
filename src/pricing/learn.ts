@@ -47,23 +47,32 @@ async function snapshotOutcomes(env: Env, since: number): Promise<Map<string, Ou
   return byGroup;
 }
 
-/** K's own priced listings: did they sell (an order for the item after the decision), and when? */
-async function ownOutcomes(env: Env, since: number): Promise<Map<string, Outcome[]>> {
-  // For each decision: the first order for that item after it (the old correlated MIN subquery), built in JS.
+/** How much one of K's own listings counts against a competitor's seen in a snapshot. */
+export const OWN_WEIGHT = 3;
+
+/**
+ * K's own listings: one observation for each stretch a listing spent at one price, sold or not. The engine
+ * records a decision on every price check, so counting decisions counted one listing (and its one sale) many
+ * times over; a stretch starts when the price changes by more than 1% and ends at the sale, the next price, or now.
+ */
+async function ownOutcomes(env: Env, since: number, now: number): Promise<Map<string, Outcome[]>> {
   const sales = new Map<string, number[]>();
   for (const l of orderLines(await env.store.orders.all())) sales.set(l.item_id, [...(sales.get(l.item_id) ?? []), l.created_at]);
-  const results = (await env.store.pricing.decisionsSince(since)).map((d) => {
-    const after = (sales.get(d.item_id!) ?? []).filter((t) => t > d.at);
-    return { ...d, item_id: d.item_id!, total: d.total!, market_price: d.market_price!, sold_at: after.length ? Math.min(...after) : null };
-  });
+  const byItem = new Map<string, Awaited<ReturnType<Env["store"]["pricing"]["decisionsSince"]>>>();
+  for (const d of await env.store.pricing.decisionsSince(since)) if (d.item_id && d.total && d.market_price) byItem.set(d.item_id, [...(byItem.get(d.item_id) ?? []), d]);
   const byGroup = new Map<string, Outcome[]>();
-  for (const r of results) {
-    const m = JSON.parse(r.result)?.components?.[0]?.market;
-    const share = m ? Math.max(m.demand28, m.demand91) / (m.supply + 1) : 0;
-    if (!share) continue;
-    const days = ((r.sold_at ?? Date.now()) - r.at) / DAY;
-    if (days < 1) continue;
-    byGroup.set(r.grp, [...(byGroup.get(r.grp) ?? []), { rel: r.total / r.market_price, days, sold: r.sold_at != null, share }]);
+  for (const [itemId, decisions] of byItem) {
+    const sorted = decisions.sort((a, b) => a.at - b.at);
+    const starts = sorted.filter((d, i) => i === 0 || Math.abs(d.total! - sorted[i - 1].total!) / sorted[i - 1].total! > 0.01);
+    starts.forEach((d, i) => {
+      const end = starts[i + 1]?.at ?? now;
+      const soldAt = (sales.get(itemId) ?? []).find((t) => t > d.at && t <= end) ?? null;
+      const m = JSON.parse(d.result)?.components?.[0]?.market;
+      const share = m ? Math.max(m.demand28, m.demand91) / (m.supply + 1) : 0;
+      const days = ((soldAt ?? end) - d.at) / DAY;
+      if (!share || days < 1) return;
+      byGroup.set(d.grp, [...(byGroup.get(d.grp) ?? []), { rel: d.total! / d.market_price!, days, sold: soldAt != null, share, weight: OWN_WEIGHT }]);
+    });
   }
   return byGroup;
 }
@@ -71,8 +80,8 @@ async function ownOutcomes(env: Env, since: number): Promise<Map<string, Outcome
 export async function learnParams(env: Env, now = Date.now()): Promise<{ groups: number; outcomes: number }> {
   const since = now - 120 * DAY;
   const groups = await snapshotOutcomes(env, since);
-  // K's own outcomes count 5 times: they're the listings being priced, and there are far fewer of them.
-  for (const [g, out] of await ownOutcomes(env, since)) groups.set(g, [...(groups.get(g) ?? []), ...out.flatMap((o) => Array(5).fill(o))]);
+  // K's own count more in the fit (they're the listings being priced), but each is still one observation.
+  for (const [g, out] of await ownOutcomes(env, since, now)) groups.set(g, [...(groups.get(g) ?? []), ...out]);
 
   const all = [...groups.values()].flat();
   const global = fitParams(all, DEFAULT_PARAMS);

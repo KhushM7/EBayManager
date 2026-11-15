@@ -1,7 +1,7 @@
 import type { Env } from "../env";
 import type { Proposal } from "../proposals";
 import { PROMOTION_RATE, RETURNS, WATCHER_OFFER } from "../rules";
-import { esc, mediaUpload, restWrite, tradingRequest, tradingUpload } from "./trading";
+import { EbayCallError, esc, mediaUpload, restWrite, tradingRequest, tradingUpload } from "./trading";
 import { getCampaigns, getPromotedListings } from "./sell";
 import { ebayHosts } from "./hosts";
 import { seqId } from "../store/doc";
@@ -159,6 +159,14 @@ export async function verifyNewListing(env: Env, payload: unknown): Promise<{ fe
   return { fees: Math.round(fees * 100) / 100 };
 }
 
+/** What went wrong, for the audit log: the message, and for a REST call eBay's status, request id and whole reply. */
+const failure = (e: unknown) =>
+  e instanceof EbayCallError
+    ? `${e.message}\nHTTP ${e.status}${e.requestId ? `, eBay request id ${e.requestId}` : ""}\nRaw reply: ${e.raw || "(empty)"}`
+    : e instanceof Error
+      ? e.message
+      : String(e);
+
 async function audit(env: Env, proposalId: string, call: string, request: string, outcome: string, response: string) {
   // Who approved it (read now, after the decision), what kind of change and for which item, for Activity.
   const p = await env.store.proposals.get(proposalId);
@@ -261,7 +269,8 @@ export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
     }
     return summary;
   } catch (e) {
-    await audit(env, p.id, built.call, built.xml, "failed", e instanceof Error ? e.message : String(e));
+    // A promotion's own calls are already in the log, each with its outcome.
+    if (!built.promote) await audit(env, p.id, built.call, built.rest ? `${built.rest.method} ${built.rest.path} ${built.xml}` : built.xml, "failed", failure(e));
     throw e;
   }
 }
@@ -281,7 +290,7 @@ async function applyPromotion(env: Env, proposalId: string, itemId: string, x: {
       await audit(env, proposalId, call, `${method} ${path} ${body === undefined ? "" : JSON.stringify(body)}`, "applied", res.location ?? JSON.stringify(res.body).slice(0, 2000));
       return res;
     } catch (e) {
-      await audit(env, proposalId, call, `${method} ${path} ${body === undefined ? "" : JSON.stringify(body)}`, "failed", e instanceof Error ? e.message : String(e));
+      await audit(env, proposalId, call, `${method} ${path} ${body === undefined ? "" : JSON.stringify(body)}`, "failed", failure(e));
       throw e;
     }
   };

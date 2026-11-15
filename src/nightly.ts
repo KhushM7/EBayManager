@@ -10,7 +10,8 @@ import { learnParams } from "./pricing/learn";
 import { bundleAdvice } from "./pricing/bundles";
 import { reviewPrices, type ReviewOut } from "./pricing/review";
 import { fileHealthTodos, fileOwnPriceReminders, filePriceQuestions, lastSentence } from "./todos";
-import { reviewPromotions } from "./promotion";
+import { reviewPromotions, reviewRunningPromotions } from "./promotion";
+import { ladderFor, ladderSummary, type LadderStep } from "./ladder";
 import { reviewWatcherOffers } from "./watchers";
 import { checkAllowances } from "./allowance";
 import { checkServices } from "./services";
@@ -128,19 +129,28 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
   // The pricing engine re-prices a few listings and proposes changes the market supports, before triage,
   // so triage sees those proposals as pending and doesn't repeat them.
   // Its questions become Inbox to-dos for the listings it priced (src/todos.ts).
+  // The sales ladder (src/ladder.ts): each listing's one step tonight. The steps below act only on their rung.
+  let ladder: Map<string, LadderStep> | undefined;
+  await step(steps, "ladder", async () => {
+    ladder = await ladderFor(env, at);
+    return ladderSummary(ladder);
+  });
+
   const review: ReviewOut = { priced: [], asked: [] };
   await step(steps, "prices", async () => {
     if (!providerEnabled(env, "trawl") && !providerEnabled(env, "compsapi")) return "skipped: no sold-data provider keys";
-    const out = await reviewPrices(env, at, { out: review });
+    const out = await reviewPrices(env, at, { out: review, ladder });
     await filePriceQuestions(env, review.priced, review.asked, at);
     return out;
   });
 
   // Promotion research on the listings the engine has a market picture for (docs/pricing-and-promotion.md).
-  await step(steps, "promotion", async () => reviewPromotions(env));
+  await step(steps, "promotion", async () => reviewPromotions(env, ladder));
+  // Ads that have run 14 days: are more people seeing the listing? If not, an "end" label.
+  await step(steps, "promotion_review", async () => reviewRunningPromotions(env, at));
 
   // A small offer to the watchers of listings that have them (src/watchers.ts): a reminder, 2% to 5% off.
-  await step(steps, "watcher_offers", async () => reviewWatcherOffers(env, at));
+  await step(steps, "watcher_offers", async () => reviewWatcherOffers(env, at, ladder));
 
   // Claude credit and sold-data searches running low or out: an Inbox to-do and a notification.
   await step(steps, "allowances", async () => checkAllowances(env));
@@ -153,9 +163,19 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
     const repriced = await recentlyRevised(env, at, "price");
     const pending = await env.store.proposals.listByStatus("pending", "asc");
     let reused = 0;
+    let onLadder = 0;
     for (const f of flagged.slice(0, MAX_TRIAGED_PER_NIGHT)) {
-      const noEdit = revised.has(f.itemId);
-      const noPrice = repriced.has(f.itemId);
+      // The sales ladder: triage may propose a listing edit only when the listing itself is this item's step
+      // tonight, and a price only when the price is (the price review normally files that one first).
+      const rung = ladder?.get(f.itemId)?.rung;
+      const noEdit = revised.has(f.itemId) || (rung != null && rung !== "listing");
+      const noPrice = repriced.has(f.itemId) || (rung != null && rung !== "price");
+      // Nothing triage could propose tonight (an offer or an ad is this listing's step, or it's waiting on one):
+      // no Claude run. Its flag still becomes an Inbox to-do below.
+      if (noEdit && noPrice && rung != null) {
+        onLadder++;
+        continue;
+      }
       // A listing triaged in the last week with nothing changed since (same flags, title, price, K's settings,
       // labels waiting and edit limits) keeps that night's note instead of the same run again.
       const l = await env.store.listings.latest(f.itemId);
@@ -182,8 +202,8 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
         system: TRIAGE_SYSTEM,
         prompt:
           `Listing ${f.itemId} was flagged:\n${f.flags.map((x) => `- ${x.flag}: ${x.detail}`).join("\n")}` +
-          (noEdit ? "\nA listing edit for it was proposed in the last week: don't propose another." : "") +
-          (noPrice ? "\nA price change for it was proposed in the last week: don't propose another." : ""),
+          (noEdit ? "\nDon't propose a listing edit for it tonight: one was proposed in the last week, or another step comes first." : "") +
+          (noPrice ? "\nDon't propose a price change for it tonight: one was proposed in the last week, or another step comes first." : ""),
         toolNames: AUDIT_TOOLS.filter((t) => !(noEdit && t === "propose_listing_revision") && !(noPrice && t === "propose_price_change")),
         maxTurns: 6,
         effort: "low",
@@ -194,7 +214,7 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
       if (r.stopReason === "end_turn") await env.store.kv.set(`triage:${f.itemId}`, JSON.stringify({ at, fingerprint, note: note ?? "" })).catch(() => null);
       triaged++;
     }
-    return `${triaged} of ${flagged.length} triaged${reused ? `, ${reused} unchanged since last week's check` : ""}`;
+    return `${triaged} of ${flagged.length} triaged${reused ? `, ${reused} unchanged since last week's check` : ""}${onLadder ? `, ${onLadder} on another step of the ladder` : ""}`;
   });
 
   // Flagged listings that didn't end in a label become Inbox to-dos; to-dos for ended listings close.

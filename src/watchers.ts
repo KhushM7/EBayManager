@@ -59,7 +59,7 @@ export const WATCHER_MESSAGE = "Thanks for watching this. Here's a little off if
  * Nightly: for each listing eBay says can take an offer to its watchers, file one `offer_to_watchers` proposal
  * when the rules above allow. Reads eBay only; nothing is sent until K approves.
  */
-export async function reviewWatcherOffers(env: Env, now = Date.now()): Promise<string> {
+export async function reviewWatcherOffers(env: Env, now = Date.now(), ladder?: Map<string, { rung: string; why: string }>): Promise<string> {
   const rows = (await env.store.listings.latestSet()).filter((l) => (l.watch_count ?? 0) > 0);
   if (!rows.length) return "no listings with watchers";
   const eligible = new Set(await getEligibleForOffers(env));
@@ -69,6 +69,8 @@ export async function reviewWatcherOffers(env: Env, now = Date.now()): Promise<s
   const skipped: string[] = [];
   for (const l of rows) {
     if (!eligible.has(l.item_id)) continue;
+    // The sales ladder: only when an offer is this listing's step tonight.
+    if (ladder && ladder.get(l.item_id)?.rung !== "offer") continue;
     const mine = earlier.filter((p) => p.item_id === l.item_id);
     // One waiting is enough; a rejection holds for the cooldown, as a sent one does.
     if (mine.some((p) => p.status === "pending" || p.status === "approved")) continue;
@@ -81,7 +83,7 @@ export async function reviewWatcherOffers(env: Env, now = Date.now()): Promise<s
     const offer = watcherOffer({
       price: l.price,
       watchers: l.watch_count ?? 0,
-      listedDays: Math.floor((now - Date.parse(l.start_time)) / DAY),
+      listedDays: Math.floor((now - Date.parse(l.first_start_time ?? l.start_time)) / DAY),
       floor: s?.floor_price ?? null,
       sentBefore: sent.length,
       lastSentAt: lastTouched || null,

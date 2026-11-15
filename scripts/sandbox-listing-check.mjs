@@ -10,14 +10,16 @@
 //
 // Sandbox only: it signs in with DASHBOARD_KEY, which the production app refuses. Costs about 10p of Claude
 // and one sold-data lookup (cached for 30 days). Uses the three photos in test/fixtures-photos/.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { outputs } from "./azure-common.mjs";
 
 const approve = process.argv.includes("--approve");
-const base = outputs("sandbox").publicUrl;
+// In a cloud coding session there's no Azure login and no .dev.vars: the address comes from SANDBOX_URL, and the
+// session's network proxy adds the key as an Authorization header (the Sandbox sign-in accepts either).
+const base = process.env.SANDBOX_URL || outputs("sandbox").publicUrl;
 if (!/sandbox/.test(base)) throw new Error(`Refusing: ${base} isn't the Sandbox app`);
-const vars = parseEnv(readFileSync(".dev.vars", "utf8"));
+const vars = existsSync(".dev.vars") ? parseEnv(readFileSync(".dev.vars", "utf8")) : {};
 console.log(`Add Listing on ${base}${approve ? " (with approval)" : ""}\n`);
 
 let cookie = "";

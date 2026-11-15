@@ -3,7 +3,7 @@ import { memoryStore } from "../src/store";
 import { withEbayTokens } from "./fixtures";
 import type { Env } from "../src/env";
 import { createProposal, decide, getProposal } from "../src/proposals";
-import { callFor, CAMPAIGN_NAME, WriteRefused } from "../src/ebay/write";
+import { callFor, CAMPAIGN_NAME, setWritesPaused, WriteRefused } from "../src/ebay/write";
 import { reviewWatcherOffers, watcherOffer, type WatcherOfferInput } from "../src/watchers";
 import { LOCKED_KINDS, WATCHER_OFFER } from "../src/rules";
 
@@ -142,5 +142,71 @@ describe("applying them", () => {
     expect(made).toHaveLength(1);
     expect(JSON.parse(made[0].payload)).toMatchObject({ percent: 2, offerPrice: 39.2, watchers: 2 });
     expect(writes()).toHaveLength(0);
+  });
+});
+
+describe("when eBay refuses an approved change (K, 2026-11-15: never silently)", () => {
+  let env: Env;
+  let ebay: (method: string, path: string) => Response;
+  beforeEach(async () => {
+    env = { store: memoryStore(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", EBAY_SITE_ID: "3", EBAY_MARKETPLACE: "EBAY_GB", PUBLIC_URL: "https://test.example", SIGNING_KEY: "k", NTFY_TOPIC: "" } as Env;
+    await withEbayTokens(env.store);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (u: any, init: any) => {
+        const url = new URL(String(u));
+        return url.hostname.endsWith("ebay.com") ? ebay(init?.method ?? "GET", url.pathname) : new Response("{}");
+      }),
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("files an Inbox to-do with what was sent and eBay's whole reply, and resolves it when one goes through", async () => {
+    const reply = JSON.stringify({ errors: [{ errorId: 150022, domain: "API_NEGOTIATION", message: "Invalid discount", longMessage: "The discount is below the minimum for this listing.", parameters: [{ name: "discountPercentage", value: "2" }] }] });
+    ebay = () => new Response(reply, { status: 400, headers: { rlogid: "t6abc%3D-19a" } });
+    const p = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { itemTitle: "Kettle", percent: 2, message: "hi" } });
+    expect(await decide(env, p.id, "approve")).toMatch(/^Failed: POST \/sell\/negotiation\/v1\/send_offer_to_interested_buyers failed \(400\): The discount is below the minimum/);
+    expect((await getProposal(env, p.id))?.status).toBe("failed");
+
+    const [todo] = await env.store.todos.list("open");
+    expect(todo).toMatchObject({ code: "ebay_refused_offer_to_watchers", kind: "you", item_id: "111", item_title: "Kettle", title: "eBay refused the offer to watchers" });
+    expect(todo.detail).toMatch(/nothing changed on eBay/);
+    const diagnostics = todo.detail.split("--- diagnostics ---")[1];
+    expect(diagnostics).toContain(`label: ${p.id} (offer_to_watchers)`);
+    expect(diagnostics).toContain("environment: sandbox");
+    expect(diagnostics).toContain("call 1: sendOfferToInterestedBuyers -> failed");
+    // What was sent, the status, eBay's request id, and its reply exactly as sent.
+    expect(diagnostics).toContain('"discountPercentage":"2"');
+    expect(diagnostics).toContain("HTTP 400, eBay request id t6abc%3D-19a");
+    expect(diagnostics).toContain(`Raw reply: ${reply}`);
+
+    // The next offer for the listing goes through: the to-do is resolved.
+    ebay = () => new Response(JSON.stringify({ offers: [] }));
+    const ok = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { percent: 3, message: "hi" } });
+    expect(await decide(env, ok.id, "approve")).toBe("sendOfferToInterestedBuyers ok");
+    expect(await env.store.todos.list("open")).toHaveLength(0);
+  });
+
+  it("does the same for a promotion, naming the call that failed", async () => {
+    ebay = (method, path) => {
+      if (method === "GET") return new Response(JSON.stringify({ campaigns: [] }));
+      if (path.endsWith("/ad_campaign")) return new Response(null, { status: 201, headers: { Location: "https://api.sandbox.ebay.com/sell/marketing/v1/ad_campaign/777" } });
+      return new Response(JSON.stringify({ errors: [{ message: "Listing not eligible", longMessage: "The listing is not eligible for Promoted Listings." }] }), { status: 409 });
+    };
+    const p = await createProposal(env, { kind: "promote", itemId: "111", payload: { itemTitle: "Kettle", action: "promote", rate: 2 } });
+    expect(await decide(env, p.id, "approve")).toMatch(/not eligible for Promoted Listings/);
+    const [todo] = await env.store.todos.list("open");
+    expect(todo.title).toBe("eBay refused the promotion change");
+    expect(todo.detail).toContain("call 1: createCampaign -> applied");
+    expect(todo.detail).toContain("call 2: createAdByListingId -> failed");
+    expect(todo.detail).toContain("HTTP 409");
+  });
+
+  it("doesn't file one when the gate itself refuses (nothing was sent)", async () => {
+    ebay = () => new Response("{}");
+    await setWritesPaused(env, true);
+    const p = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { percent: 2, message: "hi" } });
+    expect(await decide(env, p.id, "approve")).toMatch(/Approved, not applied/);
+    expect(await env.store.todos.list("open")).toHaveLength(0);
   });
 });

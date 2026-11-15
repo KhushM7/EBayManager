@@ -89,14 +89,13 @@ node scripts/azure-secrets.mjs sandbox               # uploads the keys
 node scripts/azure-deploy.mjs sandbox                # or: Actions -> deploy -> sandbox, from this branch
 ```
 
-Check (PowerShell; the key is read from `.dev.vars`, not typed):
+Check it (reads only, prints no key):
 
 ```powershell
-$k = (Select-String -Path .dev.vars -Pattern '^RO_API_KEY=(.+)$').Matches[0].Groups[1].Value
-Invoke-RestMethod https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net/api/ro/status -Headers @{ 'X-Api-Key' = $k }
+node scripts/check-power-platform.mjs                # sandbox; add "production" for the real account
 ```
 
-Expect `read_only : True`. Without the header, expect a 404.
+Run before step 2 it confirms both APIs are hidden; after, that the key reads and nothing else.
 
 **3. Build the tenant side** against Sandbox, in the plan's order: connector, Power BI, flows, Stock Room,
 agent. Each folder's README has the steps and a "check it" list.

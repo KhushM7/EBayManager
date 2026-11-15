@@ -10,6 +10,7 @@ interface Option {
   daysToSell: number;
   chance30: number;
   keeps: number;
+  position?: { listed: number; dearer: number; sold: number; soldAtOrAbove: number };
 }
 
 interface Decision {
@@ -76,9 +77,8 @@ export function PriceReport({ r }: { r: PriceResult }) {
           <thead>
             <tr>
               <th scope="col">Price</th>
-              <th scope="col">Sells in</th>
-              <th scope="col">Chance in 30 days</th>
-              <th scope="col">You keep</th>
+              <th scope="col">Among listings</th>
+              <th scope="col">Against sales</th>
             </tr>
           </thead>
           <tbody>
@@ -88,9 +88,8 @@ export function PriceReport({ r }: { r: PriceResult }) {
                   {money(o.price)}
                   {i === 1 ? " (recommended)" : i === 0 ? " (quicker)" : " (higher)"}
                 </td>
-                <td>{days(o.daysToSell)}</td>
-                <td>{Math.round(o.chance30 * 100)}%</td>
-                <td>{money(o.keeps)}</td>
+                <td>{o.position?.listed ? `cheaper than ${o.position.dearer} of ${o.position.listed}` : "none listed"}</td>
+                <td>{o.position?.sold ? `${o.position.soldAtOrAbove} of ${o.position.sold} sold for this or more` : "no sales"}</td>
               </tr>
             ))}
           </tbody>

@@ -30,7 +30,7 @@ describe("offers against the engine", () => {
     const a = ask(37.5);
     expect(a.action).toBe("accept");
     expect(a.reservation).toBe(37);
-    expect(a.reason).toMatch(/about 20 days/);
+    expect(a.reason).toMatch(/waiting for a buyer is worth about £37\.00/);
   });
 
   it("counters below that, halfway to the asking price or at the reservation, with a precise ending", () => {

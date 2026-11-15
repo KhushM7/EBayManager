@@ -122,6 +122,32 @@ export async function mediaUpload(env: Env, bytes: Uint8Array, filename: string)
   return imageUrl;
 }
 
+/**
+ * A REST call that changes eBay (Marketing and Negotiation APIs). Only the write gate may call this
+ * (test/safety.test.ts), after its claim; the path must be on the write allowlist. Returns the reply's JSON
+ * (or {} when there's none) and its Location header, where eBay puts a new campaign's or ad's id.
+ */
+export async function restWrite(env: Env, method: "POST" | "DELETE", path: string, body?: unknown): Promise<{ status: number; body: any; location: string | null }> {
+  const url = `${ebayHosts(env).api}${path}`;
+  assertRest(method, url, "write");
+  const token = await userToken(env);
+  const res = await fetch(url, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, "X-EBAY-C-MARKETPLACE-ID": env.EBAY_MARKETPLACE, "Content-Type": "application/json", Accept: "application/json", "Content-Language": "en-GB" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await res.text();
+  let json: any = {};
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {}
+  if (!res.ok) {
+    const why = [json?.errors ?? []].flat().map((e: any) => e?.longMessage ?? e?.message).filter(Boolean).join("; ") || text.slice(0, 300);
+    throw new Error(`${method} ${path.split("?")[0]} failed (${res.status}): ${why}`);
+  }
+  return { status: res.status, body: json, location: res.headers.get("Location") };
+}
+
 export function parseTradingResponse(call: string, xml: string): any {
   const doc = parser.parse(xml)[`${call}Response`];
   if (!doc) throw new Error(`Unexpected Trading response for ${call}: ${xml.slice(0, 300)}`);

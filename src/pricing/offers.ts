@@ -45,8 +45,6 @@ export function answerOffer(i: OfferInput): OfferAnswer | null {
   // Never below the long-run value floor of this item, nor K's floor.
   const valueFloor = i.market?.valueFloor != null ? Math.max(0, i.market.valueFloor - i.postage) : 0;
   const reservation = r2(Math.max(carryOn, valueFloor, i.floor ?? 0));
-  const days = Number.isFinite(rec.daysToSell) && rec.daysToSell <= 365 ? rec.daysToSell : null;
-  const wait = days == null ? "an uncertain wait" : `about ${days} days`;
 
   if (i.offer >= reservation) {
     return {
@@ -54,7 +52,7 @@ export function answerOffer(i: OfferInput): OfferAnswer | null {
       counterPrice: null,
       reservation,
       reason:
-        `£${i.offer.toFixed(2)} beats carrying on: listing at £${d.price.toFixed(2)} means ${wait} for a buyer, worth about £${reservation.toFixed(2)} today. ` +
+        `£${i.offer.toFixed(2)} beats carrying on: listing at £${d.price.toFixed(2)} and waiting for a buyer is worth about £${reservation.toFixed(2)} today. ` +
         `Market: ${d.why}`,
     };
   }
@@ -74,7 +72,7 @@ export function answerOffer(i: OfferInput): OfferAnswer | null {
     counterPrice: r2(counter),
     reservation,
     reason:
-      `£${i.offer.toFixed(2)} is below what carrying on is worth (about £${reservation.toFixed(2)}: listing at £${d.price.toFixed(2)}, ${wait} to sell). ` +
+      `£${i.offer.toFixed(2)} is below what carrying on is worth (about £${reservation.toFixed(2)}, listing at £${d.price.toFixed(2)} and waiting for a buyer). ` +
       `Counter at £${r2(counter).toFixed(2)}. Market: ${d.why}`,
   };
 }

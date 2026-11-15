@@ -37,6 +37,8 @@ export function describe(p: Proposal): { what: string; figure: string } {
     }
     case "promote":
       return { what: a.action === "end" ? "End the promotion" : `Promote at ${a.rate}%`, figure: a.rate != null ? `${a.rate}%` : "" };
+    case "offer_to_watchers":
+      return { what: `Offer watchers ${a.percent}% off`, figure: money(a.offerPrice) };
     case "policy":
       return { what: `Return policy: ${a.name ?? ""}`, figure: "" };
     default:

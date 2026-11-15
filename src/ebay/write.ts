@@ -1,7 +1,8 @@
 import type { Env } from "../env";
 import type { Proposal } from "../proposals";
-import { RETURNS } from "../rules";
-import { esc, mediaUpload, tradingRequest, tradingUpload } from "./trading";
+import { PROMOTION_RATE, RETURNS, WATCHER_OFFER } from "../rules";
+import { esc, mediaUpload, restWrite, tradingRequest, tradingUpload } from "./trading";
+import { getCampaigns, getPromotedListings } from "./sell";
 import { ebayHosts } from "./hosts";
 import { seqId } from "../store/doc";
 
@@ -20,8 +21,16 @@ export async function setWritesPaused(env: Env, paused: boolean): Promise<void> 
 
 interface WriteCall {
   call: string;
+  /** What is sent, for the audit log: Trading XML, or the JSON of a REST call. */
   xml: string;
+  /** A single REST write (Negotiation API), instead of a Trading call. */
+  rest?: { method: "POST"; path: string; body: unknown };
+  /** A Promoted Listings change: several REST calls, worked out when applied (applyPromotion). */
+  promote?: { action: "promote" | "lower" | "end"; rate: number | null };
 }
+
+/** The app's own Promoted Listings campaign: general (cost per sale), one for every listing it promotes. */
+export const CAMPAIGN_NAME = "EBayManager general";
 
 const bestOfferXml = (on: unknown) =>
   typeof on === "boolean" ? `<BestOfferDetails><BestOfferEnabled>${on}</BestOfferEnabled></BestOfferDetails>` : "";
@@ -111,6 +120,29 @@ export function callFor(p: Pick<Proposal, "kind" | "item_id" | "payload">): Writ
         }`,
       };
     }
+    case "offer_to_watchers": {
+      // K's rule, enforced here: a small reminder discount only (WATCHER_OFFER), whatever the proposal says.
+      const percent = Number(a.percent);
+      if (!(percent >= WATCHER_OFFER.minPercent && percent <= WATCHER_OFFER.maxPercent))
+        throw new WriteRefused(`An offer to watchers must be ${WATCHER_OFFER.minPercent}% to ${WATCHER_OFFER.maxPercent}% off, not ${a.percent}%.`);
+      if (!p.item_id) throw new WriteRefused("An offer to watchers needs a listing.");
+      const body = {
+        allowCounterOffer: false,
+        message: String(a.message ?? "").slice(0, 2000),
+        offerDuration: { unit: "DAY", value: WATCHER_OFFER.durationDays },
+        offeredItems: [{ listingId: p.item_id, quantity: 1, discountPercentage: String(percent) }],
+      };
+      return { call: "sendOfferToInterestedBuyers", xml: JSON.stringify(body), rest: { method: "POST", path: "/sell/negotiation/v1/send_offer_to_interested_buyers", body } };
+    }
+    case "promote": {
+      const action = a.action === "promote" || a.action === "lower" || a.action === "end" ? a.action : null;
+      if (!action) throw new WriteRefused(`Unknown promotion action ${a.action}`);
+      if (!p.item_id) throw new WriteRefused("A promotion needs a listing.");
+      const rate = action === "end" ? null : Number(a.rate);
+      if (rate != null && !(rate >= PROMOTION_RATE.min && rate <= PROMOTION_RATE.max))
+        throw new WriteRefused(`An ad rate must be ${PROMOTION_RATE.min}% to ${PROMOTION_RATE.max}%, not ${a.rate}%.`);
+      return { call: "promote", xml: JSON.stringify({ action, rate, listingId: p.item_id }), promote: { action, rate } };
+    }
     default:
       throw new WriteRefused(`Applying ${p.kind} is not built yet`);
   }
@@ -194,6 +226,12 @@ export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
         built = callFor({ ...p, payload: JSON.stringify({ ...a, pictureUrls: pictures.urls }) });
       }
     }
+    if (built.promote) return await applyPromotion(env, p.id, p.item_id!, built.promote);
+    if (built.rest) {
+      const res = await restWrite(env, built.rest.method, built.rest.path, built.rest.body);
+      await audit(env, p.id, built.call, built.xml, "applied", JSON.stringify(res.body).slice(0, 4000));
+      return `${built.call} ok`;
+    }
     const res = await tradingRequest(env, built.call, built.xml);
     const summary = (res.ItemID ? `${built.call} ok, item ${res.ItemID}` : `${built.call} ok`) + note;
     await audit(env, p.id, built.call, built.xml, "applied", JSON.stringify(res));
@@ -226,6 +264,57 @@ export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
     await audit(env, p.id, built.call, built.xml, "failed", e instanceof Error ? e.message : String(e));
     throw e;
   }
+}
+
+const lastPart = (location: string | null) => (location ? (location.split("?")[0].split("/").filter(Boolean).pop() ?? null) : null);
+
+/**
+ * Applies an approved `promote` proposal through eBay's Marketing API, only after the gate's claim. Promote:
+ * the listing's ad is created in the app's general campaign (made on first use), or its rate changed if it
+ * already has one. Lower: the ad's rate is changed. End: the ad is removed. Each call is in the audit log.
+ */
+async function applyPromotion(env: Env, proposalId: string, itemId: string, x: { action: "promote" | "lower" | "end"; rate: number | null }): Promise<string> {
+  const base = "/sell/marketing/v1/ad_campaign";
+  const send = async (call: string, method: "POST" | "DELETE", path: string, body?: unknown) => {
+    try {
+      const res = await restWrite(env, method, path, body);
+      await audit(env, proposalId, call, `${method} ${path} ${body === undefined ? "" : JSON.stringify(body)}`, "applied", res.location ?? JSON.stringify(res.body).slice(0, 2000));
+      return res;
+    } catch (e) {
+      await audit(env, proposalId, call, `${method} ${path} ${body === undefined ? "" : JSON.stringify(body)}`, "failed", e instanceof Error ? e.message : String(e));
+      throw e;
+    }
+  };
+  const ad = (await getPromotedListings(env)).find((a) => a.listingId === itemId) ?? null;
+  const bid = x.rate == null ? "" : x.rate.toFixed(1);
+  const adPath = () => {
+    if (!ad?.adId) throw new Error("eBay didn't give this listing's ad id, so its promotion can't be changed here. Change it in Seller Hub.");
+    return `${base}/${encodeURIComponent(ad.campaignId)}/ad/${encodeURIComponent(ad.adId)}`;
+  };
+  if (x.action === "end") {
+    if (!ad) return "The listing isn't promoted any more: nothing to end.";
+    await send("deleteAd", "DELETE", adPath());
+    return `Promotion ended (was ${ad.rate ?? "?"}%)`;
+  }
+  if (ad) {
+    if (ad.rate != null && Math.abs(ad.rate - x.rate!) < 0.01) return `Already promoted at ${ad.rate}%: nothing to change.`;
+    await send("updateBid", "POST", `${adPath()}/update_bid`, { bidPercentage: bid });
+    return `Ad rate changed from ${ad.rate ?? "?"}% to ${x.rate}%`;
+  }
+  if (x.action === "lower") return "The listing isn't promoted any more: nothing to lower.";
+  let campaignId = (await getCampaigns(env)).find((c) => c.campaignName === CAMPAIGN_NAME && c.fundingModel === "COST_PER_SALE")?.campaignId ?? null;
+  if (!campaignId) {
+    const made = await send("createCampaign", "POST", base, {
+      campaignName: CAMPAIGN_NAME,
+      marketplaceId: env.EBAY_MARKETPLACE,
+      startDate: new Date().toISOString(),
+      fundingStrategy: { fundingModel: "COST_PER_SALE", bidPercentage: bid },
+    });
+    campaignId = lastPart(made.location) ?? (made.body?.campaignId != null ? String(made.body.campaignId) : null);
+    if (!campaignId) throw new Error("eBay created the campaign but didn't say its id. Approve again in a few minutes.");
+  }
+  await send("createAdByListingId", "POST", `${base}/${encodeURIComponent(campaignId)}/ad`, { listingId: itemId, bidPercentage: bid });
+  return `Promoted at ${x.rate}% in "${CAMPAIGN_NAME}"`;
 }
 
 /**

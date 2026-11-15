@@ -170,6 +170,11 @@ export function mockApi(): Plugin {
         if (p === "/firstday") return send({ report: mockReport });
         if (/^\/items\/\d+\/settings$/.test(p)) return send({ floorPrice: 55, notes: "Width 110 cm" });
         if (p === "/firstday/run") { await new Promise((r) => setTimeout(r, 800)); return send({ report: { ...mockReport, at: Date.now() } }); }
+        // K's standing rules for listings (src/guidance.ts), kept in memory here.
+        if (p === "/listing-rules" && req.method === "GET") return send({ rules: mockRules });
+        if (p === "/listing-rules/draft") return send({ draft: { ok: true, kind: /home|every item/i.test(String(body.feedback)) ? "fact" : "wording", text: String(body.feedback).trim().replace(/^./, (c: string) => c.toUpperCase()), replaces: null, note: "" } });
+        if (p === "/listing-rules") { mockRules.push({ id: Date.now().toString(36), kind: body.kind === "fact" ? "fact" : "wording", text: String(body.text), at: Date.now(), by: "K" }); return send({ rules: mockRules }); }
+        if (p.startsWith("/listing-rules/")) { mockRules = mockRules.filter((r) => r.id !== p.split("/").pop()); return send({ rules: mockRules }); }
         if (p === "/style" && req.method === "GET") return send({ style: mockStyle });
         if (p === "/style") { Object.assign(mockStyle, body.style, { editedBy: "K", at: Date.now() }); return send({ style: mockStyle }); }
         if (p === "/usage/credit") { mockCredit = body.usd == null ? null : Number(body.usd); return send({ ok: true }); }
@@ -196,6 +201,8 @@ export function mockApi(): Plugin {
 }
 
 let mockCredit: number | null = null;
+
+let mockRules: { id: string; kind: "wording" | "fact"; text: string; at: number; by: string | null }[] = [{ id: "r1", kind: "wording", text: "Head the list of flaws 'Problems', not 'Flaws'.", at: Date.now() - 3 * 86_400_000, by: "K" }];
 
 // The first-day audit report and style guide (src/firstday.ts, src/style.ts), sample data.
 const day = 86_400_000;

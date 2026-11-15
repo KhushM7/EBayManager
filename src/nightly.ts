@@ -11,6 +11,7 @@ import { bundleAdvice } from "./pricing/bundles";
 import { reviewPrices, type ReviewOut } from "./pricing/review";
 import { fileHealthTodos, fileOwnPriceReminders, filePriceQuestions, lastSentence } from "./todos";
 import { reviewPromotions } from "./promotion";
+import { reviewWatcherOffers } from "./watchers";
 import { checkAllowances } from "./allowance";
 import { checkServices } from "./services";
 import { providerEnabled } from "./solddata";
@@ -137,6 +138,9 @@ export async function runNightly(env: Env): Promise<NightlyResult> {
 
   // Promotion research on the listings the engine has a market picture for (docs/pricing-and-promotion.md).
   await step(steps, "promotion", async () => reviewPromotions(env));
+
+  // A small offer to the watchers of listings that have them (src/watchers.ts): a reminder, 2% to 5% off.
+  await step(steps, "watcher_offers", async () => reviewWatcherOffers(env, at));
 
   // Claude credit and sold-data searches running low or out: an Inbox to-do and a notification.
   await step(steps, "allowances", async () => checkAllowances(env));

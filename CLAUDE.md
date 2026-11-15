@@ -58,6 +58,14 @@ Design docs: [roadmap](docs/roadmap.md), [design system](docs/design-system.md),
 - **Postage** (K, 2026-11-06): the app works out the packed parcel and the Simple Delivery size from eBay's list, fills in postage from Parcel2Go, and after publishing files a to-do for K to switch the listing to Simple Delivery in Seller Hub (the API can't). Parcels too big for it, or items over £750, go by courier at a Parcel2Go quote.
 - **Parcel2Go** is on trial for postage quotes ([parcel2go-api.md](docs/parcel2go-api.md), `scripts/parcel2go-quote.mjs`); kept only if its sandbox replies are good.
 
+## Decisions (2026-11-15)
+
+- **Pricing** (K, [pricing-engine.md](docs/pricing-engine.md), revision 5): live listings first, then sales. One floor; the options always ascend; the reason is written for the price chosen, in item prices (postage is the next step, and isn't shown here). With nothing in the same condition, other-condition comparables are adjusted to the item (new against used: 0.5 to 0.9 by its wear) and the result says so. The price step shows what was found (how many, cheapest, middle, dearest) and where each price sits, in place of days to sell, and whoever lists the item may set their own price.
+- **Listing style** (K, `src/guidance.ts`): the owner, never a manager, tells Claude in the app how listings should be written; each piece of feedback becomes a standing rule (wording, or a fact true of every item) for new listings and Claude's rewrites. Rules sit below the fixed ones; links and contact details are refused.
+- **Promotion** (K): proposed when a listing isn't being seen (few impressions, or hardly any views and nobody watching after 14 days), not for days listed alone. Approved `promote` labels now apply (2% to 4%).
+- **Offers to watchers** (K, `src/watchers.ts`): a reminder, so as little off as possible: 2% first, a point more each time, never above 5% or under the floor. Proposed nightly, approved by K, sent by the gate.
+- **Deploying from GitHub** (K): `.github/workflows/deploy.yml`, started by hand or by Claude. Sandbox deploys at once; production waits for K's approval in GitHub and deploys only from `main` (README, "Deploying from GitHub").
+
 ## Rules that are enforced in code, never in prompts
 
 These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the approval rules on 2026-11-02.
@@ -104,6 +112,9 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/specs.ts` | Published specifications for an exactly identified product (Sonnet + web search), each with a verified source |
 | `src/firstday.ts`, `src/style.ts`, `src/promotion.ts`, `src/ebay/history.ts` | First-day audit report, K's reply style guide, Promoted Listings research, and the account-history reads they use |
 | `src/inbox.ts`, `src/ebay/inbox.ts` | The 15-minute poll: buyer questions and Best Offers, Haiku drafts, floor enforced in code |
+| `src/guidance.ts`, `web/src/rules.tsx` | K's standing rules for how Claude writes listings: feedback to a rule (Haiku), kept in the store, added to the compose and review prompts. Owner only (`/api/listing-rules`) |
+| `src/watchers.ts` | Offers to watchers: the nightly step that proposes a 2% to 5% reminder offer for listings eBay says are eligible |
+| `.github/workflows/deploy.yml`, `scripts/azure-github-oidc.mjs` | Deploying from GitHub with K's approval for production, and its one-time Azure set-up |
 | `src/todos.ts`, `src/store/todos.ts`, `web/src/todos.tsx` | Inbox to-dos: what needs K but isn't an eBay change, filed by the audit and the nightly ([approvals.md](docs/approvals.md)) |
 | `src/drafts.ts`, `src/newlisting.ts`, `src/photos.ts`, `src/postage.ts`, `src/store/drafts.ts`, `web/src/wizard.tsx`, `web/src/listing/` | Add Listing: the wizard at `/new` (`/sell` still opens it), drafts, private photos, Claude's photo check, sourced listing text, price, postage, submit as a `create_listing` label ([add-listing.md](docs/add-listing.md), [handover](docs/add-listing-handover.md)) |
 
@@ -113,7 +124,7 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 npm install
 npm run typecheck && npm test   # tsc + vitest
 MOCK=1 npm run dev:web          # the dashboard on sample data
-node scripts/azure-deploy.mjs sandbox      # Claude may run this (typecheck and tests first)
+node scripts/azure-deploy.mjs sandbox      # Claude may run this (typecheck and tests first), or start the deploy workflow for sandbox
 $env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-deploy.mjs production   # K runs this, then: node scripts/check-production.mjs
 ```
 
@@ -132,4 +143,7 @@ Production runs in approval mode (`WRITE_MODE=approval`, set in `infra/productio
 
 - Sold-price data: Marketplace Insights isn't available. Prices come from Trawl and CompsAPI, pooled, with hard monthly caps (Trawl 250, CompsAPI 100) and a 30-day cache ([sold-price-data.md](docs/sold-price-data.md)). Never scrape eBay or automate its website.
 - The engine assumes 0% eBay final value fees (a UK private seller). Add a fee setting if K sells as a business.
-- No CI is set up yet.
+- No CI is set up yet (the deploy workflow runs typecheck and tests before publishing).
+- The Promoted Listings and offers-to-watchers calls (2026-11-15) were written without eBay's API reference to hand: prove each on Sandbox, then with one real label, before relying on them.
+- The sale model's learned settings look wrong (price barely changes its estimates); check `pricing` params in production and how "gone from search" is counted as sold (`src/pricing/learn.ts`).
+- `azure-migration` is an old branch, 23 commits behind `main` with nothing of its own: everything is on `main`.

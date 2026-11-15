@@ -6,6 +6,7 @@ import { ago, daysSince, describe, money, plural } from "./format";
 import { BundleAdvice, PriceCheck } from "./pricing";
 import { Todos } from "./todos";
 import { Facts, StyleCard } from "./report";
+import { ListingRulesCard } from "./rules";
 import { CountUp, EASE_OUT, Icons, item, list, PriceDelta, SPRING, Toasts, useToasts } from "./ui";
 
 export interface ScreenProps {
@@ -42,6 +43,7 @@ const KIND: Record<string, { label: string; Icon: (p: { size?: number }) => any;
   end_listing: { label: "End listing", Icon: Icons.x, tone: "text-red bg-red-soft" },
   relist: { label: "Relist", Icon: Icons.refresh, tone: "text-blue bg-blue-soft" },
   promote: { label: "Promotion", Icon: Icons.chart, tone: "text-blue bg-blue-soft" },
+  offer_to_watchers: { label: "Offer to watchers", Icon: Icons.tag, tone: "text-yellow bg-yellow-soft" },
   policy: { label: "Return policy", Icon: Icons.truck, tone: "text-muted bg-surface-3" },
 };
 const kindOf = (k: string) => KIND[k] ?? { label: k.replace(/_/g, " "), Icon: Icons.sparkles, tone: "text-muted bg-surface-3" };
@@ -68,7 +70,7 @@ const STATUSES = [
   { id: "expired", label: "Expired" },
 ];
 
-const hasFigure = (p: Proposal) => ["price", "best_offer_response", "create_listing", "promote"].includes(p.kind) || (p.kind === "revise" && Boolean(p.payload?.title));
+const hasFigure = (p: Proposal) => ["price", "best_offer_response", "create_listing", "promote", "offer_to_watchers"].includes(p.kind) || (p.kind === "revise" && Boolean(p.payload?.title));
 
 /** The headline figure of a label. */
 function Change({ p, open }: { p: Proposal; open: boolean }) {
@@ -85,6 +87,7 @@ function Change({ p, open }: { p: Proposal; open: boolean }) {
   if (p.kind === "create_listing") return <span class="rounded-full bg-green-soft px-3 py-1 text-lg font-semibold tabular-nums text-green">{money(a.price)}</span>;
   if (p.kind === "promote")
     return <span class="rounded-full bg-blue-soft px-3 py-1 text-lg font-semibold tabular-nums text-blue">{a.action === "end" ? "End ad" : `${a.rate}% ad rate`}</span>;
+  if (p.kind === "offer_to_watchers") return <PriceDelta from={Number(a.price)} to={Number(a.offerPrice)} open={open} format={money} />;
   if (p.kind === "revise" && a.title) return <p class="text-lg leading-snug font-semibold tracking-tight">“{a.title}”</p>;
   return null;
 }
@@ -240,7 +243,12 @@ function ProposalCard({
                 {p.kind === "promote" && (
                   <p class="text-sm text-muted">
                     {a.campaign}. eBay suggests {a.suggestedRate != null ? `${a.suggestedRate}%` : "no rate"}
-                    {a.payback ? `; expected sale in about ${a.payback.daysPromoted} days instead of ${a.payback.daysNow}, ad fee ${money(a.payback.adFee)} if it sells through the ad.` : "."}
+                    {a.payback ? `; ad fee ${money(a.payback.adFee)}, paid only if it sells through the ad.` : "."}
+                  </p>
+                )}
+                {p.kind === "offer_to_watchers" && (
+                  <p class="text-sm text-muted">
+                    {a.percent}% off for {a.watchers} watching, open {a.durationDays} days, no counter-offers. Sent with: “{a.message}”
                   </p>
                 )}
                 {p.kind === "policy" && a.proposed && (
@@ -702,13 +710,15 @@ function Section({ title, sub, children, class: cls = "" }: { title: string; sub
 }
 
 type Run = (fn: () => Promise<string | void>) => void;
-type SectionId = "account" | "notifications" | "connection" | "style" | "usage";
+type SectionId = "account" | "notifications" | "connection" | "style" | "listing" | "usage";
 
 const SECTIONS: { id: SectionId; title: string; Icon: (p: { size?: number }) => any }[] = [
   { id: "account", title: "Account", Icon: Icons.user },
   { id: "notifications", title: "Notifications", Icon: Icons.bell },
   { id: "connection", title: "eBay connection", Icon: Icons.link },
   { id: "style", title: "Reply style", Icon: Icons.message },
+  // The owner's rules for how Claude writes listings; managers don't see the section.
+  { id: "listing", title: "Listing style", Icon: Icons.sparkles },
   { id: "usage", title: "Usage and APIs", Icon: Icons.gauge },
 ];
 
@@ -1178,6 +1188,7 @@ export function Settings(props: ScreenProps) {
     notifications: permission === "granted" ? `On · ${plural(devices.data?.length ?? 0, "device")}` : permission === "denied" ? "Blocked here" : "Off on this device",
     connection: `${me.ebayEnv === "production" ? "Live" : "Sandbox"} · ${me.ebayConnected ? (me.ebayNeedsReconnect ? "reconnect needed" : me.ebayScopes === "read-only" ? "read-only" : "full permission") : "not connected"}`,
     style: "How Claude's reply drafts sound",
+    listing: "Your rules for titles and descriptions",
     usage: downCount ? `${plural(downCount, "service")} not working` : lowCount ? `${plural(lowCount, "allowance")} running low` : claude?.left != null ? `Claude ${usd(claude.left)} left` : "Claude spend and sold-data searches",
   };
 
@@ -1190,6 +1201,8 @@ export function Settings(props: ScreenProps) {
       <ConnectionSection me={me} />
     ) : s === "style" ? (
       <StyleCard owner={owner} onSignedOut={onSignedOut} />
+    ) : s === "listing" ? (
+      owner ? <ListingRulesCard onSignedOut={onSignedOut} /> : <p class="text-sm text-muted">Only the owner sets how listings are written.</p>
     ) : (
       <UsageSection me={me} usage={usage} run={run} busy={busy} />
     );
@@ -1197,7 +1210,7 @@ export function Settings(props: ScreenProps) {
   const menu = (
     <LayoutGroup id="settings-menu">
       <motion.ul class="m-0 grid gap-2 p-0" variants={list} initial="hidden" animate="show">
-        {SECTIONS.map((s) => {
+        {SECTIONS.filter((s) => owner || s.id !== "listing").map((s) => {
           const active = wide && shown === s.id;
           return (
             <motion.li variants={item} class="list-none" key={s.id}>

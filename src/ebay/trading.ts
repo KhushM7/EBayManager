@@ -122,6 +122,20 @@ export async function mediaUpload(env: Env, bytes: Uint8Array, filename: string)
   return imageUrl;
 }
 
+/** eBay refused or failed a REST write: what it answered, kept whole for the Inbox's diagnostics. */
+export class EbayCallError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    /** eBay's reply as sent (cut at 4000 characters). */
+    readonly raw: string,
+    /** eBay's own id for the request (the rlogid header), which eBay support asks for. */
+    readonly requestId: string | null,
+  ) {
+    super(message);
+  }
+}
+
 /**
  * A REST call that changes eBay (Marketing and Negotiation APIs). Only the write gate may call this
  * (test/safety.test.ts), after its claim; the path must be on the write allowlist. Returns the reply's JSON
@@ -143,7 +157,7 @@ export async function restWrite(env: Env, method: "POST" | "DELETE", path: strin
   } catch {}
   if (!res.ok) {
     const why = [json?.errors ?? []].flat().map((e: any) => e?.longMessage ?? e?.message).filter(Boolean).join("; ") || text.slice(0, 300);
-    throw new Error(`${method} ${path.split("?")[0]} failed (${res.status}): ${why}`);
+    throw new EbayCallError(`${method} ${path.split("?")[0]} failed (${res.status}): ${why}`, res.status, text.slice(0, 4000), res.headers.get("rlogid") ?? res.headers.get("x-ebay-c-request-id"));
   }
   return { status: res.status, body: json, location: res.headers.get("Location") };
 }

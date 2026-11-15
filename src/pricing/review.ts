@@ -26,7 +26,14 @@ export interface ReviewOut {
   asked: { itemId: string; title: string; question: string; reason?: "unidentified" | "no_sales" }[];
 }
 
-export async function reviewPrices(env: Env, now = Date.now(), opts: { all?: boolean; limit?: number; out?: ReviewOut } = {}): Promise<string> {
+/** A change this large means the market has moved: proposed whatever the listing's rung on the sales ladder. */
+export const MARKET_MOVED = 0.1;
+
+export async function reviewPrices(
+  env: Env,
+  now = Date.now(),
+  opts: { all?: boolean; limit?: number; out?: ReviewOut; /** The sales ladder (src/ladder.ts): each listing's rung tonight. */ ladder?: Map<string, { rung: string; why: string }> } = {},
+): Promise<string> {
   // The latest snapshot set, minus listings with a pending price change (unless all) or one applied in the
   // last 7 days, oldest engine check first.
   const priceProposals = await env.store.proposals.listWhere([{ f: "kind", op: "=", v: "price" }]);
@@ -49,6 +56,7 @@ export async function reviewPrices(env: Env, now = Date.now(), opts: { all?: boo
   const propose = tools.find((t) => t.name === "propose_price_change")!;
   let proposed = 0;
   let asked = 0;
+  let leftForLadder = 0;
   const failed: string[] = [];
   for (const l of due) {
     try {
@@ -61,12 +69,21 @@ export async function reviewPrices(env: Env, now = Date.now(), opts: { all?: boo
         opts.out?.asked.push({ itemId: l.item_id, title: l.title, question: d.question ?? "Which brand and model is it?", reason: d.reason });
         continue;
       }
-      if (Math.abs(d.price - l.price) / l.price < MIN_CHANGE || d.confidence < MIN_CONFIDENCE) continue;
+      const change = Math.abs(d.price - l.price) / l.price;
+      if (change < MIN_CHANGE || d.confidence < MIN_CONFIDENCE) continue;
+      // One push at a time (the sales ladder): a price change is proposed when the price is this listing's rung,
+      // or when the market has moved far enough that the price is wrong whatever else is going on.
+      const step = opts.ladder?.get(l.item_id);
+      if (step && step.rung !== "price" && (step.rung === "wait" || change < MARKET_MOVED)) {
+        leftForLadder++;
+        continue;
+      }
       const o = d.options;
       await propose.run(env, {
         item_id: l.item_id,
         new_price: d.price,
         reason:
+          (step?.rung === "price" ? `${step.why} ` : "") +
           `${d.strategy[0].toUpperCase()}${d.strategy.slice(1)}: ${d.why} ` +
           `Options: ${[...new Set(o.map((x) => x.price))].map((x) => `£${x.toFixed(2)}`).join(", ")}. Confidence ${Math.round(d.confidence * 100)}%.`,
       });
@@ -75,5 +92,5 @@ export async function reviewPrices(env: Env, now = Date.now(), opts: { all?: boo
       failed.push(`${l.item_id}: ${e instanceof Error ? e.message : String(e)}`.slice(0, 120));
     }
   }
-  return `${due.length} priced, ${proposed} proposed, ${asked} need your answer${failed.length ? `; failed ${failed.join("; ")}` : ""}`;
+  return `${due.length} priced, ${proposed} proposed, ${asked} need your answer${leftForLadder ? `, ${leftForLadder} left for another step first` : ""}${failed.length ? `; failed ${failed.join("; ")}` : ""}`;
 }

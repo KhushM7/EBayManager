@@ -64,6 +64,9 @@ Design docs: [roadmap](docs/roadmap.md), [design system](docs/design-system.md),
 - **Listing style** (K, `src/guidance.ts`): the owner, never a manager, tells Claude in the app how listings should be written; each piece of feedback becomes a standing rule (wording, or a fact true of every item) for new listings and Claude's rewrites. Rules sit below the fixed ones; links and contact details are refused.
 - **Promotion** (K): proposed when a listing isn't being seen (few impressions, or hardly any views and nobody watching after 14 days), not for days listed alone. Approved `promote` labels now apply (2% to 4%).
 - **Offers to watchers** (K, `src/watchers.ts`): a reminder, so as little off as possible: 2% first, a point more each time, never above 5% or under the floor. Proposed nightly, approved by K, sent by the gate.
+- **The sales ladder** (K, `src/ladder.ts`): a listing that isn't selling gets one push at a time, at most one a week, chosen by its own figures: unseen, the title and specifics first, then promotion; watched but unsold, an offer to watchers, then the price; seen but unwatched, the price. The nightly's price review, triage, watcher offers and promotion each act only on their rung (a price change of 10% or more still goes ahead: the market moved).
+- **The 14-day promotion review** (K, `src/promotion.ts`): two weeks after an ad is applied, and every two weeks after, the listing's views, impressions and watchers are compared with before; if no more people see it, an "end" label is filed. A promoted listing is no longer ended just for being seen.
+- **Git in Claude sessions** (K): commits are authored as K (`khush <khushmehta31@gmail.com>`), unsigned, with no co-author or session lines and no mention of Claude as author. New branches have plain names: no `claude/` prefix, no random letters at the end.
 - **Deploying from GitHub** (K): `.github/workflows/deploy.yml`, started by hand or by Claude. Sandbox deploys at once; production waits for K's approval in GitHub and deploys only from `main` (README, "Deploying from GitHub").
 
 ## Rules that are enforced in code, never in prompts
@@ -113,6 +116,7 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/firstday.ts`, `src/style.ts`, `src/promotion.ts`, `src/ebay/history.ts` | First-day audit report, K's reply style guide, Promoted Listings research, and the account-history reads they use |
 | `src/inbox.ts`, `src/ebay/inbox.ts` | The 15-minute poll: buyer questions and Best Offers, Haiku drafts, floor enforced in code |
 | `src/guidance.ts`, `web/src/rules.tsx` | K's standing rules for how Claude writes listings: feedback to a rule (Haiku), kept in the store, added to the compose and review prompts. Owner only (`/api/listing-rules`) |
+| `src/ladder.ts` | The sales ladder: each listing's one step tonight (listing, price, offer, promote, wait), read by the nightly steps |
 | `src/watchers.ts` | Offers to watchers: the nightly step that proposes a 2% to 5% reminder offer for listings eBay says are eligible |
 | `.github/workflows/deploy.yml`, `scripts/azure-github-oidc.mjs` | Deploying from GitHub with K's approval for production, and its one-time Azure set-up |
 | `src/todos.ts`, `src/store/todos.ts`, `web/src/todos.tsx` | Inbox to-dos: what needs K but isn't an eBay change, filed by the audit and the nightly ([approvals.md](docs/approvals.md)) |

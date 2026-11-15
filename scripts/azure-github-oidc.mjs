@@ -20,11 +20,18 @@ if (!appId) appId = az(["ad", "app", "create", "--display-name", name, "--query"
 let spId = az(["ad", "sp", "list", "--filter", `appId eq '${appId}'`, "--query", "[0].id", "-o", "tsv"]).trim();
 if (!spId) spId = az(["ad", "sp", "create", "--id", appId, "--query", "id", "-o", "tsv"]).trim();
 
-// Only this repository's GitHub environment of the same name may sign in as it.
-const subject = `repo:${REPO}:environment:${env}`;
-const existing = az(["ad", "app", "federated-credential", "list", "--id", appId, "--query", `[?subject=='${subject}'].name`, "-o", "tsv"]).trim();
-if (!existing)
-  az(["ad", "app", "federated-credential", "create", "--id", appId, "--parameters", JSON.stringify({ name: `github-${env}`, issuer: "https://token.actions.githubusercontent.com", subject, audiences: ["api://AzureADTokenExchange"] })], { quiet: true });
+// Only this repository's GitHub environment of the same name may sign in as it. GitHub names the repository in
+// its token either by name or by name and permanent id ("KhushM7@124626664/EBayManager@1415007865": the first
+// deploy run on 2026-11-15 was refused because only the plain form was registered), so both are registered.
+const REPO_WITH_IDS = process.env.GITHUB_REPOSITORY_WITH_IDS || "KhushM7@124626664/EBayManager@1415007865";
+const subjects = [
+  [`github-${env}`, `repo:${REPO}:environment:${env}`],
+  [`github-${env}-ids`, `repo:${REPO_WITH_IDS}:environment:${env}`],
+];
+const registered = az(["ad", "app", "federated-credential", "list", "--id", appId, "--query", "[].subject", "-o", "tsv"]).split(/\r?\n/).map((x) => x.trim());
+for (const [credential, subject] of subjects)
+  if (!registered.includes(subject))
+    az(["ad", "app", "federated-credential", "create", "--id", appId, "--parameters", JSON.stringify({ name: credential, issuer: "https://token.actions.githubusercontent.com", subject, audiences: ["api://AzureADTokenExchange"] })], { quiet: true });
 
 // Publish to this one Function App only.
 const scope = `/subscriptions/${account.id}/resourceGroups/${o.resourceGroup}/providers/Microsoft.Web/sites/${o.functionAppName}`;

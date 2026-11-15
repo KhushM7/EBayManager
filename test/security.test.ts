@@ -297,6 +297,9 @@ describe("request protection", () => {
   it("never allows the key sign-in in production", async () => {
     env = { ...env, EBAY_ENV: "production", ALLOW_KEY_LOGIN: "true" } as Env;
     expect((await api("/login", { key: "boot-key-123" })).status).toBe(401);
+    // The Sandbox-only route for proving eBay calls doesn't exist here either.
+    expect((await api("/sandbox/propose", { kind: "promote", itemId: "123456789012", payload: { action: "promote", rate: 3 } }, (await team()).owner.cookie)).status).toBe(404);
+
     expect((await fetchWorker("/api/login", { method: "POST", headers: { "X-EbayManager": "1" }, body: JSON.stringify({ key: "boot-key-123" }) })).status).toBe(404);
   });
 });

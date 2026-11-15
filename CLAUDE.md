@@ -146,4 +146,4 @@ Production runs in approval mode (`WRITE_MODE=approval`, set in `infra/productio
 - No CI is set up yet (the deploy workflow runs typecheck and tests before publishing).
 - The Promoted Listings and offers-to-watchers calls (2026-11-15) were written without eBay's API reference to hand: prove each on Sandbox, then with one real label, before relying on them.
 - The sale model's learned settings look wrong (price barely changes its estimates); check `pricing` params in production and how "gone from search" is counted as sold (`src/pricing/learn.ts`).
-- `azure-migration` no longer exists: everything is on `main`.
+- `azure-migration` is an old branch, 23 commits behind `main` with nothing of its own: everything is on `main`.

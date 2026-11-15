@@ -183,3 +183,23 @@ describe("helpers", () => {
     expect(charmPrice(34.3)).toBe(33.99);
   });
 });
+
+describe("learning that can't tell (2026-11-15)", () => {
+  // Production had tau 0.351 and alpha 3.165 for "all": a few of K's listings, each counted on every price check
+  // and five times over, most of them sold fast or not at all, which drove both to the edge of the search.
+  it("keeps the prior for a parameter whose fit runs to the edge, and stays inside the bounds", () => {
+    // Everything sold in a day at every price: "price doesn't matter and K sells far faster than anyone".
+    const outcomes: Outcome[] = Array.from({ length: 138 }, (_, i) => ({ rel: 0.8 + (i % 10) * 0.05, days: 1, sold: true, share: 0.004 }));
+    const fit = fitParams(outcomes);
+    expect(fit.tau).toBe(0.08);
+    expect(fit.alpha).toBe(1);
+    // Nothing sold at all: alpha runs to the bottom edge, so it stays at the prior too.
+    const none = fitParams(Array.from({ length: 60 }, () => ({ rel: 1, days: 60, sold: false, share: 0.05 })));
+    expect(none.alpha).toBe(1);
+  });
+
+  it("counts a weighted observation once", () => {
+    const a = fitParams(Array.from({ length: 6 }, () => ({ rel: 1, days: 10, sold: true, share: 0.05, weight: 3 })));
+    expect(a.n).toBe(6);
+  });
+});

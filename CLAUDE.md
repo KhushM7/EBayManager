@@ -149,5 +149,5 @@ Production runs in approval mode (`WRITE_MODE=approval`, set in `infra/productio
 - The engine assumes 0% eBay final value fees (a UK private seller). Add a fee setting if K sells as a business.
 - No CI is set up yet (the deploy workflow runs typecheck and tests before publishing).
 - The Promoted Listings and offers-to-watchers calls (2026-11-15) were written without eBay's API reference to hand: prove each on Sandbox, then with one real label, before relying on them.
-- The sale model's learned settings look wrong (price barely changes its estimates); check `pricing` params in production and how "gone from search" is counted as sold (`src/pricing/learn.ts`).
+- The sale model's learning was fixed on 2026-11-15 (production had tau 0.351, alpha 3.165, both at the edge of the search): one observation per stretch a listing spends at a price, a fit at the edge keeps the prior, results are bounded. Still open: a competitor's listing gone from the search results is counted as sold (`src/pricing/learn.ts`).
 - `azure-migration` is an old branch, 23 commits behind `main` with nothing of its own: everything is on `main`.

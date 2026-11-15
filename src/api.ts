@@ -83,7 +83,11 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
   if (path === "/login") {
     if (method !== "POST") return json({ error: "Not found" }, 404);
     if (await limited()) return json({ error: "Too many attempts. Wait an hour and try again." }, 429);
-    const cookie = await keyLogin(env, request, (await body(request)).key);
+    // The key comes in the body, or as "Authorization: Bearer <key>": a cloud coding session's network proxy can
+    // add that header itself, so the session signs in to Sandbox without ever holding the key. Same key, same
+    // check, Sandbox only (keyLogin refuses on production).
+    const bearer = /^Bearer (.+)$/.exec(request.headers.get("Authorization") ?? "")?.[1];
+    const cookie = await keyLogin(env, request, (await body(request)).key ?? bearer);
     return cookie ? json({ ok: true }, 200, { "Set-Cookie": cookie }) : fail(401, "Wrong key");
   }
 

@@ -82,6 +82,14 @@ describe("dashboard API", () => {
       expect((await call("/login", { method: "POST", body: JSON.stringify({ key }) })).status).toBe(401);
   });
 
+  it("takes the Sandbox key from an Authorization header too, and still rejects a wrong one", async () => {
+    const ok = await call("/login", { method: "POST", body: "{}" }, { Authorization: "Bearer dash-key" });
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get("Set-Cookie")).toMatch(/__Host-sid=/);
+    expect((await call("/login", { method: "POST", body: "{}" }, { Authorization: "Bearer nope" })).status).toBe(401);
+    expect((await call("/login", { method: "POST", body: "{}" })).status).toBe(401);
+  });
+
   it("refuses state changes without the custom header", async () => {
     const cookie = await login();
     const url = new URL("https://test.example/api/settings/writes");

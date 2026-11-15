@@ -1,3 +1,4 @@
+import { getRules, standingFacts, withListingRules } from "./guidance";
 import type { Env } from "./env";
 import type { DraftFacts, DraftReview, DraftRow, DraftSpecific } from "./store";
 import { completeOnce, MODELS, type MessagesApi } from "./claude";
@@ -309,11 +310,15 @@ export async function composeDraft(env: Env, id: string, api?: MessagesApi): Pro
   const fromK = factsText(d.facts, d.review);
   const specs = d.specs?.specs ?? [];
   const style = await getStyle(env).catch(() => null);
+  // K's standing rules for listings (src/guidance.ts): wording rules join the system prompt; K's standing facts
+  // are K's facts like any other, so a specific may cite them.
+  const rules = await getRules(env);
+  const standing = standingFacts(rules);
   const prompt = [
     `Category: ${d.category.path ? `${d.category.path} > ` : ""}${d.category.name}`,
     `What the photos show:\n${d.review.visibleFacts.map((f) => `- ${f.fact} (photo ${f.photo})`).join("\n") || "- nothing readable"}`,
     `Flaws seen:\n${d.review.flaws.map((f) => `- ${f.text} (photo ${f.photo})`).join("\n") || "- none seen"}`,
-    `K's facts (source "you"):\n${fromK}`,
+    `K's facts (source "you"):\n${[fromK, ...standing].filter(Boolean).join("\n")}`,
     `Published specifications${d.specs?.product ? ` for the ${d.specs.product}` : ""}:\n${specs.map((s) => `- ${s.name}: ${s.value} (${s.source})`).join("\n") || "- none"}`,
     `Item specifics eBay wants:\n${(d.aspects ?? []).map((a) => `- ${a.name}${a.required ? " (required)" : ""}${a.values.length ? `: ${a.selectionOnly ? "only" : "e.g."} ${a.values.slice(0, 15).join(", ")}` : ""}`).join("\n") || "- none listed"}`,
     d.postage?.collectionOffered || d.postage?.collectionOnly ? `Collection: ${d.postage.collectionOnly ? "collection only" : "collection offered as well as postage"}.` : "",
@@ -323,11 +328,11 @@ export async function composeDraft(env: Env, id: string, api?: MessagesApi): Pro
     .join("\n\n");
   const out = await completeOnce<{ title: string; description: string; specifics: any[] }>(
     env,
-    { job: `listing:compose:${id}`, model: MODELS.audit, system: COMPOSE_SYSTEM, prompt, schema: COMPOSE_SCHEMA, effort: "medium", maxTokens: 8000 },
+    { job: `listing:compose:${id}`, model: MODELS.audit, system: withListingRules(COMPOSE_SYSTEM, rules), prompt, schema: COMPOSE_SCHEMA, effort: "medium", maxTokens: 8000 },
     api,
   );
   if (!out) throw new Error("Claude couldn't write the listing this time. Try again.");
-  const { kept, dropped } = sourcedSpecifics(out.specifics ?? [], { aspects: d.aspects ?? [], visibleFacts: d.review.visibleFacts, flaws: d.review.flaws, fromK, specs });
+  const { kept, dropped } = sourcedSpecifics(out.specifics ?? [], { aspects: d.aspects ?? [], visibleFacts: d.review.visibleFacts, flaws: d.review.flaws, fromK: [fromK, ...standing].join("\n"), specs });
   const listing = { title: fitTitle(out.title), description: clip(out.description, 6000), specifics: kept, dropped, at: Date.now(), editedByK: false };
   return (await env.store.drafts.patch(id, { listing }, Date.now()))!;
 }

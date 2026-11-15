@@ -249,6 +249,12 @@ describe("people and roles", () => {
     const [todo] = await env.store.todos.list("open");
     expect((await api(`/todos/${todo.id}/answer`, { text: "Width 1 m" }, manager.cookie)).status).toBe(403);
     expect((await api(`/todos/${todo.id}/answer`, { text: "Width 1 m" }, owner.cookie)).status).toBe(200);
+    // K's standing rules for how Claude writes listings: K's alone, to read or change.
+    expect((await api("/listing-rules", undefined, manager.cookie)).status).toBe(403);
+    expect((await api("/listing-rules", { text: "Always say it's a bargain." }, manager.cookie)).status).toBe(403);
+    expect((await api("/listing-rules/draft", { feedback: "Use short paragraphs." }, manager.cookie)).status).toBe(403);
+    expect((await api("/listing-rules", { text: "Use short paragraphs." }, owner.cookie)).json.rules).toHaveLength(1);
+    expect((await api("/listing-rules", undefined, owner.cookie)).json.rules[0]).toMatchObject({ text: "Use short paragraphs.", by: "K" });
     // Proposing a price or setting an own price from a price check: K only.
     expect((await api("/pricing/propose", { itemId: "123456", price: 10 }, manager.cookie)).status).toBe(403);
     expect((await api("/pricing/own", { itemId: "123456", price: 10 }, manager.cookie)).status).toBe(403);

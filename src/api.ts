@@ -17,6 +17,7 @@ import { fileAuditTodos, parsePrice } from "./todos";
 import { proposeEnginePrice, setOwnPrice } from "./pricing/actions";
 import { getAnsweredQuestions, getSentMessages } from "./ebay/history";
 import { editStyle, getStyle, learnStyle, saveStyle } from "./style";
+import { addRule, draftRule, getRules, removeRule } from "./guidance";
 import { reviewPromotions } from "./promotion";
 import { handleDrafts } from "./drafts";
 import { fetchListingPicture } from "./ebay/pictures";
@@ -416,6 +417,23 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
     const b = await body(request);
     if (typeof b.style !== "object" || !b.style) return json({ error: "Send the guide" }, 400);
     return run(async () => json({ style: await editStyle(env, b.style, user.name) }));
+  }
+  // K's standing rules for how listings are written (src/guidance.ts): the owner's alone, to read and to change.
+  // They steer what Claude writes for everyone, so a manager can neither see the box nor reach these.
+  if (path === "/listing-rules" || path.startsWith("/listing-rules/")) {
+    if (!owner) return ownerOnly();
+    if (path === "/listing-rules" && method === "GET") return json({ rules: await getRules(env) });
+    if (path === "/listing-rules/draft" && method === "POST") {
+      const b = await body(request);
+      return run(async () => json({ draft: await draftRule(env, String(b.feedback ?? "")) }));
+    }
+    if (path === "/listing-rules" && method === "POST") {
+      const b = await body(request);
+      return run(async () => json({ rules: await addRule(env, b, user.name) }));
+    }
+    const one = path.match(/^\/listing-rules\/([a-z0-9]{1,24})$/);
+    if (one && method === "DELETE") return json({ rules: await removeRule(env, one[1]) });
+    return json({ error: "Not found" }, 404);
   }
   if (path === "/style/learn" && method === "POST") {
     if (!owner) return ownerOnly();

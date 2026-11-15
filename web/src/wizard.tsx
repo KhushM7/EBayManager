@@ -18,6 +18,7 @@ import { PhotoEditor } from "./listing/editor";
 import { ArrangePhotos } from "./listing/arrange";
 import { gradePhoto, type PhotoGrade } from "./photocheck";
 import type { ScreenProps } from "./screens";
+import { TeachClaude } from "./rules";
 import { EASE_OUT, Icons, SPRING, Toasts, useFocusFlow, useToasts } from "./ui";
 
 // ---- The draft, as the server sends it (src/drafts.ts, view) ----
@@ -395,7 +396,7 @@ interface Pending {
 const emptyFacts = (): Facts => ({ condition: null, works: null, marks: null, included: null, missing: null, other: null, answers: {} });
 const sameFacts = (a: Facts, b: Facts) => JSON.stringify(a) === JSON.stringify(b);
 
-function Wizard({ id, onSignedOut, onChanged, go }: ScreenProps & { id: string }) {
+function Wizard({ id, me, onSignedOut, onChanged, go }: ScreenProps & { id: string }) {
   useFocusFlow();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [step, setStep] = useState(0);
@@ -654,6 +655,8 @@ function Wizard({ id, onSignedOut, onChanged, go }: ScreenProps & { id: string }
                 onCategory={(categoryId) => run("category", () => post("/category", { categoryId }))}
                 onCompose={() => run("compose", () => job("/compose"))}
                 onEdit={(b) => run("listing", () => post("/listing", b))}
+                owner={me.user.role === "owner"}
+                onSignedOut={onSignedOut}
               />
             )}
             {s.id === "price" && <PriceStep draft={draft} open={open} busy={busy} onCheck={() => run("price-check", () => job("/price-check"))} onChoose={(b) => run("price", () => post("/price", b), "Price set")} />}
@@ -1148,7 +1151,7 @@ function FactsStep({ draft, open, busy, facts: f, setFacts: setAll, onReview }: 
 
 // ---- Step 3: category and the listing text ----
 
-function ListingStep(props: { draft: Draft; open: boolean; busy: string | null; onCategory: (id: string) => void; onCompose: () => void; onEdit: (b: unknown) => void }) {
+function ListingStep(props: { draft: Draft; open: boolean; busy: string | null; onCategory: (id: string) => void; onCompose: () => void; onEdit: (b: unknown) => void; owner: boolean; onSignedOut: () => void }) {
   const { draft, open, busy } = props;
   const l = draft.listing;
   const [title, setTitle] = useState(l?.title ?? "");
@@ -1198,6 +1201,8 @@ function ListingStep(props: { draft: Draft; open: boolean; busy: string | null; 
           <Field label="Description" hint="Saved when you leave the box.">
             <textarea disabled={!open} rows={9} value={desc} onInput={(e) => setDesc(e.currentTarget.value)} onBlur={(e) => e.currentTarget.value !== l.description && props.onEdit({ description: e.currentTarget.value })} />
           </Field>
+          {/* The owner's suggestion box: a standing rule for every listing Claude writes (web/src/rules.tsx). */}
+          {props.owner && open && <TeachClaude onSignedOut={props.onSignedOut} />}
           <div>
             <p class="kind">Item specifics</p>
             <ul class="m-0 grid gap-1.5 p-0">
@@ -1428,7 +1433,7 @@ function PriceStep({ draft, open, busy, onCheck, onChoose }: { draft: Draft; ope
           <Field label="Or set your own price (£)" hint="The engine's price is an estimate. If the figures above say otherwise, or the item's wear makes it worth more or less, put your own.">
             <input type="number" inputMode="decimal" min="0.99" step="0.01" disabled={!open} value={own} onInput={(e) => setOwn(e.currentTarget.value)} />
           </Field>
-          <button class="btn" disabled={!open || !(num(own) > 0) || busy !== null} onClick={() => choose(own)}>
+          <button class="btn btn-secondary" disabled={!open || !(num(own) > 0) || busy !== null} onClick={() => choose(own)}>
             Use this price
           </button>
         </div>

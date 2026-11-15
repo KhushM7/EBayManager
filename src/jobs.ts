@@ -1,5 +1,6 @@
 import type { Env } from "./env";
 import { MODELS, runAgent, type AgentResult } from "./claude";
+import { getRules, withListingRules } from "./guidance";
 
 // Claude jobs. Each prompt is a fixed string (no dates or ids), so it caches; the per-run detail goes in
 // the user message. Claude can only read and propose: K approves every change.
@@ -26,11 +27,13 @@ How to work:
 export const AUDIT_TOOLS = ["get_listing", "price_check", "search_active_comps", "list_proposals", "propose_listing_revision", "propose_price_change"];
 
 /** Sonnet reviews one listing and files proposals for K. */
-export function auditListing(env: Env, itemId: string): Promise<AgentResult> {
+export async function auditListing(env: Env, itemId: string): Promise<AgentResult> {
+  // K's standing rules for listings apply to rewrites of existing listings too, so old and new read alike.
+  const rules = await getRules(env).catch(() => []);
   return runAgent(env, {
     job: `audit:${itemId}`,
     model: MODELS.audit,
-    system: AUDIT_SYSTEM,
+    system: withListingRules(AUDIT_SYSTEM, rules),
     prompt: `Review listing ${itemId}.`,
     toolNames: AUDIT_TOOLS,
     maxTurns: 10,

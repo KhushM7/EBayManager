@@ -6,6 +6,7 @@ import { ago, daysSince, describe, money, plural } from "./format";
 import { BundleAdvice, PriceCheck } from "./pricing";
 import { Todos } from "./todos";
 import { Facts, StyleCard } from "./report";
+import { ListingRulesCard } from "./rules";
 import { CountUp, EASE_OUT, Icons, item, list, PriceDelta, SPRING, Toasts, useToasts } from "./ui";
 
 export interface ScreenProps {
@@ -709,13 +710,15 @@ function Section({ title, sub, children, class: cls = "" }: { title: string; sub
 }
 
 type Run = (fn: () => Promise<string | void>) => void;
-type SectionId = "account" | "notifications" | "connection" | "style" | "usage";
+type SectionId = "account" | "notifications" | "connection" | "style" | "listing" | "usage";
 
 const SECTIONS: { id: SectionId; title: string; Icon: (p: { size?: number }) => any }[] = [
   { id: "account", title: "Account", Icon: Icons.user },
   { id: "notifications", title: "Notifications", Icon: Icons.bell },
   { id: "connection", title: "eBay connection", Icon: Icons.link },
   { id: "style", title: "Reply style", Icon: Icons.message },
+  // The owner's rules for how Claude writes listings; managers don't see the section.
+  { id: "listing", title: "Listing style", Icon: Icons.sparkles },
   { id: "usage", title: "Usage and APIs", Icon: Icons.gauge },
 ];
 
@@ -1185,6 +1188,7 @@ export function Settings(props: ScreenProps) {
     notifications: permission === "granted" ? `On · ${plural(devices.data?.length ?? 0, "device")}` : permission === "denied" ? "Blocked here" : "Off on this device",
     connection: `${me.ebayEnv === "production" ? "Live" : "Sandbox"} · ${me.ebayConnected ? (me.ebayNeedsReconnect ? "reconnect needed" : me.ebayScopes === "read-only" ? "read-only" : "full permission") : "not connected"}`,
     style: "How Claude's reply drafts sound",
+    listing: "Your rules for titles and descriptions",
     usage: downCount ? `${plural(downCount, "service")} not working` : lowCount ? `${plural(lowCount, "allowance")} running low` : claude?.left != null ? `Claude ${usd(claude.left)} left` : "Claude spend and sold-data searches",
   };
 
@@ -1197,6 +1201,8 @@ export function Settings(props: ScreenProps) {
       <ConnectionSection me={me} />
     ) : s === "style" ? (
       <StyleCard owner={owner} onSignedOut={onSignedOut} />
+    ) : s === "listing" ? (
+      owner ? <ListingRulesCard onSignedOut={onSignedOut} /> : <p class="text-sm text-muted">Only the owner sets how listings are written.</p>
     ) : (
       <UsageSection me={me} usage={usage} run={run} busy={busy} />
     );
@@ -1204,7 +1210,7 @@ export function Settings(props: ScreenProps) {
   const menu = (
     <LayoutGroup id="settings-menu">
       <motion.ul class="m-0 grid gap-2 p-0" variants={list} initial="hidden" animate="show">
-        {SECTIONS.map((s) => {
+        {SECTIONS.filter((s) => owner || s.id !== "listing").map((s) => {
           const active = wide && shown === s.id;
           return (
             <motion.li variants={item} class="list-none" key={s.id}>

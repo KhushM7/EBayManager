@@ -32,7 +32,8 @@ const input = (over: Partial<PromotionInput> = {}): PromotionInput => ({
   postage: 3,
   floor: null,
   listedDays: 45,
-  views7d: 10,
+  views7d: 2,
+  watchers: 0,
   impressions7d: 300,
   market: market(),
   suggestedRate: 8,
@@ -65,7 +66,7 @@ describe("saturation", () => {
 });
 
 describe("promotion advice", () => {
-  it("promotes a slow listing in a saturated market when the rate pays back, below eBay's suggestion", () => {
+  it("promotes a listing nobody is looking at when the rate pays back, below eBay's suggestion", () => {
     const a = promotionAdvice(input());
     expect(a.action).toBe("promote");
     expect(a.rate).toBe(3);
@@ -75,10 +76,27 @@ describe("promotion advice", () => {
     expect(a.why).toMatch(/eBay suggests 8%/);
   });
 
-  it("doesn't promote in a thin or unsaturated market", () => {
+  it("doesn't promote in a thin market or without a market picture", () => {
     expect(promotionAdvice(input({ market: market({ regime: "thin" }) })).action).toBe("none");
-    expect(promotionAdvice(input({ market: market({ weeksOfSupply: 2 }) })).action).toBe("none");
     expect(promotionAdvice(input({ market: null })).action).toBe("none");
+  });
+
+  it("goes by views and watchers, not by days listed (K, 2026-11-15)", () => {
+    // 30+ days without a sale, but plenty of views and a few watchers: it's being seen, so no ad.
+    const seen = promotionAdvice(input({ listedDays: 60, views7d: 40, watchers: 3, impressions7d: 900 }));
+    expect(seen.action).toBe("none");
+    expect(seen.why).toMatch(/being seen \(40 views in 7 days, 3 watching\)/);
+    expect(promotionAdvice(input({ listedDays: 60, views7d: 40, watchers: 3, impressions7d: 900, market: market({ weeksOfSupply: 2 }) })).why).toMatch(/price or an offer to watchers/);
+    // 15 days with hardly a view and nobody watching: promote, crowded market or not.
+    const unseen = promotionAdvice(input({ listedDays: 15, views7d: 0, watchers: 0, impressions7d: 400, market: market({ weeksOfSupply: 2 }) }));
+    expect(unseen.action).toBe("promote");
+    expect(unseen.why).toMatch(/only 0 views in 7 days and nobody watching after 15 days/);
+    // A watcher means someone found it: not unseen.
+    expect(promotionAdvice(input({ listedDays: 15, views7d: 1, watchers: 1 })).action).toBe("none");
+    // Too new to judge by views.
+    expect(promotionAdvice(input({ listedDays: 9, views7d: 0, watchers: 0, impressions7d: 400 })).action).toBe("none");
+    // No traffic figures at all: nothing says it isn't seen.
+    expect(promotionAdvice(input({ views7d: null, impressions7d: null })).action).toBe("none");
   });
 
   it("waits on a new listing that's being seen", () => {

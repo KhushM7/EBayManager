@@ -19,6 +19,7 @@ async function sellGet(env: Env, path: string): Promise<any> {
       },
     }),
   );
+  if (res.status === 204) return {};
   if (!res.ok) throw new Error(`GET ${path.split("?")[0]} failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
   return res.json();
 }
@@ -192,8 +193,38 @@ export interface AdState {
   listingId: string;
   campaignId: string;
   campaignName: string;
+  /** eBay's id for the listing's ad in that campaign (needed to change or end it). */
+  adId: string | null;
   /** Ad rate, percent. */
   rate: number | null;
+}
+
+export interface Campaign {
+  campaignId: string;
+  campaignName: string;
+  /** COST_PER_SALE for a general campaign. */
+  fundingModel: string | null;
+}
+
+/** K's running Promoted Listings campaigns. */
+export async function getCampaigns(env: Env): Promise<Campaign[]> {
+  const data = await sellGet(env, `/sell/marketing/v1/ad_campaign?campaign_status=RUNNING&limit=100`);
+  return (data.campaigns ?? []).map((c: any) => ({ campaignId: String(c.campaignId), campaignName: String(c.campaignName ?? ""), fundingModel: c.fundingStrategy?.fundingModel ? String(c.fundingStrategy.fundingModel) : null }));
+}
+
+/**
+ * Listings eBay will let K send an offer to watchers for (Negotiation API findEligibleItems): they have
+ * interested buyers and no offer already out. Read only.
+ */
+export async function getEligibleForOffers(env: Env): Promise<string[]> {
+  const out: string[] = [];
+  for (let offset = 0; offset < 1000; offset += 200) {
+    const data = await sellGet(env, `/sell/negotiation/v1/find_eligible_items?limit=200&offset=${offset}`);
+    const items = data?.eligibleItems ?? [];
+    out.push(...items.map((i: any) => String(i.listingId)));
+    if (items.length < 200) break;
+  }
+  return out;
 }
 
 /** Listings in running Promoted Listings campaigns, with their ad rates. */
@@ -207,6 +238,7 @@ export async function getPromotedListings(env: Env): Promise<AdState[]> {
         listingId: String(a.listingId),
         campaignId: String(c.campaignId),
         campaignName: String(c.campaignName ?? ""),
+        adId: a.adId != null ? String(a.adId) : null,
         rate: a.bidPercentage != null ? Number(a.bidPercentage) : c.fundingStrategy?.bidPercentage != null ? Number(c.fundingStrategy.bidPercentage) : null,
       });
   }

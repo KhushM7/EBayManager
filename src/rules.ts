@@ -32,5 +32,15 @@ export const RETURNS = { accepted: true, periodDays: 30, buyerPaysReturnPostage:
 export const DEFAULT_SHIPPING = "ship_and_collect" as const;
 export const COLLECTION_OFFERED_BY_DEFAULT = DEFAULT_SHIPPING === "ship_and_collect";
 
+/**
+ * Offers to watchers (K, 2026-11-15): a reminder to people who liked the item, not a price cut, so the discount
+ * is as small as possible: 2% the first time, a point more each time the listing is offered again unsold, never
+ * above 5%. The write gate refuses any other percentage. `cooldownDays` is the gap between offers on a listing.
+ */
+export const WATCHER_OFFER = { minPercent: 2, maxPercent: 5, cooldownDays: 14, minListedDays: 7, durationDays: 4 } as const;
+
+/** Promoted Listings: the lowest and highest general ad rate the app may set, percent. The write gate refuses others. */
+export const PROMOTION_RATE = { min: 2, max: 4 } as const;
+
 /** Claude spend cap per UTC day. Runs refuse to start once it's reached (target is $3 to $6 a month). */
 export const CLAUDE_DAILY_BUDGET_USD = 1;

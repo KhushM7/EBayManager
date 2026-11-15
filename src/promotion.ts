@@ -5,17 +5,20 @@ import { DEFAULT_PARAMS, daysToSell, hazard, value, type MarketState, type SaleP
 import { inputFromItem, paramsFor, type PriceResult } from "./pricing/engine";
 import { proposeAndNotify } from "./proposals";
 import { r2 } from "./util";
+import { PROMOTION_RATE } from "./rules";
 
 // Promotion research (docs/pricing-and-promotion.md, "Promoted Listings"). Promoted Listings is proposed only
-// when the market is saturated, the listing needs to be seen, and a low "general" (cost per sale) rate pays
-// back under the pricing engine's own sale model. The rate stays at most half of eBay's suggestion. Every
+// when the listing isn't being seen (few search impressions, or hardly any views and no watchers after two
+// weeks: K, 2026-11-15), and a low "general" (cost per sale) rate pays back under the pricing engine's own sale
+// model. A listing people do see and watch doesn't need an ad, however long it has sat: its lever is the price
+// or an offer to its watchers. A saturated market is no longer required, only that the market isn't thin. The rate stays at most half of eBay's suggestion. Every
 // suggestion is a `promote` proposal K approves; promotion never applies automatically (LOCKED_KINDS).
 
 export const PROMO = {
   /** eBay's minimum general ad rate, percent. */
-  minRate: 2,
+  minRate: PROMOTION_RATE.min,
   /** Highest rate the app proposes, percent. */
-  maxRate: 4,
+  maxRate: PROMOTION_RATE.max,
   /** Never more than this share of eBay's suggested rate. */
   maxShareOfSuggested: 0.5,
   /** Proposed rate as a share of eBay's suggestion, before the limits above. */
@@ -33,8 +36,9 @@ export const PROMO = {
   saturatedSupply: 8,
   /** Few impressions in 7 days for a listing at least a week old. */
   lowImpressions: 100,
-  /** A listing that has sat this long without selling needs a push. */
-  longSitDays: 30,
+  /** Hardly any views: fewer than this in 7 days, with no watchers, for a listing at least `unseenDays` old. */
+  lowViews: 5,
+  unseenDays: 14,
 } as const;
 
 export interface PromotionInput {
@@ -44,6 +48,8 @@ export interface PromotionInput {
   listedDays: number;
   views7d: number | null;
   impressions7d: number | null;
+  /** People watching the listing; null when unknown. */
+  watchers?: number | null;
   market: MarketState | null;
   params?: SaleParams;
   /** eBay's suggested rate, percent; null when eBay gave none. */
@@ -84,8 +90,10 @@ export function promotionAdvice(i: PromotionInput): PromotionAdvice {
   const m = i.market;
   const saturated = isSaturated(m);
   const lowImpressions = i.impressions7d != null && i.listedDays >= 7 && i.impressions7d < PROMO.lowImpressions;
-  const longSit = i.listedDays >= PROMO.longSitDays;
-  const needsVisibility = lowImpressions || longSit;
+  // Not being seen: hardly any views and nobody watching after two weeks. Days listed alone are no reason: a
+  // listing with views and watchers is being seen, and an ad wouldn't change why it hasn't sold.
+  const unseen = i.views7d != null && i.listedDays >= PROMO.unseenDays && i.views7d < PROMO.lowViews && (i.watchers ?? 0) === 0;
+  const needsVisibility = lowImpressions || unseen;
   const none = (why: string, action: PromotionAdvice["action"] = "none"): PromotionAdvice => ({
     action,
     rate: null,
@@ -101,11 +109,16 @@ export function promotionAdvice(i: PromotionInput): PromotionAdvice {
   if (!m || m.mNow == null)
     return none(`No market picture for this item yet, so promotion can't be judged${promoted ? `; it stays at its current ${i.currentRate}% until there is one` : ""}.`);
   if (m.regime === "thin") return stop("A thin market: few others sell this, so the listing already shows near the top.");
-  if (!saturated)
+  if (!needsVisibility && !saturated)
     return stop(
-      `Not saturated: ${m.weeksOfSupply != null ? `${m.weeksOfSupply.toFixed(1)} weeks of supply` : `${m.supply} matching listings`}, under the ${PROMO.saturatedWeeks}-week mark.`,
+      `It's being seen${i.views7d != null ? ` (${i.views7d} views in 7 days${i.watchers ? `, ${i.watchers} watching` : ""})` : ""} and the market isn't crowded (${m.weeksOfSupply != null ? `${m.weeksOfSupply.toFixed(1)} weeks of supply` : `${m.supply} matching listings`}), so an ad wouldn't help: the price or an offer to watchers is the lever.`,
     );
-  if (!needsVisibility && !promoted) return none("The market is crowded, but this listing is new and being seen; wait before paying for ads.");
+  if (!needsVisibility && !promoted)
+    return none(
+      i.views7d == null && i.impressions7d == null
+        ? "No view figures for this listing yet, so there's nothing to say it isn't being seen."
+        : `The market is crowded, but this listing is being seen${i.views7d != null ? ` (${i.views7d} views in 7 days${i.watchers ? `, ${i.watchers} watching` : ""})` : ""}: an ad isn't what it needs.`,
+    );
 
   const rate = proposedRate(i.suggestedRate);
   if (rate == null)
@@ -123,14 +136,19 @@ export function promotionAdvice(i: PromotionInput): PromotionAdvice {
   const v1 = value(total, h1, { postage: i.postage, adRate: rate / 100 });
   const payback = { daysNow: Math.round(daysToSell(h0)), daysPromoted: Math.round(daysToSell(h1)), valueNow: r2(v0), valuePromoted: r2(v1), adFee: fee };
   if (v1 - v0 < PROMO.minGain)
-    return { ...stop(`At ${rate}% the faster sale (about ${payback.daysPromoted} days instead of ${payback.daysNow}) doesn't cover the £${fee.toFixed(2)} fee.`), payback };
+    return { ...stop(`At ${rate}% the better chance of a sale doesn't cover the £${fee.toFixed(2)} fee.`), payback };
 
   const suggestion = i.suggestedRate != null ? `eBay suggests ${i.suggestedRate}%` : "eBay gave no suggested rate";
-  const reasonSeen = lowImpressions ? `only ${i.impressions7d} search impressions in 7 days` : `${i.listedDays} days listed without a sale`;
+  const reasonSeen = lowImpressions
+    ? `only ${i.impressions7d} search impressions in 7 days`
+    : unseen
+      ? `only ${i.views7d} view${i.views7d === 1 ? "" : "s"} in 7 days and nobody watching after ${i.listedDays} days`
+      : "it's already promoted";
+  const crowd = `${saturated ? "A crowded market" : "Market"}: ${m.weeksOfSupply != null ? `${m.weeksOfSupply.toFixed(1)} weeks of supply` : `${m.supply} matching listings`}`;
   const why =
-    `Saturated market (${m.weeksOfSupply != null ? `${m.weeksOfSupply.toFixed(1)} weeks of supply` : `${m.supply} matching listings`}) and ${reasonSeen}. ` +
-    `A ${rate}% general ad (paid only if it sells through the ad: £${fee.toFixed(2)}) should cut the expected wait from about ${payback.daysNow} to ${payback.daysPromoted} days ` +
-    `and adds about £${(v1 - v0).toFixed(2)} in expected value. ${suggestion}.`;
+    `Not being seen: ${reasonSeen}. ${crowd}. ` +
+    `A ${rate}% general ad (paid only if it sells through the ad: £${fee.toFixed(2)}) puts it in front of more buyers, ` +
+    `and on the engine's figures adds about £${(v1 - v0).toFixed(2)} in expected value. ${suggestion}.`;
 
   if (promoted) {
     if (i.currentRate! > rate + 0.01) return { action: "lower", rate, why: `Currently ${i.currentRate}%, more than needed. ${why}`, saturated, needsVisibility, payback };
@@ -198,6 +216,7 @@ export async function researchPromotion(
       listedDays: input?.listedDays ?? 0,
       views7d: traffic?.views_7d ?? null,
       impressions7d: traffic?.impressions_7d ?? null,
+      watchers: traffic?.watch_count ?? null,
       market: input?.current ? market : null,
       params: priced ? await paramsFor(env, priced.identity.group) : undefined,
       suggestedRate: rec?.suggestedRate ?? null,

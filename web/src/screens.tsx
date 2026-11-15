@@ -42,6 +42,7 @@ const KIND: Record<string, { label: string; Icon: (p: { size?: number }) => any;
   end_listing: { label: "End listing", Icon: Icons.x, tone: "text-red bg-red-soft" },
   relist: { label: "Relist", Icon: Icons.refresh, tone: "text-blue bg-blue-soft" },
   promote: { label: "Promotion", Icon: Icons.chart, tone: "text-blue bg-blue-soft" },
+  offer_to_watchers: { label: "Offer to watchers", Icon: Icons.tag, tone: "text-yellow bg-yellow-soft" },
   policy: { label: "Return policy", Icon: Icons.truck, tone: "text-muted bg-surface-3" },
 };
 const kindOf = (k: string) => KIND[k] ?? { label: k.replace(/_/g, " "), Icon: Icons.sparkles, tone: "text-muted bg-surface-3" };
@@ -68,7 +69,7 @@ const STATUSES = [
   { id: "expired", label: "Expired" },
 ];
 
-const hasFigure = (p: Proposal) => ["price", "best_offer_response", "create_listing", "promote"].includes(p.kind) || (p.kind === "revise" && Boolean(p.payload?.title));
+const hasFigure = (p: Proposal) => ["price", "best_offer_response", "create_listing", "promote", "offer_to_watchers"].includes(p.kind) || (p.kind === "revise" && Boolean(p.payload?.title));
 
 /** The headline figure of a label. */
 function Change({ p, open }: { p: Proposal; open: boolean }) {
@@ -85,6 +86,7 @@ function Change({ p, open }: { p: Proposal; open: boolean }) {
   if (p.kind === "create_listing") return <span class="rounded-full bg-green-soft px-3 py-1 text-lg font-semibold tabular-nums text-green">{money(a.price)}</span>;
   if (p.kind === "promote")
     return <span class="rounded-full bg-blue-soft px-3 py-1 text-lg font-semibold tabular-nums text-blue">{a.action === "end" ? "End ad" : `${a.rate}% ad rate`}</span>;
+  if (p.kind === "offer_to_watchers") return <PriceDelta from={Number(a.price)} to={Number(a.offerPrice)} open={open} format={money} />;
   if (p.kind === "revise" && a.title) return <p class="text-lg leading-snug font-semibold tracking-tight">“{a.title}”</p>;
   return null;
 }
@@ -240,7 +242,12 @@ function ProposalCard({
                 {p.kind === "promote" && (
                   <p class="text-sm text-muted">
                     {a.campaign}. eBay suggests {a.suggestedRate != null ? `${a.suggestedRate}%` : "no rate"}
-                    {a.payback ? `; expected sale in about ${a.payback.daysPromoted} days instead of ${a.payback.daysNow}, ad fee ${money(a.payback.adFee)} if it sells through the ad.` : "."}
+                    {a.payback ? `; ad fee ${money(a.payback.adFee)}, paid only if it sells through the ad.` : "."}
+                  </p>
+                )}
+                {p.kind === "offer_to_watchers" && (
+                  <p class="text-sm text-muted">
+                    {a.percent}% off for {a.watchers} watching, open {a.durationDays} days, no counter-offers. Sent with: “{a.message}”
                   </p>
                 )}
                 {p.kind === "policy" && a.proposed && (

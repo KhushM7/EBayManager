@@ -32,6 +32,8 @@ const REST: { method: string; prefix: string }[] = [
   { method: "GET", prefix: "/sell/marketing/v1/ad_campaign" },
   { method: "POST", prefix: "/sell/recommendation/v1/find" },
   { method: "GET", prefix: "/commerce/notification/v1/public_key/" },
+  // Negotiation API findEligibleItems: listings with watchers eBay will let K send an offer to (read only).
+  { method: "GET", prefix: "/sell/negotiation/v1/find_eligible_items" },
   // Media API getImage: a listing photo's eBay address and expiry, after the gate uploaded it.
   { method: "GET", prefix: "/commerce/media/v1_beta/image/" },
 ];
@@ -41,7 +43,16 @@ const REST: { method: string; prefix: string }[] = [
  * createImageFromFile (Media API): a new listing's photo, uploaded as bytes to eBay Picture Services while applying an
  * approved create_listing (2026-11-07: eBay retired Trading's UploadSiteHostedPictures on production).
  */
-export const REST_WRITE: { method: string; prefix: string }[] = [{ method: "POST", prefix: "/commerce/media/v1_beta/image/create_image_from_file" }];
+export const REST_WRITE: { method: string; prefix: string }[] = [
+  { method: "POST", prefix: "/commerce/media/v1_beta/image/create_image_from_file" },
+  // Offers to watchers (2026-11-15): Negotiation API sendOfferToInterestedBuyers, for an approved offer_to_watchers.
+  { method: "POST", prefix: "/sell/negotiation/v1/send_offer_to_interested_buyers" },
+  // Promoted Listings (2026-11-15), for an approved promote: the app's one general (cost per sale) campaign
+  // (createCampaign), and a listing's ad in it (createAdByListingId, updateBid, deleteAd). The same prefix covers
+  // all four; nothing else under it is called.
+  { method: "POST", prefix: "/sell/marketing/v1/ad_campaign" },
+  { method: "DELETE", prefix: "/sell/marketing/v1/ad_campaign/" },
+];
 
 export class CallNotAllowed extends Error {}
 

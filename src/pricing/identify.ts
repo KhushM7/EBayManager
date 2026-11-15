@@ -61,7 +61,7 @@ export interface ListingFacts {
 }
 
 /** Bump when identification changes, so cached identities are redone. */
-export const IDENTITY_VERSION = 8;
+export const IDENTITY_VERSION = 9;
 
 const IDENTIFY_SYSTEM = `You identify an item for sale on eBay UK, so its market price can be found from real sold listings. Use every source: the title, the item specifics, the description, the photos (labels, model numbers on the item or box, what's included, visible wear or damage) and any facts from the seller, which are true and count as a source ("(from K)").
 
@@ -185,7 +185,7 @@ export interface Grade {
 const MATCH_SYSTEM = `You grade eBay UK listings as comparables for an item being priced, like a valuer choosing comparable sales.
 
 - exact: the same product, model and variant, the same quantity, the same main contents, the same condition group. factor 1. A listing's "[condition: ...]" is what eBay or the sales data says; trust it over the title. New, new other, and opened but never used are one group; used is another; for parts is another. A title without a model counts as the same product when its brand, product type and the specs that define it (capacity, power, size) all match the item's known facts and nothing in it differs; shops' own brands (Silvercrest, Ambiano, Cooks Professional) are usually listed that way.
-- close: the same product line with a difference you can value, e.g. a different capacity or size, a missing or extra accessory, a different colour that affects price, a lot of 2 vs 1, new vs used. Give factor = the price of the seller's item divided by the price of this comparable (e.g. comparable is a pair, seller's is one item: about 0.5; comparable is new, seller's is used: about 0.7; comparable is used, seller's is new or unused: about 1.4; comparable is for parts, seller's works: about 2). The factor is always the seller's item over the comparable, so a comparable worth less than the seller's item has a factor above 1. Only between 0.3 and 2.
+- close: the same product line with a difference you can value, e.g. a different capacity or size, a missing or extra accessory, a different colour that affects price, a lot of 2 vs 1, new vs used. Give factor = the price of the seller's item divided by the price of this comparable (e.g. comparable is a pair, seller's is one item: about 0.5; comparable is new, seller's is used: from about 0.5 to 0.9 by how used the seller's item is, going by its known facts (heavy wear, marks, damage or missing parts: 0.5 to 0.6; ordinary use: about 0.7; barely used, clean and complete: 0.8 to 0.9), and about 0.7 when the wear isn't stated; comparable is used, seller's is new or unused: about 1.4; comparable is for parts, seller's works: about 2). The factor is always the seller's item over the comparable, so a comparable worth less than the seller's item has a factor above 1. Only between 0.3 and 2.
 - anything else (accessories for it, cases, parts, replacements, other products, other models of very different value): leave it out.
 
 When the seller's item is only roughly known, grade generously as close rather than exact. Return the numbers of exact matches in "exact", and close ones with their factor in "close"; leave everything else out.`;

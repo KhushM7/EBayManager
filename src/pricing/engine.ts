@@ -58,6 +58,8 @@ export interface ComponentResult {
   decision: Decision;
   /** Typical postage in this market, used when K's isn't known. */
   typicalPostage: number;
+  /** What was found, in figures a person can check and overrule (K, 2026-11-15). Item prices, postage taken off. */
+  summary: EvidenceSummary;
   found: { sold: number; active: number };
   /** Exact and close matches; close ones count CLOSE_WEIGHT each, at their adjusted price. */
   matched: { sold: number; active: number; closeSold: number; closeActive: number; by: "claude" | "rules" };
@@ -67,6 +69,33 @@ export interface ComponentResult {
   };
   errors: string[];
 }
+
+export interface Stats {
+  n: number;
+  low: number;
+  /** The middle price (median). */
+  mid: number;
+  high: number;
+}
+
+/**
+ * The evidence behind a price, summarised so K or a manager can judge the estimate and set their own: how many
+ * live listings and sales, the cheapest, the middle and the dearest, in the same condition and in others. Prices
+ * are item prices (each comparable's total less the postage this item is priced with). For other conditions,
+ * `adjustedMid` is the middle once each is adjusted to K's item, and `factor` the typical adjustment
+ * (0.7 = K's item taken as worth 70% of the comparable).
+ */
+export interface EvidenceSummary {
+  listings: { same: Stats | null; other: (Stats & { adjustedMid: number; factor: number }) | null };
+  sold: { same: Stats | null; other: (Stats & { adjustedMid: number; factor: number }) | null; last90: number };
+  /** Which evidence the price used: "same" condition, or "adjusted" close and different-condition comparables. */
+  basis: { listings: "same" | "adjusted"; sold: "same" | "adjusted" };
+}
+
+const stats = (xs: number[]): Stats | null => {
+  const s = xs.filter((x) => Number.isFinite(x)).sort((a, b) => a - b);
+  return s.length ? { n: s.length, low: r2(s[0]), mid: r2(median(s)!), high: r2(s[s.length - 1]) } : null;
+};
 
 export interface PriceResult {
   at: number;
@@ -210,7 +239,30 @@ async function priceComponent(env: Env, identity: Identity, c: Component, input:
   const costs: Costs = { postage };
   const single = identity.components.length === 1;
   const minorFault = identity.condition === "parts" && identity.fault === "minor";
-  const evidence = { sold: exactSold.map((s) => ({ total: total(s.price, s.shipping), at: asOfSale(s) })), active: exactActive.map((a) => total(a.price, a.shipping)) };
+  // The seller's rule works from same-condition listings and sales. With none (a used item where only new ones
+  // are listed or sold), the close and different-condition ones stand in, each adjusted to K's item, and the
+  // result says so: K or a manager checks the summary and can set their own price.
+  const evidence = {
+    sold: useSold.map((s) => ({ total: r2(total(s.price, s.shipping) * s.g.factor), at: asOfSale(s) })),
+    active: useActive.map((a) => r2(total(a.price, a.shipping) * a.g.factor)),
+    soldBasis: exactSold.length || !sold.length ? ("same" as const) : ("adjusted" as const),
+    activeBasis: exactActive.length || !active.length ? ("same" as const) : ("adjusted" as const),
+  };
+  const item = (t: number) => Math.max(0, t - postage);
+  const other = <T extends { g: Grade }>(xs: T[], t: (x: T) => number) => {
+    const close = xs.filter((x) => x.g.grade !== "exact");
+    const st = stats(close.map((x) => item(t(x))));
+    return st ? { ...st, adjustedMid: r2(median(close.map((x) => item(t(x) * x.g.factor)))!), factor: Math.round(median(close.map((x) => x.g.factor))! * 100) / 100 } : null;
+  };
+  const summary: EvidenceSummary = {
+    listings: { same: stats(exactActive.map((a) => item(total(a.price, a.shipping)))), other: other(active, (a) => total(a.price, a.shipping)) },
+    sold: {
+      same: stats(exactSold.map((s) => item(total(s.price, s.shipping)))),
+      other: other(sold, (s) => total(s.price, s.shipping)),
+      last90: (exactSold.length ? exactSold : sold).filter((s) => marketAt - asOfSale(s) <= 90 * DAY).length,
+    },
+    basis: { listings: evidence.activeBasis, sold: evidence.soldBasis },
+  };
   const decision = decide({ market, costs, params, floor: single ? input.floor : null, current: single ? input.current : null, listedDays: input.listedDays, minorFault, evidence });
   if (setAside) decision.why += ` ${setAside} close or different-condition sale${setAside === 1 ? "" : "s"} set aside, as there are sales in the same condition.`;
   if (single && input.postage != null && postage < input.postage) decision.why += postageNote(input.postage, postage);
@@ -225,6 +277,7 @@ async function priceComponent(env: Env, identity: Identity, c: Component, input:
     market,
     decision,
     typicalPostage,
+    summary,
     found: { sold: soldAll.length, active: activeAll.length },
     matched: {
       sold: sold.filter((s) => s.g.grade === "exact").length,

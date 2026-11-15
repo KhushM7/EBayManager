@@ -1,7 +1,6 @@
 import type { Env } from "../env";
 import { tools } from "../tools";
 import { priceListing } from "./engine";
-import { daysText } from "./model";
 import { holdsListing } from "../proposals";
 
 // Nightly price review (docs/pricing-engine.md): the engine re-prices a few of K's listings each night, oldest
@@ -69,7 +68,7 @@ export async function reviewPrices(env: Env, now = Date.now(), opts: { all?: boo
         new_price: d.price,
         reason:
           `${d.strategy[0].toUpperCase()}${d.strategy.slice(1)}: ${d.why} ` +
-          `Options: ${o.map((x) => `£${x.price.toFixed(2)} (${daysText(x.daysToSell)})`).join(", ")}. Confidence ${Math.round(d.confidence * 100)}%.`,
+          `Options: ${[...new Set(o.map((x) => x.price))].map((x) => `£${x.toFixed(2)}`).join(", ")}. Confidence ${Math.round(d.confidence * 100)}%.`,
       });
       proposed++;
     } catch (e) {

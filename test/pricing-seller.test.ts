@@ -48,7 +48,7 @@ describe("the seller's rule", () => {
   it("won't chase a listing below the lowest same-condition sale", () => {
     const d = price(newSales, [22]);
     expect(d.price).toBe(27.99); // held at the lowest sale (£28.12), at its ending
-    expect(d.why).toMatch(/cheapest listing \(£22\.00\) is below the lowest of those, so this holds at £28\.12/);
+    expect(d.why).toMatch(/cheapest listing \(£22\.00\) is below the lowest of those, so this holds at £27\.99 rather than chasing/);
   });
 
   it("prices from listings alone when nothing has sold, just under the cheapest", () => {

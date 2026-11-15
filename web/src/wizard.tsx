@@ -80,8 +80,8 @@ interface Draft {
   category?: { id: string; name: string; path: string } | null;
   aspects?: Aspect[];
   listing?: { title: string; description: string; specifics: { name: string; values: string[]; source: string; ref: string }[]; dropped: string[]; editedByK: boolean } | null;
-  pricing?: { strategy: string; price: number | null; total: number | null; why: string; confidence: number; question?: string; reason?: string; options: { price: number; daysToSell: number }[] } | null;
-  price?: { value: number; kind: "engine" | "own"; floor: number | null; bestOffer: boolean } | null;
+  pricing?: { strategy: string; price: number | null; total: number | null; why: string; confidence: number; question?: string; reason?: string; options: { price: number; daysToSell: number; position?: Position }[]; summary?: Summary | null } | null;
+  price?: { value: number; kind: "engine" | "own" | "adjusted"; floor: number | null; bestOffer: boolean } | null;
   parcel?: { lengthCm: number; widthCm: number; heightCm: number; weightKg: number } | null;
   quotes?: { at?: number; quotes: { carrier: string; service: string; price: number }[]; error?: string } | null;
   postage?: { cost: number; carrier: string | null; service: string | null; collectionOffered: boolean; collectionOnly: boolean; postcode: string; mode?: "simple_delivery" | "courier"; size?: string | null; sizeBy?: "app" | "you" } | null;
@@ -1268,9 +1268,87 @@ function ListingStep(props: { draft: Draft; open: boolean; busy: string | null; 
 
 // ---- Step 4: price ----
 
+interface Position {
+  listed: number;
+  dearer: number;
+  sold: number;
+  soldAtOrAbove: number;
+}
+interface Stats {
+  n: number;
+  low: number;
+  mid: number;
+  high: number;
+  adjustedMid?: number;
+  factor?: number;
+}
+interface Summary {
+  listings: { same: Stats | null; other: Stats | null };
+  sold: { same: Stats | null; other: Stats | null; last90: number };
+  basis: { listings: "same" | "adjusted"; sold: "same" | "adjusted" };
+}
+
+/** Where a price sits among what's listed and what sold: counts anyone can check on eBay. */
+function positionText(p: Position | undefined, other: boolean): string[] {
+  if (!p) return [];
+  const kind = other ? " comparable" : "";
+  return [
+    p.listed ? (p.dearer === p.listed ? `Cheapest of ${p.listed + 1}${kind} listed` : `Cheaper than ${p.dearer} of ${p.listed}${kind} listed`) : "",
+    p.sold ? `${p.soldAtOrAbove} of ${p.sold}${kind} sold for this or more` : "",
+  ].filter(Boolean);
+}
+
+/** The figures behind the price, so whoever lists the item can judge the estimate and overrule it. */
+function EvidenceTable({ s }: { s: Summary }) {
+  const rows: [string, Stats | null, boolean][] = [
+    ["Listed now, same condition", s.listings.same, false],
+    ["Listed now, other conditions", s.listings.other, true],
+    ["Sold, same condition", s.sold.same, false],
+    ["Sold, other conditions", s.sold.other, true],
+  ];
+  const shown = rows.filter((r): r is [string, Stats, boolean] => r[1] != null);
+  if (!shown.length) return null;
+  return (
+    <div class="mt-4 overflow-x-auto">
+      <table class="w-full text-left text-sm tabular-nums">
+        <thead class="text-xs text-muted">
+          <tr>
+            <th class="py-1 pr-3 font-semibold">What was found</th>
+            <th class="py-1 pr-3 font-semibold">How many</th>
+            <th class="py-1 pr-3 font-semibold">Cheapest</th>
+            <th class="py-1 pr-3 font-semibold">Middle</th>
+            <th class="py-1 font-semibold">Dearest</th>
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map(([label, st, other]) => (
+            <tr key={label} class="border-t border-line align-top">
+              <td class="py-2 pr-3">
+                {label}
+                {other && st.adjustedMid != null && (
+                  <span class="block text-xs text-muted">
+                    Worth about {money(st.adjustedMid)} as yours ({Math.round((st.factor ?? 1) * 100)}% of their price)
+                  </span>
+                )}
+              </td>
+              <td class="py-2 pr-3">{st.n}</td>
+              <td class="py-2 pr-3">{money(st.low)}</td>
+              <td class="py-2 pr-3">{money(st.mid)}</td>
+              <td class="py-2">{money(st.high)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p class="mt-2 text-xs text-muted">
+        Item prices, with any postage taken off so they compare like for like.{s.sold.last90 ? ` ${s.sold.last90} sold in the last 90 days.` : ""}
+      </p>
+    </div>
+  );
+}
+
 function PriceStep({ draft, open, busy, onCheck, onChoose }: { draft: Draft; open: boolean; busy: string | null; onCheck: () => void; onChoose: (b: unknown) => void }) {
   const p = draft.pricing;
-  const [own, setOwn] = useState(draft.price?.kind === "own" ? String(draft.price.value) : "");
+  const [own, setOwn] = useState(draft.price && draft.price.kind !== "engine" ? String(draft.price.value) : "");
   const [floor, setFloor] = useState(draft.price?.floor != null ? String(draft.price.floor) : "");
   const [offers, setOffers] = useState(draft.price?.bestOffer ?? true);
   // The engine runs once on arrival, when it hasn't priced this draft yet.
@@ -1278,8 +1356,17 @@ function PriceStep({ draft, open, busy, onCheck, onChoose }: { draft: Draft; ope
     if (open && !p && !busy) onCheck();
   }, []);
   const choose = (value: number | string) => onChoose({ value, floor: floor.trim() === "" ? null : Number(floor), bestOffer: offers });
-  const options = p ? [p.options[0] ? { ...p.options[0], tag: "Sells sooner" } : null, p.price != null ? { price: p.price, daysToSell: p.options[1]?.daysToSell ?? 0, tag: "Recommended" } : null, p.options[2] ? { ...p.options[2], tag: "Patient" } : null].filter((o): o is { price: number; daysToSell: number; tag: string } => Boolean(o)) : [];
+  // Cheaper, recommended, higher, always in that order; a cheaper option the same as the recommended isn't shown.
+  const rec = p?.price ?? null;
+  const options: { price: number; position?: Position; tag: string }[] = [];
+  if (p && rec != null) {
+    if (p.options[0] && p.options[0].price < rec - 0.005) options.push({ price: p.options[0].price, position: p.options[0].position, tag: "Lower" });
+    options.push({ price: rec, position: p.options[1]?.position, tag: "Recommended" });
+    if (p.options[2] && p.options[2].price > rec + 0.005) options.push({ price: p.options[2].price, position: p.options[2].position, tag: "Higher" });
+  }
   const chosen = draft.price?.value;
+  const otherBasis = p?.summary ? p.summary.basis.listings === "adjusted" || p.summary.basis.sold === "adjusted" : false;
+  const priced = Boolean(p && p.strategy !== "ask" && rec != null);
   const floorBad = floor.trim() !== "" && (Number.isNaN(num(floor)) || (chosen != null && num(floor) > chosen));
   return (
     <div class="grid gap-5">
@@ -1309,11 +1396,16 @@ function PriceStep({ draft, open, busy, onCheck, onChoose }: { draft: Draft; ope
                 >
                   <span class="block text-xs font-semibold text-muted">{o.tag}</span>
                   <span class="mt-1 block text-2xl font-bold tabular-nums">{money(o.price)}</span>
-                  {o.daysToSell > 0 && <span class="text-xs text-muted">about {Math.round(o.daysToSell)} days to sell</span>}
+                  {positionText(o.position, otherBasis).map((t) => (
+                    <span key={t} class="block text-xs text-muted">
+                      {t}
+                    </span>
+                  ))}
                 </motion.button>
               ))}
             </div>
           )}
+          {p.summary && p.strategy !== "ask" && <EvidenceTable s={p.summary} />}
           {open && (
             <button class="btn-link mt-4 inline-flex items-center gap-1 text-sm" disabled={busy !== null} onClick={onCheck}>
               <Icons.refresh size={14} /> Check again
@@ -1331,6 +1423,16 @@ function PriceStep({ draft, open, busy, onCheck, onChoose }: { draft: Draft; ope
           </button>
         </div>
       )}
+      {priced && (
+        <div class="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+          <Field label="Or set your own price (£)" hint="The engine's price is an estimate. If the figures above say otherwise, or the item's wear makes it worth more or less, put your own.">
+            <input type="number" inputMode="decimal" min="0.99" step="0.01" disabled={!open} value={own} onInput={(e) => setOwn(e.currentTarget.value)} />
+          </Field>
+          <button class="btn" disabled={!open || !(num(own) > 0) || busy !== null} onClick={() => choose(own)}>
+            Use this price
+          </button>
+        </div>
+      )}
       {p && (
         <>
           <Field label="Lowest price you'd accept (floor, optional, £)" hint={floorBad ? "The floor can't be above the price." : "Offers below it are never suggested to you."}>
@@ -1342,7 +1444,7 @@ function PriceStep({ draft, open, busy, onCheck, onChoose }: { draft: Draft; ope
       )}
       {draft.price && (
         <p class="result">
-          Listing at {money(draft.price.value)} ({draft.price.kind === "own" ? "your own price" : "the engine's"}){draft.price.floor != null ? `, floor ${money(draft.price.floor)}` : ""}.
+          Listing at {money(draft.price.value)} ({draft.price.kind === "engine" ? "the engine's" : "your own price"}){draft.price.floor != null ? `, floor ${money(draft.price.floor)}` : ""}.
         </p>
       )}
     </div>

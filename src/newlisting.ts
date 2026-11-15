@@ -396,14 +396,22 @@ export async function priceDraft(env: Env, id: string, api?: MessagesApi): Promi
     confidence: x.confidence,
     question: x.question,
     reason: x.reason,
-    options: x.options.map((o) => ({ price: o.price, daysToSell: o.daysToSell })),
+    options: x.options.map((o) => ({ price: o.price, daysToSell: o.daysToSell, position: o.position })),
+    // The figures behind it, for a person to judge the estimate (a single item; a bundle is the sum of its parts).
+    summary: r.components.length === 1 ? r.components[0].summary : null,
   };
-  return (await env.store.drafts.patch(id, { pricing }, Date.now()))!;
+  // A price picked from an earlier check that the engine no longer offers is cleared, so K picks again; a
+  // person's own figure stays.
+  const offered = [x.price, ...x.options.map((o) => o.price)].filter((v): v is number => v != null);
+  const stale = d.price?.kind === "engine" && !offered.some((e) => Math.abs(d.price!.value - e) <= e * 0.01);
+  return (await env.store.drafts.patch(id, stale ? { pricing, price: null } : { pricing }, Date.now()))!;
 }
 
 /**
- * K's choice of price: one of the engine's (within 1%), or K's own price only when nothing comparable has
- * sold, as for live listings. Never below K's floor.
+ * The price chosen: one of the engine's (within 1%), or a person's own. The engine's figure is an estimate,
+ * most of all when it had to adjust different-condition comparables (a used item where only new ones sell), so
+ * whoever lists the item may overrule it after reading the summary (K, 2026-11-15): "adjusted" when the engine
+ * gave a price, "own" when nothing comparable has sold. Never below K's floor; the listing still needs approval.
  */
 export async function choosePrice(env: Env, id: string, b: any): Promise<DraftRow> {
   const d = await env.store.drafts.get(id);
@@ -415,10 +423,11 @@ export async function choosePrice(env: Env, id: string, b: any): Promise<DraftRo
   if (floor != null && !(floor > 0 && floor <= value)) throw new Error("The floor must be a price at or below the listing price.");
   const enginePrices = [p.price, ...p.options.map((o) => o.price)].filter((x): x is number => x != null);
   const ownAllowed = p.strategy === "ask" && p.reason === "no_sales";
-  let kind: "engine" | "own";
+  let kind: "engine" | "own" | "adjusted";
   if (enginePrices.some((e) => Math.abs(value - e) <= e * 0.01)) kind = "engine";
   else if (ownAllowed) kind = "own";
-  else throw new Error(`Prices come from the engine: pick £${enginePrices.map((e) => e.toFixed(2)).join(", £")}${p.strategy === "ask" ? " or answer its question" : ""}.`);
+  else if (p.price != null) kind = "adjusted";
+  else throw new Error("The engine couldn't price this yet: answer its question first.");
   return (await env.store.drafts.patch(id, { price: { value, kind, floor, bestOffer: b.bestOffer !== false } }, Date.now()))!;
 }
 
@@ -681,7 +690,7 @@ export async function submitDraft(env: Env, id: string): Promise<{ draft: DraftR
   const photoKeys = d.photos.map((p) => (p.use_edited && p.edited ? p.edited.key : p.key));
   const reason = [
     `New listing from a draft by ${d.created_by}: ${d.category!.name}, ${d.facts!.condition}, ${d.photos.length} photos.`,
-    `Price £${payload.price.toFixed(2)} (${d.price!.kind === "own" ? "your own price: nothing comparable has sold" : "the engine's"}). ${d.postage!.collectionOnly ? "Collection only." : `Postage £${payload.shippingCost.toFixed(2)}${d.postage!.collectionOffered ? ", collection offered" : ""}.`}`,
+    `Price £${payload.price.toFixed(2)} (${d.price!.kind === "own" ? "your own price: nothing comparable has sold" : d.price!.kind === "adjusted" ? `set by hand; the engine suggested £${(d.pricing?.price ?? 0).toFixed(2)}` : "the engine's"}). ${d.postage!.collectionOnly ? "Collection only." : `Postage £${payload.shippingCost.toFixed(2)}${d.postage!.collectionOffered ? ", collection offered" : ""}.`}`,
     fees != null ? `eBay's listing fees: £${fees.toFixed(2)}.` : "",
   ]
     .filter(Boolean)

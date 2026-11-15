@@ -297,9 +297,23 @@ export function value(p: number, h: number, c: Costs): number {
 /** "own": K set the price (no sales to price from); the engine reports it and never changes it. */
 export type Strategy = "compete" | "hold" | "clear" | "ask" | "own";
 
+/**
+ * Where a price sits among the evidence, as counts K can check on eBay (K, 2026-11-15: these replace the
+ * "days to sell" estimate on screen, which came from the sale model and was far from reliable).
+ */
+export interface Position {
+  /** Live comparable listings, and how many are priced above this one. */
+  listed: number;
+  dearer: number;
+  /** Comparable sales, and how many went for this price or more. */
+  sold: number;
+  soldAtOrAbove: number;
+}
+
 export interface PriceOption {
   /** Total the buyer pays. */
   total: number;
+  position?: Position;
   /** Item price K lists (total - postage). */
   price: number;
   daysToSell: number;
@@ -369,6 +383,14 @@ export function charmPrice(x: number): number {
   return x - base >= 0.49 ? base + 0.49 : base - 0.01;
 }
 
+/** The nearest .49 or .99 ending, up or down: for a price held at a level (the lowest sale), not undercutting. */
+export function endNear(x: number): number {
+  if (x < 2) return r2(x);
+  const lo = Math.floor(x * 2) / 2 - 0.01;
+  const hi = lo + 0.5;
+  return r2(x - lo <= hi - x ? lo : hi);
+}
+
 /**
  * A .99/.49 ending just under the listing being undercut (the ceiling), both item prices: the nearest ending
  * above x when it's still at least 25p under the ceiling (under £36: £35.49, not £34.99), else the one below.
@@ -424,6 +446,13 @@ export interface SellerEvidence {
   sold: { total: number; at: number }[];
   /** Same-condition live listings (exact matches), totals. */
   active: number[];
+  /**
+   * "adjusted": there was nothing in the same condition, so these are close or different-condition comparables
+   * (new ones against a used item, say), each already brought to K's item by its factor. The price then needs a
+   * person's eye, so the text says so and the confidence is lowered.
+   */
+  soldBasis?: "same" | "adjusted";
+  activeBasis?: "same" | "adjusted";
 }
 
 export interface SellerTarget {
@@ -438,11 +467,17 @@ export interface SellerTarget {
   /** The total below which it won't go to chase a listing. */
   floor: number | null;
   basis: "under_cheapest" | "sales" | "lowest_sale" | "listings_only";
+  /** The reason, written for the price actually listed (an item price), so the text and the price always agree. */
+  explain: (price: number) => string;
   why: string;
 }
 
-export function sellerTarget(ev: SellerEvidence, mk: MarketState): SellerTarget | null {
-  const gbp = (x: number) => `£${x.toFixed(2)}`;
+/**
+ * `postage` only shapes the text: K reads item prices (the buyer pays postage on top), so every amount in the
+ * reason is the comparable's total less the postage this item is priced with.
+ */
+export function sellerTarget(ev: SellerEvidence, mk: MarketState, postage = 0): SellerTarget | null {
+  const gbp = (x: number) => `£${Math.max(0, x - postage).toFixed(2)}`;
   const sold = ev.sold.map((x) => x.total).filter((x) => x > 0).sort((a, b) => a - b);
   let value: number | null = null;
   let low: number | null = null;
@@ -464,28 +499,32 @@ export function sellerTarget(ev: SellerEvidence, mk: MarketState): SellerTarget 
   const realistic = ceiling == null ? active : active.filter((x) => x <= ceiling);
   const ignored = active.length - realistic.length;
   const cheapest = realistic[0] ?? null;
-  const salesText = sold.length ? (sold.length === 1 ? `one sale in the same condition at ${gbp(sold[0])}` : `${sold.length} sales in the same condition at ${gbp(low!)} to ${gbp(high!)}`) : "";
+  const soldKind = ev.soldBasis === "adjusted" ? "close or different-condition sale" : "sale in the same condition";
+  const soldKinds = ev.soldBasis === "adjusted" ? "close or different-condition sales" : "sales in the same condition";
+  const listedKind = ev.activeBasis === "adjusted" ? "close or different-condition" : "in the same condition";
+  const adjusted = ev.soldBasis === "adjusted" || ev.activeBasis === "adjusted";
+  const salesText = sold.length ? (sold.length === 1 ? `one ${soldKind} at ${gbp(sold[0])}` : `${sold.length} ${soldKinds} at ${gbp(low!)} to ${gbp(high!)}`) : "";
   const ignoredText = ignored ? ` ${ignored} listing${ignored === 1 ? "" : "s"} above ${gbp(ceiling!)} ignored as more than buyers pay.` : "";
+  // Nothing in the same condition: the comparables were adjusted to this item, which is a judgement.
+  const adjustedText = adjusted
+    ? ` Nothing ${ev.soldBasis === "adjusted" && ev.activeBasis === "adjusted" ? "sold or listed" : ev.soldBasis === "adjusted" ? "sold" : "listed"} in the same condition, so ${ev.soldBasis === "adjusted" && ev.activeBasis === "adjusted" ? "those prices are" : ev.soldBasis === "adjusted" ? "the sale prices are" : "the listing prices are"} adjusted for this item's condition: check the figures below and set your own price if the adjustment looks wrong.`
+    : "";
+  const done = (t: Omit<SellerTarget, "why" | "explain">, explain: (price: number) => string): SellerTarget => ({ ...t, explain: (p) => explain(p) + ignoredText + adjustedText, why: explain(Math.max(0, t.total - postage)) + ignoredText + adjustedText });
+  const at = (p: number) => `£${p.toFixed(2)}`;
 
   if (cheapest != null) {
     const under = cheapest - undercut(cheapest);
     if (floor != null && under < floor)
-      return {
-        total: r2(floor), value, low, high, cheapest, floor, basis: "lowest_sale",
-        why: `Buyers paid: ${salesText}. The cheapest listing (${gbp(cheapest)}) is below ${sold.length < FEW_SALES ? "the lowest of those" : "the cheaper end of those"}, so this holds at ${gbp(floor)} rather than chasing it down.${ignoredText}`,
-      };
-    return {
-      total: r2(under), value, low, high, cheapest, floor, basis: value == null ? "listings_only" : "under_cheapest",
-      why: value == null
-        ? `No sales found, but ${realistic.length} listed in the same condition from ${gbp(cheapest)}: priced just under the cheapest to sell first. Low confidence until something sells.${ignoredText}`
-        : `Priced just under the cheapest of ${realistic.length} listing${realistic.length === 1 ? "" : "s"} in the same condition (${gbp(cheapest)}), to be the one bought next. Buyers paid: ${salesText}.${ignoredText}`,
-    };
+      return done({ total: r2(floor), value, low, high, cheapest, floor, basis: "lowest_sale" }, (p) =>
+        `Buyers paid: ${salesText}. The cheapest listing (${gbp(cheapest)}) is below ${sold.length < FEW_SALES ? "the lowest of those" : "the cheaper end of those"}${sold.length < FEW_SALES ? "" : ` (${gbp(floor!)})`}, so this holds at ${at(p)} rather than chasing it down.`);
+    return done({ total: r2(under), value, low, high, cheapest, floor, basis: value == null ? "listings_only" : "under_cheapest" }, () =>
+      value == null
+        ? `No sales found, but ${realistic.length} listed ${listedKind} from ${gbp(cheapest)}: priced just under the cheapest to sell first. Low confidence until something sells.`
+        : `Priced just under the cheapest of ${realistic.length} listing${realistic.length === 1 ? "" : "s"} ${listedKind} (${gbp(cheapest)}), to be the one bought next. Buyers paid: ${salesText}.`);
   }
   if (value == null) return null;
-  return {
-    total: r2(value), value, low, high, cheapest: null, floor, basis: "sales",
-    why: `${salesText[0].toUpperCase()}${salesText.slice(1)}, and ${active.length ? "no realistically priced listing" : "nothing listed"} to compete with, so it's priced at what buyers pay${sold.length > 1 && sold.length < FEW_SALES ? ": the middle of those sales" : ""}.${ignoredText}`,
-  };
+  return done({ total: r2(value), value, low, high, cheapest: null, floor, basis: "sales" }, () =>
+    `${salesText[0].toUpperCase()}${salesText.slice(1)}, and ${active.length ? "no realistically priced listing" : "nothing listed"} to compete with, so it's priced at what buyers pay${sold.length > 1 && sold.length < FEW_SALES ? ": the middle of those sales" : ""}.`);
 }
 
 /**
@@ -496,23 +535,49 @@ export function decide(input: DecideInput): Decision {
   const { market: mk, costs } = input;
   const params = input.params ?? DEFAULT_PARAMS;
   const postage = costs.postage;
-  const floorTotal = Math.max((input.floor ?? 0) + postage, mk.valueFloor ?? 0);
+  const target = input.evidence ? sellerTarget(input.evidence, mk, postage) : null;
+  const kFloor = input.floor ?? 0;
+  // One floor, used for the price and for its options alike (2026-11-15: the cheaper option was once held up to a
+  // floor the recommended price ignored, so "sells sooner" came out dearer than "recommended"). Under the seller's
+  // rule it is K's floor and the rule's own (the lowest sale); otherwise the market's value floor.
+  const floorTotal = Math.max(kFloor + postage, target ? 0 : (mk.valueFloor ?? 0));
+  const ev = input.evidence;
+  const adjusted = ev?.soldBasis === "adjusted" || ev?.activeBasis === "adjusted";
+  const position = (total: number): Position | undefined =>
+    ev
+      ? {
+          listed: ev.active.length,
+          dearer: ev.active.filter((a) => a > total + 0.005).length,
+          sold: ev.sold.length,
+          soldAtOrAbove: ev.sold.filter((s) => s.total >= total - 0.005).length,
+        }
+      : undefined;
+  /** Quicker, recommended, higher: always in that order, the quicker one never above the recommended. */
+  const three = (chosen: PriceOption, ref: number, dd: number, nn: number): PriceOption[] => {
+    const optionFloor = Math.max(floorTotal, target?.floor ?? 0);
+    const lower = Math.min(chosen.total, Math.max(optionFloor, chosen.total * 0.92));
+    return [lower >= chosen.total - 0.005 ? chosen : option(lower, ref, dd, nn, costs, params), chosen, option(chosen.total * 1.08, ref, dd, nn, costs, params)].map((o) => ({ ...o, position: position(o.total) }));
+  };
+  /** The ending for a price from the seller's rule: under the listing it undercuts, or near the level it holds at. */
+  const endFor = (t: SellerTarget, item: number) =>
+    t.cheapest != null && t.basis !== "lowest_sale" ? charmBelow(item, t.cheapest - postage) : t.basis === "lowest_sale" ? endNear(item) : charmPrice(item);
+  const floorNote = (price: number, before: number) => (kFloor > 0 && price > before + 0.005 ? ` Raised to your floor of £${kFloor.toFixed(2)}.` : "");
 
-  const target = input.evidence ? sellerTarget(input.evidence, mk) : null;
-  // Only with no usable evidence at all does it ask; a thin market still gets a (low-confidence) price, and
-  // same-condition listings alone price it just under the cheapest.
-  if ((mk.mNow == null || mk.mLong == null || mk.effective < 1) && target?.basis === "listings_only") {
-    const m = target.cheapest!;
-    const price = Math.max(charmBelow(target.total - postage, m - postage), input.floor ?? 0);
-    const d0 = 1 / 90;
-    const chosen = option(price + postage, m, d0, input.evidence!.active.length, costs, params);
+  // Only with no usable evidence at all does it ask; a thin market still gets a (low-confidence) price: listings
+  // alone price it just under the cheapest, and a sale or two (or adjusted comparables) price it by the rule.
+  if ((mk.mNow == null || mk.mLong == null || mk.effective < 1) && target) {
+    const m = target.value ?? target.cheapest!;
+    const ended = endFor(target, target.total - postage);
+    const price = Math.max(ended, kFloor);
+    const d0 = Math.max(mk.demand28, mk.demand91, 1 / 90);
+    const chosen = option(price + postage, m, d0, ev!.active.length, costs, params);
     return {
       strategy: "compete",
       price: r2(price),
       total: chosen.total,
-      options: [option(Math.max(floorTotal, chosen.total * 0.92), m, d0, input.evidence!.active.length, costs, params), chosen, option(chosen.total * 1.08, m, d0, input.evidence!.active.length, costs, params)],
-      why: target.why,
-      confidence: 0.15,
+      options: three(chosen, m, d0, ev!.active.length),
+      why: target.explain(r2(price)) + floorNote(price, ended),
+      confidence: target.basis === "listings_only" ? 0.15 : 0.2,
     };
   }
   if (mk.mNow == null || mk.mLong == null || mk.effective < 1) {
@@ -589,7 +654,6 @@ export function decide(input: DecideInput): Decision {
       // K's rule (sellerTarget): just under the cheapest realistic listing, or what buyers pay with none.
       const t = Math.max(floorTotal, target.total);
       pick = option(t, target.value ?? mk.mNow, d, n, costs, params);
-      why = target.why;
     } else {
       // Keep inside the cheaper half of current sales, so the listing is picked early, without harming value.
       const from = Math.max(floorTotal, Math.min(mk.p25 ?? mk.mNow, mk.mNow));
@@ -599,8 +663,9 @@ export function decide(input: DecideInput): Decision {
   }
 
   // The price ending suits the strategy; never below the floor; and never up to the listing it undercuts.
-  let price = Math.max(endPrice(pick.price, strategy), input.floor ?? 0);
-  if (target?.basis === "under_cheapest" && strategy === "compete" && !input.minorFault) price = Math.max(charmBelow(pick.price, target.cheapest! - postage), input.floor ?? 0);
+  const byRule = target != null && strategy === "compete" && !input.minorFault && mk.regime !== "race_to_bottom" && mk.regime !== "decline";
+  const ended = byRule ? endFor(target, pick.price) : endPrice(pick.price, strategy);
+  let price = Math.max(ended, kFloor);
   let capped = false;
   const step = input.maxStep ?? 0.1;
   if (input.current && Math.abs(price - input.current) / input.current > step) {
@@ -608,19 +673,16 @@ export function decide(input: DecideInput): Decision {
     capped = true;
   }
   const chosen = option(price + postage, strategy === "hold" ? mk.mLong : mk.mNow, d, n, costs, params);
-  if (capped) why += ` Moved by the 10% step limit; the full target is £${endPrice(pick.price, strategy).toFixed(2)}.`;
+  // The reason is written last, for the price actually chosen, so the two can't disagree.
+  if (byRule) why = target.explain(capped ? ended : r2(price)) + floorNote(price, ended);
+  if (capped) why += ` Moved by the 10% step limit to £${price.toFixed(2)}; the full target is £${ended.toFixed(2)}.`;
 
   // Three options for K: quicker, recommended, higher.
-  const ref = strategy === "hold" ? mk.mLong : mk.mNow;
-  const options = [
-    option(Math.max(floorTotal, chosen.total * 0.92), ref, d, n, costs, params),
-    chosen,
-    option(chosen.total * 1.08, ref, d, n, costs, params),
-  ];
+  const options = three(chosen, strategy === "hold" ? mk.mLong : mk.mNow, d, n);
 
   // Confidence grows with the evidence (close matches count less) and falls with how spread out prices are.
   const spread = mk.p25 != null && mk.p75 != null && mk.mNow > 0 ? (mk.p75 - mk.p25) / mk.mNow : 0.5;
-  const confidence = Math.min(1, mk.effective / 15) * (1 - Math.min(0.5, spread)) * (mk.regime === "thin" ? 0.6 : 1);
+  const confidence = Math.min(1, mk.effective / 15) * (1 - Math.min(0.5, spread)) * (mk.regime === "thin" ? 0.6 : 1) * (adjusted ? 0.6 : 1);
   return { strategy, price: r2(price), total: chosen.total, options, why, confidence: Math.round(confidence * 100) / 100 };
 }
 

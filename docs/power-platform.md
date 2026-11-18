@@ -4,7 +4,7 @@ K's plan (2026-11-15) adds five Power Platform pieces around EBayManager: a cust
 report, Power Automate flows, a Power Apps intake app and a Copilot Studio agent. This page is what was built
 for it in the app, the rules it keeps, and what is left for K to do in the Microsoft tenant.
 
-**Where it stands (2026-11-15).** The app's side is built and tested on the branch `ccr-524a0ecf-2tjk6i`, not
+**Where it stands (2026-11-15).** The app's side is built and tested on the branch `power-platform`, not
 merged. Both new APIs are off until K sets their keys. Nothing in K's tenant is built: the connectors, report,
 flows, app and agent are files and recipes in [`powerplatform/`](../powerplatform/README.md) that nobody has
 opened in a Microsoft tool yet. So nothing here is ready to go on a CV or a form.
@@ -79,7 +79,7 @@ Sandbox already runs this branch (deployed 2026-11-15 from GitHub, no keys set):
 both APIs answer the blank 404. Nothing else below has been run, and the nightly export hasn't had its first
 02:00 run yet. Commands are for PowerShell, from the repository.
 
-**1. Read the branch and decide whether to merge it.** Branch `ccr-524a0ecf-2tjk6i`. With no keys set, it
+**1. Read the branch and decide whether to merge it.** Branch `power-platform`. With no keys set, it
 changes nothing anyone can reach: both APIs answer the blank 404.
 
 **2. Turn it on for Sandbox.**
@@ -112,9 +112,8 @@ the vars file isn't enough: the upload script only adds and replaces.)
 
 Kept here so nothing waits on an answer; each has what was assumed meanwhile.
 
-1. **Which tenant: personal or KCL?** Assumed: undecided. Custom connectors, Dataverse and Copilot Studio need
-   the Power Apps Developer Plan or premium licences, and a university tenant may block all three. Check the
-   admin centre before Phase 0.
+1. **Which tenant: personal or KCL?** Personal (K, 2026-11-18). Before Phase 0, check the admin centre for the free
+   Power Apps Developer Plan (custom connectors, Dataverse, premium flow actions) and a Copilot Studio trial.
 2. **Can the family use Stock Room and the agent?** A Developer Plan environment is for one person. Sharing a
    Dataverse app or a Copilot Studio agent with two more people needs licences for them. Assumed: K builds and
    proves it alone first.

@@ -111,8 +111,10 @@ the vars file isn't enough: the upload script only adds and replaces.)
 
 Kept here so nothing waits on an answer; each has what was assumed meanwhile.
 
-1. **Which tenant: personal or KCL?** Personal (K, 2026-11-18). Before Phase 0, check the admin centre for the free
-   Power Apps Developer Plan (custom connectors, Dataverse, premium flow actions) and a Copilot Studio trial.
+1. **Which tenant: personal or KCL?** Personal (K, 2026-11-18). A personal Microsoft account (@outlook.com) can't
+   sign in to Power Platform: it answers "Selected user account does not exist in tenant 'Microsoft Services'".
+   So K uses a work account made in K's own Microsoft Entra directory (the one behind the Azure subscription),
+   with no Azure roles, and signs up for the free Power Apps Developer Plan with it.
 2. **Can the family use Stock Room and the agent?** A Developer Plan environment is for one person. Sharing a
    Dataverse app or a Copilot Studio agent with two more people needs licences for them. Assumed: K builds and
    proves it alone first.

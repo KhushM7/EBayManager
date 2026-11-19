@@ -35,6 +35,10 @@ and apply. In Model view, drag each table's date column onto `Calendar[Date]` (m
 `ClaudeSpend[date]`, `ListingsDaily[date]`. Mark `Calendar` as the date table. Then add each measure from
 `measures.dax` to the table its comment names, with its format.
 
+**If every table says "(404): Not Found"**, the key didn't match: the app answers a wrong or empty key with a
+blank 404. Set `ApiKey` again (Transform data → Edit parameters), copied fresh from `.dev.vars`. Pasting the
+TMDL script again resets both parameters to the values in the file, so set them after every paste.
+
 **If the refresh says "The 'X-Api-Key' header is only supported when connecting anonymously"**, Power BI saved
 another kind of sign-in for the address. File → Options and settings → **Data source settings** → pick the
 app's address → **Clear Permissions** → Close. Refresh again and, when asked, choose **Anonymous**, with the

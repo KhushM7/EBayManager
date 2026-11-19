@@ -7,7 +7,25 @@ It cannot change anything, and that isn't left to its instructions: the tools it
 is no tool to propose, approve, reject, pause or edit. For anything waiting it gives the link, and the person
 decides in the app.
 
-Not built yet: this is the recipe.
+**Built in K's developer environment against Sandbox, but not yet tested (2026-11-19).** The agent and its tool
+are in place; the test questions couldn't run because the environment has no Copilot credits (below).
+
+- **New agent screen:** Agents → New agent opens a single Build page (Instructions, then Model, Channels, Skills,
+  Tools, Knowledge on the right), not the older wizard. There is no "Use general knowledge" switch here; the new
+  agent came with a web search tool and a "Work IQ" tool, both removed so it answers only from EBayManager.
+- **The MCP form** (Tools → + → Model Context Protocol) asks for: server name `EBayManager (read-only)`, a
+  description, server URL `https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net/api/ro/mcp`, Authentication
+  **API key**, Parameter type **Header**, Header name `X-Api-Key`, and Key value (K pasted the key). Add then opens
+  "Creating a connection", which asks for the key again, then "Select a connection" → Add.
+- **The tools:** the tool's permissions list exactly the nine below, each switched on, and nothing else.
+- **Two warnings** after adding: "We couldn't share the connection … with the agent. Users may not be able to invoke
+  it", and the tool's Authentication shows **End user account**, so each person who uses the agent would need their
+  own connection with the key. Once, "We couldn't load this tool's contract. Try again" showed while the tools loaded;
+  they then loaded.
+- **Not tested: no credits.** Preview answers "You need credits to continue … This environment is out of credits"
+  (`EnforcementUsageCredits`), and the credit counter shows 0. Running the agent needs Copilot Credits: a trial or
+  paid capacity, which is K's decision. Nothing was started. The test questions below are still to do.
+- Not published, no Teams channel, not shared.
 
 ## What was checked first
 
@@ -57,4 +75,4 @@ Ask each in the test pane and check the activity map shows a tool call behind ev
 
 After testing, open EBayManager's Inbox and Activity: nothing new should be there.
 
-Copilot Studio needs a trial or a licence; MCP tools need generative orchestration.
+Copilot Studio needs Copilot Credits to answer anything, even in the test pane (a trial or paid capacity); MCP tools need generative orchestration.

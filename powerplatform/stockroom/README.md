@@ -40,7 +40,9 @@ below in three places, because of what this environment offers:
     `Left(…, 100)` matters: Send result is a single-line text column (100 characters by default), and intake's status
     sentence is longer, so the first version's Patch failed with "Network error when using Patch". `IfError` stops a
     failure like that from showing as success.
-  - The photo isn't sent from the app yet (Photo is left empty). People add photos in the wizard anyway.
+  - No photo is sent, by design (K, 2026-11-19): listing photos are always taken in the New listing wizard, which
+    checks them. Stock Room's Photo column only helps the family recognise the item. The flow's optional Photo input
+    and the intake's photo field are left unused.
 - **Adding the flow to the app** first failed with "Unable to add flow: you are missing permissions to one or more
   connections" (`shared_logicflows`). It worked after the flow was added to the solution and Studio was reopened.
 
@@ -117,6 +119,6 @@ draft id and that reply. The draft is the Sandbox one named "Test desk lamp".
 
 
 - Add an item marked Keep: nothing appears in EBayManager.
-- Change it to Sell: within a minute a draft appears under New listing → drafts, with the photo. The item shows Sent.
+- Change it to Sell: a draft appears under New listing → drafts, without a photo (photos are added in the wizard). The item shows Sent.
 - Change the name and save again: no second draft.
 - EBayManager's Inbox and Activity show nothing new: a draft is not a proposal.

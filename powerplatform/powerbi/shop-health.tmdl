@@ -554,32 +554,10 @@ createOrReplace
 		measure 'Flagged Listings' = DISTINCTCOUNT ( HealthFlags[item_id] )
 			formatString: 0
 
-		measure 'Flagged Then Changed' =
-				VAR flagged = ADDCOLUMNS ( VALUES ( HealthFlags[item_id] ), "@first", CALCULATE ( MIN ( HealthFlags[date] ) ) )
-				RETURN
-					COUNTROWS (
-						FILTER (
-							flagged,
-							VAR i = HealthFlags[item_id]
-							VAR d = [@first]
-							RETURN
-								NOT ISEMPTY ( FILTER ( ALL ( Proposals ), Proposals[item_id] = i && Proposals[applied] = TRUE () && Proposals[created_date] >= d ) )
-						)
-					)
+		measure 'Flagged Then Changed' = VAR flagged = ADDCOLUMNS ( VALUES ( HealthFlags[item_id] ), "@first", CALCULATE ( MIN ( HealthFlags[date] ) ) ) RETURN COUNTROWS ( FILTER ( flagged, VAR i = HealthFlags[item_id] VAR d = [@first] RETURN NOT ISEMPTY ( FILTER ( ALL ( Proposals ), Proposals[item_id] = i && Proposals[applied] = TRUE () && Proposals[created_date] >= d ) ) ) )
 			formatString: 0
 
-		measure 'Flagged Then Sold' =
-				VAR flagged = ADDCOLUMNS ( VALUES ( HealthFlags[item_id] ), "@first", CALCULATE ( MIN ( HealthFlags[date] ) ) )
-				RETURN
-					COUNTROWS (
-						FILTER (
-							flagged,
-							VAR i = HealthFlags[item_id]
-							VAR d = [@first]
-							RETURN
-								NOT ISEMPTY ( FILTER ( ALL ( Sales ), Sales[item_id] = i && Sales[sold_date] >= d ) )
-						)
-					)
+		measure 'Flagged Then Sold' = VAR flagged = ADDCOLUMNS ( VALUES ( HealthFlags[item_id] ), "@first", CALCULATE ( MIN ( HealthFlags[date] ) ) ) RETURN COUNTROWS ( FILTER ( flagged, VAR i = HealthFlags[item_id] VAR d = [@first] RETURN NOT ISEMPTY ( FILTER ( ALL ( Sales ), Sales[item_id] = i && Sales[sold_date] >= d ) ) ) )
 			formatString: 0
 
 		measure 'Flagged Sold Rate' = DIVIDE ( [Flagged Then Sold], [Flagged Listings] )

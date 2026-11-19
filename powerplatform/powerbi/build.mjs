@@ -185,7 +185,9 @@ tmdl += `${T(2)}partition Calendar = m\n${T(3)}mode: import\n${T(3)}source =\n${
 for (const t of TABLES) {
   tmdl += `${T(1)}table ${t.table}\n\n`;
   for (const [, name, expr, format] of MEASURES.filter((m) => m[0] === t.table)) {
-    tmdl += expr.includes("\n") ? `${T(2)}measure ${q(name)} =\n${block(expr, 4)}\n` : `${T(2)}measure ${q(name)} = ${expr}\n`;
+    // Always on one line: Power BI Desktop's TMDL view refused a multi-line measure followed by its formatString
+    // ("Unexpected expression formatString", 2026-11-19). measures.dax keeps the readable layout.
+    tmdl += `${T(2)}measure ${q(name)} = ${expr.replace(/\s*\n\s*/g, " ")}\n`;
     tmdl += `${T(3)}formatString: ${format}\n\n`;
   }
   const cols = { ...t.columns, ...(t.dateFrom ? { [t.dateFrom[1]]: "date" } : {}) };

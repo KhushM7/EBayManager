@@ -14,3 +14,5 @@ the app. The app's side (the read-only API, the nightly export and the Stock Roo
 
 None of these files has been opened in Power BI Desktop, Power Automate, Power Apps or Copilot Studio yet. The
 app's side is tested (`test/readonly.test.ts`); the tenant's side is a guide until K builds it.
+
+To run the remaining steps in a Claude session on K's own computer, see [LOCAL-SESSION.md](LOCAL-SESSION.md).

@@ -26,13 +26,15 @@ in Power BI Desktop yet.
 The project has the model and all five pages already in place. Open a **copy** outside the repository: Power BI
 writes the key into the copy's files when you save, and it caches downloaded rows in `.pbi/` folders.
 
-1. Copy the project next to the dashboard you have now (PowerShell, from the repository):
-   `Copy-Item powerplatform\powerbi\pbip -Destination ..\EbayManagerPowerPlatform\ShopHealth -Recurse -Force`
-2. Open `..\EbayManagerPowerPlatform\ShopHealth\ShopHealth.pbip` in Power BI Desktop. If it won't open, turn on
-   File → Options and settings → Options → Preview features → **Power BI Project (.pbip) save option** and
-   **Store reports using enhanced metadata format (PBIR)**, restart, and open it again.
-3. Transform data → Edit parameters → paste the key into `ApiKey` (`BaseUrl` is already Sandbox's). Refresh. The
-   Anonymous sign-in you saved for the address is reused.
+1. From the repository, run `powershell -ExecutionPolicy Bypass -File scripts\powerbi-open.ps1`. It copies the
+   project to `..\EbayManagerPowerPlatform\ShopHealth`, fills in `ApiKey` from `.dev.vars` (never shown) and opens
+   it. Run it again after any change to the project; it replaces the copy's pages and model but keeps Power BI's cache.
+2. If Power BI Desktop won't open it, turn on File → Options and settings → Options → Preview features → **Power BI
+   Project (.pbip) save option** and **Store reports using enhanced metadata format (PBIR)**, restart, and run the
+   script again.
+3. Refresh. The Anonymous sign-in you saved for the address is reused.
+   If every table says "Set the ApiKey parameter…" (and the rest "0x80040E4E", a load cancelled by that one), the copy
+   was opened without the key: set it under Transform data → Edit parameters, or run the script again.
 4. Go through the five pages. On Sandbox most visuals are empty; what matters is that none shows an error.
    Save (Ctrl+S) keeps the copy as a project. The old `dashboard.pbix` can then be deleted.
 

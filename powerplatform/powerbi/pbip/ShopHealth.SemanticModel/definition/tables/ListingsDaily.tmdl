@@ -1,23 +1,28 @@
 table ListingsDaily
+	lineageTag: 80a1e6e8-6e83-5458-96e9-9b697a892f0f
 
 	column date
 		dataType: dateTime
 		formatString: dd mmm yyyy
+		lineageTag: c5905d3a-4474-544e-bb6a-3e171363949c
 		summarizeBy: none
 		sourceColumn: date
 
 	column active_listings
 		dataType: int64
+		lineageTag: a3143ea1-4440-52ab-94ee-fa293c744ce6
 		summarizeBy: sum
 		sourceColumn: active_listings
 
 	column asking_total
 		dataType: double
+		lineageTag: be1d1a2c-1457-5ce0-b516-be4f82856afb
 		summarizeBy: sum
 		sourceColumn: asking_total
 
 	column watchers
 		dataType: int64
+		lineageTag: 329d5a69-da3d-5347-8197-e584df44bf3e
 		summarizeBy: sum
 		sourceColumn: watchers
 

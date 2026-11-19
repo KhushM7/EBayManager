@@ -17,9 +17,9 @@ Query loads those; DAX does the sums.
 | `build.mjs` | Writes all of the above from one definition (`node powerplatform/powerbi/build.mjs`) |
 | `validate.py` | Checks every JSON file in `pbip/` against Microsoft's schemas (how to run it is at its top) |
 
-The model has been loaded and refreshed in Power BI Desktop against Sandbox (2026-11-19). The columns are checked
-against the export (`test/readonly.test.ts`). The project in `pbip/` passes Microsoft's schemas but hasn't been opened
-in Power BI Desktop yet.
+The finished project in `pbip/` was opened in Power BI Desktop, refreshed against Sandbox and saved (2026-11-19): all
+five pages load with no visual in error (most are empty, as Sandbox has little data). The columns are checked against
+the export (`test/readonly.test.ts`), and every JSON file passes Microsoft's schemas.
 
 ## Open the finished report (quickest)
 
@@ -35,6 +35,9 @@ writes the key into the copy's files when you save, and it caches downloaded row
 3. Refresh. The Anonymous sign-in you saved for the address is reused.
    If every table says "Set the ApiKey parameter…" (and the rest "0x80040E4E", a load cancelled by that one), the copy
    was opened without the key: set it under Transform data → Edit parameters, or run the script again.
+   If it says "Unable to open document: Lineage tag … was not found", Power BI's saved edits from an older copy are in
+   the way: run the script again (it deletes `.pbi/unappliedChanges.json`). Every object in the model has a fixed
+   `lineageTag` made by `build.mjs` from its name, so this shouldn't come back.
 4. Go through the five pages. On Sandbox most visuals are empty; what matters is that none shows an error.
    Save (Ctrl+S) keeps the copy as a project. The old `dashboard.pbix` can then be deleted.
 

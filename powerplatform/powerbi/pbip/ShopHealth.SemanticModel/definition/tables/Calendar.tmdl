@@ -1,26 +1,31 @@
 table Calendar
 	dataCategory: Time
+	lineageTag: 738627f6-fe05-5f28-827b-1d1318541347
 
 	column Date
 		dataType: dateTime
 		isKey
 		formatString: dd mmm yyyy
+		lineageTag: de786f27-28b7-5614-814a-4f5a6250c849
 		summarizeBy: none
 		sourceColumn: Date
 
 	column Year
 		dataType: int64
+		lineageTag: 4d614e65-a45c-54df-adea-cb6f8558907a
 		summarizeBy: none
 		sourceColumn: Year
 
 	column Month
 		dataType: string
+		lineageTag: 0c802c92-18b3-51c4-a587-48fbac6f7c19
 		summarizeBy: none
 		sourceColumn: Month
 
 	column 'Week Starting'
 		dataType: dateTime
 		formatString: dd mmm yyyy
+		lineageTag: 118431d3-e548-546a-b064-0de63403aafe
 		summarizeBy: none
 		sourceColumn: Week Starting
 

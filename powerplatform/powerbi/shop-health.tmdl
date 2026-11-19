@@ -1,8 +1,10 @@
 createOrReplace
 
 	expression BaseUrl = "https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+		lineageTag: f06f5509-efed-5aac-8cd4-4f687868a9b9
 
 	expression ApiKey = "" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+		lineageTag: 92afd541-cb4e-5ff5-b52e-542743898752
 
 	expression fnExport =
 			(name as text) as table =>
@@ -16,30 +18,36 @@ createOrReplace
 				Promoted = Table.PromoteHeaders(Csv, [PromoteAllScalars = true])
 			in
 				Promoted
+		lineageTag: 72e20f07-dcd4-5388-8491-d62f2d66a909
 
 	table Calendar
 		dataCategory: Time
+		lineageTag: 738627f6-fe05-5f28-827b-1d1318541347
 
 		column Date
 			dataType: dateTime
 			isKey
 			formatString: dd mmm yyyy
+			lineageTag: de786f27-28b7-5614-814a-4f5a6250c849
 			summarizeBy: none
 			sourceColumn: Date
 
 		column Year
 			dataType: int64
+			lineageTag: 4d614e65-a45c-54df-adea-cb6f8558907a
 			summarizeBy: none
 			sourceColumn: Year
 
 		column Month
 			dataType: string
+			lineageTag: 0c802c92-18b3-51c4-a587-48fbac6f7c19
 			summarizeBy: none
 			sourceColumn: Month
 
 		column 'Week Starting'
 			dataType: dateTime
 			formatString: dd mmm yyyy
+			lineageTag: 118431d3-e548-546a-b064-0de63403aafe
 			summarizeBy: none
 			sourceColumn: Week Starting
 
@@ -59,77 +67,93 @@ createOrReplace
 						Week
 
 	table Listings
+		lineageTag: 2c94bc8a-e45d-547b-bafd-e5fd68a59809
 
 		measure 'Active Listings' = COUNTROWS ( Listings )
 			formatString: 0
+			lineageTag: 57a0c6e0-52dd-5257-a9c9-f406eaa9bd0a
 
 		measure 'Asking Total £' = SUMX ( Listings, Listings[price] * Listings[quantity] )
 			formatString: £#,0.00
+			lineageTag: 8052f2dc-216c-5cdf-a306-ad2391c9fa22
 
 		column item_id
 			dataType: string
+			lineageTag: 47e441dd-e325-5dd9-a480-30444d02d9bb
 			summarizeBy: none
 			sourceColumn: item_id
 
 		column title
 			dataType: string
+			lineageTag: 1c45ef34-16cf-5e12-bc87-d218918a3c81
 			summarizeBy: none
 			sourceColumn: title
 
 		column price
 			dataType: double
+			lineageTag: a708d12e-8790-5f75-8896-6309f508848e
 			summarizeBy: none
 			sourceColumn: price
 
 		column currency
 			dataType: string
+			lineageTag: 19ce79dc-0c3f-5ac0-981d-6be1d19b6846
 			summarizeBy: none
 			sourceColumn: currency
 
 		column quantity
 			dataType: int64
+			lineageTag: 04a2f1b3-9741-5880-b9c4-0e54021faaa4
 			summarizeBy: sum
 			sourceColumn: quantity
 
 		column watchers
 			dataType: int64
+			lineageTag: ebd61c03-b480-535b-ab4e-eb9f80cab6b9
 			summarizeBy: sum
 			sourceColumn: watchers
 
 		column views_7d
 			dataType: int64
+			lineageTag: 92d48390-6c88-5c33-ba32-6c01853be7c1
 			summarizeBy: sum
 			sourceColumn: views_7d
 
 		column impressions_7d
 			dataType: int64
+			lineageTag: fb1410dd-177a-5856-876a-cd758ac4dc4e
 			summarizeBy: sum
 			sourceColumn: impressions_7d
 
 		column start_date
 			dataType: dateTime
 			formatString: General Date
+			lineageTag: c2b6217f-5cf9-52da-b53b-b7e60ec5ed34
 			summarizeBy: none
 			sourceColumn: start_date
 
 		column days_listed
 			dataType: int64
+			lineageTag: cc7c8bb1-4b5c-51cb-954a-0b940352c26d
 			summarizeBy: none
 			sourceColumn: days_listed
 
 		column health_flags
 			dataType: string
+			lineageTag: 536afda0-6d59-5e0a-aac0-6d77fa9c5e99
 			summarizeBy: none
 			sourceColumn: health_flags
 
 		column waiting_changes
 			dataType: int64
+			lineageTag: 1e6f135c-d2b4-5ea7-a3db-13ce7ce3a120
 			summarizeBy: sum
 			sourceColumn: waiting_changes
 
 		column snapshot_at
 			dataType: dateTime
 			formatString: General Date
+			lineageTag: c00c8899-8469-57d6-aefb-84e849598794
 			summarizeBy: none
 			sourceColumn: snapshot_at
 
@@ -143,25 +167,30 @@ createOrReplace
 						Typed
 
 	table ListingsDaily
+		lineageTag: 80a1e6e8-6e83-5458-96e9-9b697a892f0f
 
 		column date
 			dataType: dateTime
 			formatString: dd mmm yyyy
+			lineageTag: c5905d3a-4474-544e-bb6a-3e171363949c
 			summarizeBy: none
 			sourceColumn: date
 
 		column active_listings
 			dataType: int64
+			lineageTag: a3143ea1-4440-52ab-94ee-fa293c744ce6
 			summarizeBy: sum
 			sourceColumn: active_listings
 
 		column asking_total
 			dataType: double
+			lineageTag: be1d1a2c-1457-5ce0-b516-be4f82856afb
 			summarizeBy: sum
 			sourceColumn: asking_total
 
 		column watchers
 			dataType: int64
+			lineageTag: 329d5a69-da3d-5347-8197-e584df44bf3e
 			summarizeBy: sum
 			sourceColumn: watchers
 
@@ -175,71 +204,87 @@ createOrReplace
 						Typed
 
 	table Sales
+		lineageTag: 2b7618c9-b1c2-5b86-b605-43932fb1ff89
 
 		measure 'Revenue £' = SUM ( Sales[line_total] )
 			formatString: £#,0.00
+			lineageTag: 86c785d3-8aa1-5c2b-8ff6-643cbf071ebf
 
 		measure 'Items Sold' = SUM ( Sales[quantity] )
 			formatString: 0
+			lineageTag: 7af79b1a-aed2-5d6f-a1db-2a9bfe8b42e2
 
 		measure 'Avg Sale Price £' = AVERAGE ( Sales[item_price] )
 			formatString: £#,0.00
+			lineageTag: d7c179c8-2258-5d13-9bc3-98bab05c1cfb
 
 		measure 'Avg Days to Sell' = AVERAGE ( Sales[days_to_sell] )
 			formatString: 0.0
+			lineageTag: e528ef14-c44e-5664-91c8-74817d843b8a
 
 		measure 'Sell-through' = DIVIDE ( [Items Sold], [Items Sold] + [Active Listings] )
 			formatString: 0%
+			lineageTag: a36307f5-9800-576a-8ecb-9c215e0187fe
 
 		column sale_id
 			dataType: string
+			lineageTag: 06accc16-543a-5fd7-908f-0e8628d6496c
 			summarizeBy: none
 			sourceColumn: sale_id
 
 		column sold_at
 			dataType: dateTime
 			formatString: General Date
+			lineageTag: 28a1fab5-a2d5-5dea-89c5-e502edb7c722
 			summarizeBy: none
 			sourceColumn: sold_at
 
 		column item_id
 			dataType: string
+			lineageTag: dcda2eb3-cbd5-582e-bc28-f8133be1b13a
 			summarizeBy: none
 			sourceColumn: item_id
 
 		column title
 			dataType: string
+			lineageTag: ba1b55b8-0804-5f6c-826e-c95de7bf2803
 			summarizeBy: none
 			sourceColumn: title
 
 		column quantity
 			dataType: int64
+			lineageTag: 880e6b11-8ffc-59fa-b438-59a540371330
 			summarizeBy: sum
 			sourceColumn: quantity
 
 		column item_price
 			dataType: double
+			lineageTag: 6d13be08-cd15-5dc8-9d72-8dcdebd41d5b
 			summarizeBy: none
 			sourceColumn: item_price
 
 		column line_total
 			dataType: double
+			lineageTag: 168c50c7-be61-5cb9-99d9-8c38f37c9783
 			summarizeBy: sum
 			sourceColumn: line_total
 
 		column days_to_sell
 			dataType: double
+			lineageTag: 9c379627-2cff-5e82-a3e0-b6b92783ada5
 			summarizeBy: none
 			sourceColumn: days_to_sell
 
 		column source
 			dataType: string
+			lineageTag: 7843643a-3662-58de-b377-0df4b02f8fe0
 			summarizeBy: none
 			sourceColumn: source
 
 		column sold_date
 			dataType: dateTime
 			formatString: dd mmm yyyy
+			lineageTag: 544374f4-23c8-5602-8ebb-a7d5eb5385e8
 			summarizeBy: none
 			sourceColumn: sold_date
 
@@ -254,123 +299,151 @@ createOrReplace
 						WithDate
 
 	table Proposals
+		lineageTag: c238ce89-d995-5b21-9eea-cf45d6b1f0ee
 
 		measure Suggested = COUNTROWS ( Proposals )
 			formatString: 0
+			lineageTag: 5cc5f213-ad1a-556e-8ec0-69c222e2cce9
 
 		measure Approved = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "approved" )
 			formatString: 0
+			lineageTag: 19c33348-a32c-51fa-b188-354666beef1c
 
 		measure Rejected = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "rejected" )
 			formatString: 0
+			lineageTag: 0319a167-dfb4-501f-a321-68b58af58fbf
 
 		measure Expired = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "expired" )
 			formatString: 0
+			lineageTag: 6756f2a2-0a40-5bc8-a503-f1f28cf89f33
 
 		measure Waiting = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "waiting" )
 			formatString: 0
+			lineageTag: c441a757-18dc-5985-970c-15a910eae9d0
 
 		measure 'Applied to eBay' = CALCULATE ( COUNTROWS ( Proposals ), Proposals[applied] = TRUE () )
 			formatString: 0
+			lineageTag: 9c8c55cf-3082-59a9-aa10-e791f0ead528
 
 		measure 'Approval Rate' = DIVIDE ( [Approved], [Approved] + [Rejected] )
 			formatString: 0%
+			lineageTag: cc8fa8ca-919b-5a2e-8082-f97e8584954b
 
 		measure 'Human Override Rate' = DIVIDE ( [Rejected], [Approved] + [Rejected] )
 			formatString: 0%
+			lineageTag: bd37ccf5-f13a-5234-8391-fdd68913792e
 
 		measure 'Expiry Rate' = DIVIDE ( [Expired], [Suggested] - [Waiting] )
 			formatString: 0%
+			lineageTag: 635eae8c-8c26-5aa6-85f2-4d99e1200a28
 
 		measure 'Median Hours to Decide' = MEDIAN ( Proposals[hours_to_decide] )
 			formatString: 0.0
+			lineageTag: 982107ec-f423-5cdf-a736-efd4bdc479fd
 
 		column id
 			dataType: string
+			lineageTag: 6d5c2a97-eeb7-550a-9f9d-b1fc52b4e779
 			summarizeBy: none
 			sourceColumn: id
 
 		column kind
 			dataType: string
+			lineageTag: bbd90737-b888-535c-a711-be5636d54a6c
 			summarizeBy: none
 			sourceColumn: kind
 
 		column kind_label
 			dataType: string
+			lineageTag: b867bc62-b95f-5555-b305-68f7f1cd1c42
 			summarizeBy: none
 			sourceColumn: kind_label
 
 		column item_id
 			dataType: string
+			lineageTag: a04f988d-c108-5f92-a927-745dec580cd3
 			summarizeBy: none
 			sourceColumn: item_id
 
 		column item_title
 			dataType: string
+			lineageTag: fabbaad8-a192-5e22-b5af-833d52703613
 			summarizeBy: none
 			sourceColumn: item_title
 
 		column status
 			dataType: string
+			lineageTag: 5fb52ba4-7451-5f8b-88b0-9e886316a586
 			summarizeBy: none
 			sourceColumn: status
 
 		column outcome
 			dataType: string
+			lineageTag: a61dbbf5-52ed-527b-8692-e49f7321afba
 			summarizeBy: none
 			sourceColumn: outcome
 
 		column applied
 			dataType: boolean
+			lineageTag: 69dd754f-2459-5880-bccd-f8c7cad5e482
 			summarizeBy: none
 			sourceColumn: applied
 
 		column dry_run
 			dataType: boolean
+			lineageTag: cda581d0-cf55-5789-a06d-e4ad1b3065e6
 			summarizeBy: none
 			sourceColumn: dry_run
 
 		column created_at
 			dataType: dateTime
 			formatString: General Date
+			lineageTag: 651fb64a-535e-58d2-b275-ef645095c5c0
 			summarizeBy: none
 			sourceColumn: created_at
 
 		column decided_at
 			dataType: dateTime
 			formatString: General Date
+			lineageTag: 132935df-2e1c-5966-919f-c8f2f6ccf274
 			summarizeBy: none
 			sourceColumn: decided_at
 
 		column expires_at
 			dataType: dateTime
 			formatString: General Date
+			lineageTag: 9468bd33-3192-52a6-ad81-9c2ec4e1e01b
 			summarizeBy: none
 			sourceColumn: expires_at
 
 		column hours_to_decide
 			dataType: double
+			lineageTag: 4d852163-dcb0-54a3-93e7-5894a82c740d
 			summarizeBy: none
 			sourceColumn: hours_to_decide
 
 		column decided_by
 			dataType: string
+			lineageTag: 357b9610-c547-5a97-8e5f-1c8796f1b43b
 			summarizeBy: none
 			sourceColumn: decided_by
 
 		column old_price
 			dataType: double
+			lineageTag: 4f4608fb-1a5f-5a1b-b160-625a1ea4410c
 			summarizeBy: none
 			sourceColumn: old_price
 
 		column new_price
 			dataType: double
+			lineageTag: c19e2285-1008-536d-b4e5-5f4b52b75314
 			summarizeBy: none
 			sourceColumn: new_price
 
 		column created_date
 			dataType: dateTime
 			formatString: dd mmm yyyy
+			lineageTag: d662b24c-ea84-5201-8279-bc6996ccda4d
 			summarizeBy: none
 			sourceColumn: created_date
 
@@ -385,99 +458,121 @@ createOrReplace
 						WithDate
 
 	table PriceAccuracy
+		lineageTag: 0c7b7a0c-f9e8-544d-a741-236a2ac79992
 
 		measure 'Sales Compared' = COUNTROWS ( PriceAccuracy )
 			formatString: 0
+			lineageTag: 577478ad-e12e-51d3-aa81-70dbd9d7c11e
 
 		measure 'Mean Abs % Error' = AVERAGE ( PriceAccuracy[abs_pct_error] )
 			formatString: 0.0%
+			lineageTag: 14450e05-6624-5763-acb4-7e11cdd7f480
 
 		measure 'Median Abs % Error' = MEDIAN ( PriceAccuracy[abs_pct_error] )
 			formatString: 0.0%
+			lineageTag: a579c7c1-acee-5713-bf70-546fe5415e53
 
 		measure 'Mean Error £' = AVERAGE ( PriceAccuracy[error] )
 			formatString: £#,0.00;-£#,0.00
+			lineageTag: 0c87c925-bc51-5fa1-8180-935e240a61c4
 
 		measure 'Within 10%' = DIVIDE ( CALCULATE ( COUNTROWS ( PriceAccuracy ), PriceAccuracy[abs_pct_error] <= 0.1 ), [Sales Compared] )
 			formatString: 0%
+			lineageTag: 5f952eaa-75b0-59c7-ad4f-ca63ed983878
 
 		measure 'Sold Above Prediction' = DIVIDE ( CALCULATE ( COUNTROWS ( PriceAccuracy ), PriceAccuracy[error] > 0 ), [Sales Compared] )
 			formatString: 0%
+			lineageTag: 30b668d8-bcee-5ee3-b4ce-43670c89bd35
 
 		measure 'Priced Before Sale' = DIVIDE ( [Sales Compared], COUNTROWS ( Sales ) )
 			formatString: 0%
+			lineageTag: 77cb5c6c-8848-5a6b-a05d-6058237af1d9
 
 		column sale_id
 			dataType: string
+			lineageTag: 9c816835-3a9e-5bc4-a625-cddf5bce4939
 			summarizeBy: none
 			sourceColumn: sale_id
 
 		column sold_at
 			dataType: dateTime
 			formatString: General Date
+			lineageTag: 2bebc281-b696-5a64-9477-e2757ab0cf43
 			summarizeBy: none
 			sourceColumn: sold_at
 
 		column item_id
 			dataType: string
+			lineageTag: d0215010-cbb2-59dc-a543-b02449da1b81
 			summarizeBy: none
 			sourceColumn: item_id
 
 		column title
 			dataType: string
+			lineageTag: 1e8241c9-c94b-5401-8572-f98df6d0ac94
 			summarizeBy: none
 			sourceColumn: title
 
 		column group
 			dataType: string
+			lineageTag: 60082ea7-f822-5280-9f61-f88a79512ef2
 			summarizeBy: none
 			sourceColumn: group
 
 		column strategy
 			dataType: string
+			lineageTag: 4ea606dc-2ec9-5ab2-a127-7597f33ecd65
 			summarizeBy: none
 			sourceColumn: strategy
 
 		column predicted_at
 			dataType: dateTime
 			formatString: General Date
+			lineageTag: c5a16616-48d2-5abf-8d72-e525ae0cbd6a
 			summarizeBy: none
 			sourceColumn: predicted_at
 
 		column days_before_sale
 			dataType: double
+			lineageTag: f2e21e58-02d5-5021-8b48-e189e3dd90f7
 			summarizeBy: none
 			sourceColumn: days_before_sale
 
 		column predicted_price
 			dataType: double
+			lineageTag: 6ede2c19-4c02-52d6-8d07-8536927979b4
 			summarizeBy: none
 			sourceColumn: predicted_price
 
 		column market_price
 			dataType: double
+			lineageTag: 44f9ee40-c604-5e05-b285-92e836f3cefe
 			summarizeBy: none
 			sourceColumn: market_price
 
 		column sold_price
 			dataType: double
+			lineageTag: 085b8442-0b96-501f-80f0-731673ce6ae6
 			summarizeBy: none
 			sourceColumn: sold_price
 
 		column error
 			dataType: double
+			lineageTag: 4dc61a06-22de-5b6c-bf24-6cf013344e95
 			summarizeBy: sum
 			sourceColumn: error
 
 		column abs_pct_error
 			dataType: double
 			formatString: 0.0%
+			lineageTag: f59ed36f-1b57-59d8-9437-a8597e7fe3e6
 			summarizeBy: none
 			sourceColumn: abs_pct_error
 
 		column sold_date
 			dataType: dateTime
 			formatString: dd mmm yyyy
+			lineageTag: 8a8c40dc-fd63-5bc3-ae66-4f5f6ba699d5
 			summarizeBy: none
 			sourceColumn: sold_date
 
@@ -492,51 +587,61 @@ createOrReplace
 						WithDate
 
 	table PriceDecisions
+		lineageTag: 93356d74-8c97-5af2-a3e5-ad1fea3a8710
 
 		column item_id
 			dataType: string
+			lineageTag: d367d1db-6840-592f-96f6-8348d9375d98
 			summarizeBy: none
 			sourceColumn: item_id
 
 		column decided_at
 			dataType: dateTime
 			formatString: General Date
+			lineageTag: f25ff1ad-4efa-50fb-bdb0-75361eb0bea9
 			summarizeBy: none
 			sourceColumn: decided_at
 
 		column group
 			dataType: string
+			lineageTag: 05d73a33-f23b-5b53-a9e7-345e59112673
 			summarizeBy: none
 			sourceColumn: group
 
 		column strategy
 			dataType: string
+			lineageTag: 5395e3c7-80d1-5e7e-8c0d-880d2f74b2cc
 			summarizeBy: none
 			sourceColumn: strategy
 
 		column suggested_price
 			dataType: double
+			lineageTag: 93d3b577-9224-571e-97f9-dbb5e8511c33
 			summarizeBy: none
 			sourceColumn: suggested_price
 
 		column suggested_total_with_postage
 			dataType: double
+			lineageTag: 9d988b85-a661-53ae-ad50-8f861e6d7944
 			summarizeBy: sum
 			sourceColumn: suggested_total_with_postage
 
 		column market_price
 			dataType: double
+			lineageTag: 761f4b01-d0c6-52fc-bce8-046d0bb57278
 			summarizeBy: none
 			sourceColumn: market_price
 
 		column predicted_days
 			dataType: double
+			lineageTag: 840dd504-0903-52a8-ac50-b74105a35dab
 			summarizeBy: none
 			sourceColumn: predicted_days
 
 		column decided_date
 			dataType: dateTime
 			formatString: dd mmm yyyy
+			lineageTag: 720835fe-9acf-558b-b093-6ebe0ffa3f06
 			summarizeBy: none
 			sourceColumn: decided_date
 
@@ -551,45 +656,56 @@ createOrReplace
 						WithDate
 
 	table HealthFlags
+		lineageTag: 1b21a012-4a22-51ea-b86b-aca46fa8c486
 
 		measure Flags = COUNTROWS ( HealthFlags )
 			formatString: 0
+			lineageTag: 2943816e-c3d1-5a0c-8a60-9bed6c57a2ae
 
 		measure 'Flagged Listings' = DISTINCTCOUNT ( HealthFlags[item_id] )
 			formatString: 0
+			lineageTag: 9c390676-121b-5f7c-9aa6-a87dcbec1832
 
 		measure 'Flagged Then Changed' = VAR flagged = ADDCOLUMNS ( VALUES ( HealthFlags[item_id] ), "@first", CALCULATE ( MIN ( HealthFlags[date] ) ) ) RETURN COUNTROWS ( FILTER ( flagged, VAR i = HealthFlags[item_id] VAR d = [@first] RETURN NOT ISEMPTY ( FILTER ( ALL ( Proposals ), Proposals[item_id] = i && Proposals[applied] = TRUE () && Proposals[created_date] >= d ) ) ) )
 			formatString: 0
+			lineageTag: 6507e33b-4a63-5239-a856-b70e773aebaa
 
 		measure 'Flagged Then Sold' = VAR flagged = ADDCOLUMNS ( VALUES ( HealthFlags[item_id] ), "@first", CALCULATE ( MIN ( HealthFlags[date] ) ) ) RETURN COUNTROWS ( FILTER ( flagged, VAR i = HealthFlags[item_id] VAR d = [@first] RETURN NOT ISEMPTY ( FILTER ( ALL ( Sales ), Sales[item_id] = i && Sales[sold_date] >= d ) ) ) )
 			formatString: 0
+			lineageTag: 01b026a7-ee0c-5683-a0b4-652a1a8317ba
 
 		measure 'Flagged Sold Rate' = DIVIDE ( [Flagged Then Sold], [Flagged Listings] )
 			formatString: 0%
+			lineageTag: caf6b018-24c2-50a0-901d-0577372a79a2
 
 		column date
 			dataType: dateTime
 			formatString: dd mmm yyyy
+			lineageTag: cc37f91c-4aaf-53f8-a191-4cdb1df431e3
 			summarizeBy: none
 			sourceColumn: date
 
 		column item_id
 			dataType: string
+			lineageTag: da93a682-34be-58d1-a868-84f4d28c5440
 			summarizeBy: none
 			sourceColumn: item_id
 
 		column title
 			dataType: string
+			lineageTag: 58aae68e-c64e-5957-acca-a56fa7b2f76c
 			summarizeBy: none
 			sourceColumn: title
 
 		column flag
 			dataType: string
+			lineageTag: 88aefea5-d1b6-5b50-91af-811fddb6cf4e
 			summarizeBy: none
 			sourceColumn: flag
 
 		column detail
 			dataType: string
+			lineageTag: 28e52609-7cfe-58ba-bb97-60481a9f0af0
 			summarizeBy: none
 			sourceColumn: detail
 
@@ -603,72 +719,90 @@ createOrReplace
 						Typed
 
 	table ClaudeSpend
+		lineageTag: b5c05b22-7263-5ec2-8be3-54b16e167970
 
 		measure 'Claude Cost $' = SUM ( ClaudeSpend[cost_usd] )
 			formatString: $#,0.00
+			lineageTag: 8fa1d0c4-37f7-59d3-a31c-5c2e85d8a17c
 
 		measure 'Claude Calls' = SUM ( ClaudeSpend[calls] )
 			formatString: #,0
+			lineageTag: 37efa632-b350-50b8-afa4-495411d027ff
 
 		measure 'Daily Budget $' = MAXX ( ALL ( ClaudeSpend ), ClaudeSpend[daily_budget_usd] )
 			formatString: $#,0.00
+			lineageTag: 9ff73fbb-76eb-5426-9860-dc0822faa3af
 
 		measure 'Budget Line $' = IF ( NOT ISBLANK ( [Claude Cost $] ), [Daily Budget $] )
 			formatString: $#,0.00
+			lineageTag: 58524843-36ff-5e71-83a1-e36cfc43343a
 
 		measure 'Avg Daily Cost $' = AVERAGEX ( VALUES ( ClaudeSpend[date] ), [Claude Cost $] )
 			formatString: $#,0.000
+			lineageTag: 97e620d4-be2b-5387-8cdb-ea7e0a2e9546
 
 		measure 'Days Over Budget' = COUNTROWS ( FILTER ( VALUES ( ClaudeSpend[date] ), [Claude Cost $] > [Daily Budget $] ) ) + 0
 			formatString: 0
+			lineageTag: efe8216a-c40c-559a-a291-75c9660a4981
 
 		measure 'Budget Used' = DIVIDE ( [Avg Daily Cost $], [Daily Budget $] )
 			formatString: 0%
+			lineageTag: ea67a02a-b094-59d9-a0bf-d52b0d314521
 
 		measure 'New Listings Submitted' = CALCULATE ( COUNTROWS ( Proposals ), Proposals[kind] = "create_listing" ) + 0
 			formatString: 0
+			lineageTag: 72589490-c91b-5b7c-b470-30de522e521d
 
 		measure 'Cost per New Listing $' = DIVIDE ( CALCULATE ( [Claude Cost $], ClaudeSpend[job] = "listing" ), [New Listings Submitted] )
 			formatString: $#,0.000
+			lineageTag: 1242a354-35f7-55a3-98d9-dfbe3541e6d9
 
 		column date
 			dataType: dateTime
 			formatString: dd mmm yyyy
+			lineageTag: 89c69df5-1437-5b71-a62b-3a63a9dc7d33
 			summarizeBy: none
 			sourceColumn: date
 
 		column job
 			dataType: string
+			lineageTag: f8870dc3-1f17-5da3-8874-e1c53e3e57cf
 			summarizeBy: none
 			sourceColumn: job
 
 		column model
 			dataType: string
+			lineageTag: e95d59ea-fd5c-5f9d-a23c-a9369206f23a
 			summarizeBy: none
 			sourceColumn: model
 
 		column calls
 			dataType: int64
+			lineageTag: 01305113-4adb-5ed9-9270-7d09a51a8160
 			summarizeBy: sum
 			sourceColumn: calls
 
 		column input_tokens
 			dataType: int64
+			lineageTag: 0be56cb4-3b08-559d-b2ac-fb3ce749ad24
 			summarizeBy: sum
 			sourceColumn: input_tokens
 
 		column output_tokens
 			dataType: int64
+			lineageTag: 4f2f3da7-fa7f-55a2-b839-8705c138a1b3
 			summarizeBy: sum
 			sourceColumn: output_tokens
 
 		column cost_usd
 			dataType: double
+			lineageTag: 84c64d24-8af5-55aa-aabf-23034c705e06
 			summarizeBy: sum
 			sourceColumn: cost_usd
 
 		column daily_budget_usd
 			dataType: double
+			lineageTag: e3969248-9728-5232-8d5d-cde412c284b5
 			summarizeBy: none
 			sourceColumn: daily_budget_usd
 

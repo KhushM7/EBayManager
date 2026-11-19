@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (-not $Dest) { $Dest = Join-Path (Split-Path $repo -Parent) 'EbayManagerPowerPlatform\ShopHealth' }
 $Dest = [IO.Path]::GetFullPath($Dest)
-if ($Dest.StartsWith($repo, [StringComparison]::OrdinalIgnoreCase)) { throw "The copy must be outside the repository: it will hold the key." }
+if ($Dest -ieq $repo -or $Dest.StartsWith($repo.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw "The copy must be outside the repository: it will hold the key." }
 
 $m = Select-String -Path (Join-Path $repo '.dev.vars') -Pattern '^RO_API_KEY=(.+)$'
 if (-not $m) { throw 'RO_API_KEY is not in .dev.vars.' }
@@ -21,6 +21,10 @@ foreach ($d in 'ShopHealth.Report\definition', 'ShopHealth.SemanticModel\definit
   $p = Join-Path $Dest $d
   if (Test-Path $p) { Remove-Item $p -Recurse -Force }
 }
+# Power BI's saved Power Query edits from the last session describe the old model; left in place, they can stop the
+# project opening ("Lineage tag … was not found").
+$stale = Join-Path $Dest 'ShopHealth.SemanticModel\.pbi\unappliedChanges.json'
+if (Test-Path $stale) { Remove-Item $stale -Force }
 Copy-Item -Path (Join-Path $repo 'powerplatform\powerbi\pbip\*') -Destination $Dest -Recurse -Force
 
 $expr = Join-Path $Dest 'ShopHealth.SemanticModel\definition\expressions.tmdl'

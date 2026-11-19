@@ -1,121 +1,149 @@
 table Proposals
+	lineageTag: c238ce89-d995-5b21-9eea-cf45d6b1f0ee
 
 	measure Suggested = COUNTROWS ( Proposals )
 		formatString: 0
+		lineageTag: 5cc5f213-ad1a-556e-8ec0-69c222e2cce9
 
 	measure Approved = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "approved" )
 		formatString: 0
+		lineageTag: 19c33348-a32c-51fa-b188-354666beef1c
 
 	measure Rejected = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "rejected" )
 		formatString: 0
+		lineageTag: 0319a167-dfb4-501f-a321-68b58af58fbf
 
 	measure Expired = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "expired" )
 		formatString: 0
+		lineageTag: 6756f2a2-0a40-5bc8-a503-f1f28cf89f33
 
 	measure Waiting = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "waiting" )
 		formatString: 0
+		lineageTag: c441a757-18dc-5985-970c-15a910eae9d0
 
 	measure 'Applied to eBay' = CALCULATE ( COUNTROWS ( Proposals ), Proposals[applied] = TRUE () )
 		formatString: 0
+		lineageTag: 9c8c55cf-3082-59a9-aa10-e791f0ead528
 
 	measure 'Approval Rate' = DIVIDE ( [Approved], [Approved] + [Rejected] )
 		formatString: 0%
+		lineageTag: cc8fa8ca-919b-5a2e-8082-f97e8584954b
 
 	measure 'Human Override Rate' = DIVIDE ( [Rejected], [Approved] + [Rejected] )
 		formatString: 0%
+		lineageTag: bd37ccf5-f13a-5234-8391-fdd68913792e
 
 	measure 'Expiry Rate' = DIVIDE ( [Expired], [Suggested] - [Waiting] )
 		formatString: 0%
+		lineageTag: 635eae8c-8c26-5aa6-85f2-4d99e1200a28
 
 	measure 'Median Hours to Decide' = MEDIAN ( Proposals[hours_to_decide] )
 		formatString: 0.0
+		lineageTag: 982107ec-f423-5cdf-a736-efd4bdc479fd
 
 	column id
 		dataType: string
+		lineageTag: 6d5c2a97-eeb7-550a-9f9d-b1fc52b4e779
 		summarizeBy: none
 		sourceColumn: id
 
 	column kind
 		dataType: string
+		lineageTag: bbd90737-b888-535c-a711-be5636d54a6c
 		summarizeBy: none
 		sourceColumn: kind
 
 	column kind_label
 		dataType: string
+		lineageTag: b867bc62-b95f-5555-b305-68f7f1cd1c42
 		summarizeBy: none
 		sourceColumn: kind_label
 
 	column item_id
 		dataType: string
+		lineageTag: a04f988d-c108-5f92-a927-745dec580cd3
 		summarizeBy: none
 		sourceColumn: item_id
 
 	column item_title
 		dataType: string
+		lineageTag: fabbaad8-a192-5e22-b5af-833d52703613
 		summarizeBy: none
 		sourceColumn: item_title
 
 	column status
 		dataType: string
+		lineageTag: 5fb52ba4-7451-5f8b-88b0-9e886316a586
 		summarizeBy: none
 		sourceColumn: status
 
 	column outcome
 		dataType: string
+		lineageTag: a61dbbf5-52ed-527b-8692-e49f7321afba
 		summarizeBy: none
 		sourceColumn: outcome
 
 	column applied
 		dataType: boolean
+		lineageTag: 69dd754f-2459-5880-bccd-f8c7cad5e482
 		summarizeBy: none
 		sourceColumn: applied
 
 	column dry_run
 		dataType: boolean
+		lineageTag: cda581d0-cf55-5789-a06d-e4ad1b3065e6
 		summarizeBy: none
 		sourceColumn: dry_run
 
 	column created_at
 		dataType: dateTime
 		formatString: General Date
+		lineageTag: 651fb64a-535e-58d2-b275-ef645095c5c0
 		summarizeBy: none
 		sourceColumn: created_at
 
 	column decided_at
 		dataType: dateTime
 		formatString: General Date
+		lineageTag: 132935df-2e1c-5966-919f-c8f2f6ccf274
 		summarizeBy: none
 		sourceColumn: decided_at
 
 	column expires_at
 		dataType: dateTime
 		formatString: General Date
+		lineageTag: 9468bd33-3192-52a6-ad81-9c2ec4e1e01b
 		summarizeBy: none
 		sourceColumn: expires_at
 
 	column hours_to_decide
 		dataType: double
+		lineageTag: 4d852163-dcb0-54a3-93e7-5894a82c740d
 		summarizeBy: none
 		sourceColumn: hours_to_decide
 
 	column decided_by
 		dataType: string
+		lineageTag: 357b9610-c547-5a97-8e5f-1c8796f1b43b
 		summarizeBy: none
 		sourceColumn: decided_by
 
 	column old_price
 		dataType: double
+		lineageTag: 4f4608fb-1a5f-5a1b-b160-625a1ea4410c
 		summarizeBy: none
 		sourceColumn: old_price
 
 	column new_price
 		dataType: double
+		lineageTag: c19e2285-1008-536d-b4e5-5f4b52b75314
 		summarizeBy: none
 		sourceColumn: new_price
 
 	column created_date
 		dataType: dateTime
 		formatString: dd mmm yyyy
+		lineageTag: d662b24c-ea84-5201-8279-bc6996ccda4d
 		summarizeBy: none
 		sourceColumn: created_date
 

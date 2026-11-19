@@ -5,6 +5,7 @@
 //   pbip/             a Power BI Project: the same model as TMDL files and the five report pages (report/report.mjs)
 // Run: node powerplatform/powerbi/build.mjs
 // test/readonly.test.ts checks every column named here exists in the export of the same name (src/ro/export.ts).
+import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -182,33 +183,41 @@ writeFileSync(join(here, "measures.dax"), dax);
 const T = (n) => "\t".repeat(n);
 const block = (text, n) => text.split("\n").map((l) => (l ? T(n) + l.replace(/^( {4})+/, (s) => "\t".repeat(s.length / 4)) : "")).join("\n");
 const indent = (text, n) => text.split("\n").map((l) => (l ? T(n) + l : l)).join("\n");
+// Every object gets a lineageTag made from its name, the same on every build. Without them Power BI Desktop makes new
+// random ones each time it opens the project, and its own saved state (.pbi/unappliedChanges.json) then names tags
+// that no longer exist: "Lineage tag … was not found" and the project won't open (2026-11-19).
+const tag = (path) => {
+  const h = createHash("sha1").update(`ShopHealth/${path}`).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+};
+const lt = (path, n) => `${T(n)}lineageTag: ${tag(path)}\n`;
 const q = (name) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : `'${name.replace(/'/g, "''")}'`);
 
 const expressionsTmdl = [
-  `expression BaseUrl = "https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]\n`,
+  `expression BaseUrl = "https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]\n${lt("expression/BaseUrl", 1)}`,
   // Always empty in the repository: the key is set in Power BI Desktop, in a copy kept outside it.
-  `expression ApiKey = "" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]\n`,
-  `expression fnExport =\n${block(FN_EXPORT, 2)}\n`,
+  `expression ApiKey = "" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]\n${lt("expression/ApiKey", 1)}`,
+  `expression fnExport =\n${block(FN_EXPORT, 2)}\n${lt("expression/fnExport", 1)}`,
 ].join("\n");
 
-let calendarTmdl = `table Calendar\n${T(1)}dataCategory: Time\n\n`;
+let calendarTmdl = `table Calendar\n${T(1)}dataCategory: Time\n${lt("table/Calendar", 1)}\n`;
 for (const [c, type, extra] of [["Date", "dateTime", `${T(2)}isKey\n${T(2)}formatString: dd mmm yyyy\n`], ["Year", "int64", ""], ["Month", "string", ""], ["Week Starting", "dateTime", `${T(2)}formatString: dd mmm yyyy\n`]])
-  calendarTmdl += `${T(1)}column ${q(c)}\n${T(2)}dataType: ${type}\n${extra}${T(2)}summarizeBy: none\n${T(2)}sourceColumn: ${c}\n\n`;
+  calendarTmdl += `${T(1)}column ${q(c)}\n${T(2)}dataType: ${type}\n${extra}${lt(`table/Calendar/column/${c}`, 2)}${T(2)}summarizeBy: none\n${T(2)}sourceColumn: ${c}\n\n`;
 calendarTmdl += `${T(1)}partition Calendar = m\n${T(2)}mode: import\n${T(2)}source =\n${block(CALENDAR, 4)}\n`;
 
 function tableTmdl(t) {
-  let out = `table ${t.table}\n\n`;
+  let out = `table ${t.table}\n${lt(`table/${t.table}`, 1)}\n`;
   for (const [, name, expr, format] of MEASURES.filter((m) => m[0] === t.table)) {
     // Always on one line: Power BI Desktop's TMDL view refused a multi-line measure followed by its formatString
     // ("Unexpected expression formatString", 2026-11-19). measures.dax keeps the readable layout.
     out += `${T(1)}measure ${q(name)} = ${expr.replace(/\s*\n\s*/g, " ")}\n`;
-    out += `${T(2)}formatString: ${format}\n\n`;
+    out += `${T(2)}formatString: ${format}\n${lt(`table/${t.table}/measure/${name}`, 2)}\n`;
   }
   for (const [c, k] of Object.entries(columnsOf(t))) {
     const fmt = k === "date" ? "dd mmm yyyy" : k === "datetime" ? "General Date" : c === "abs_pct_error" ? "0.0%" : "";
     // Ids and day counts are never summed by default; money and counts are.
     const sum = ["number", "int"].includes(k) && !/(_id|days_listed|daily_budget_usd|abs_pct_error|price|days_to_sell|days_before_sale|predicted_days|hours_to_decide|rate)$/.test(c) ? "sum" : "none";
-    out += `${T(1)}column ${q(c)}\n${T(2)}dataType: ${TMDL_TYPE[k]}\n${fmt ? `${T(2)}formatString: ${fmt}\n` : ""}${T(2)}summarizeBy: ${sum}\n${T(2)}sourceColumn: ${c}\n\n`;
+    out += `${T(1)}column ${q(c)}\n${T(2)}dataType: ${TMDL_TYPE[k]}\n${fmt ? `${T(2)}formatString: ${fmt}\n` : ""}${lt(`table/${t.table}/column/${c}`, 2)}${T(2)}summarizeBy: ${sum}\n${T(2)}sourceColumn: ${c}\n\n`;
   }
   return `${out}${T(1)}partition ${t.table} = m\n${T(2)}mode: import\n${T(2)}source =\n${block(query(t), 4)}\n`;
 }

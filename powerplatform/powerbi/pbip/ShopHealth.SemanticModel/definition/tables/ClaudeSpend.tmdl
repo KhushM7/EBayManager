@@ -1,70 +1,88 @@
 table ClaudeSpend
+	lineageTag: b5c05b22-7263-5ec2-8be3-54b16e167970
 
 	measure 'Claude Cost $' = SUM ( ClaudeSpend[cost_usd] )
 		formatString: $#,0.00
+		lineageTag: 8fa1d0c4-37f7-59d3-a31c-5c2e85d8a17c
 
 	measure 'Claude Calls' = SUM ( ClaudeSpend[calls] )
 		formatString: #,0
+		lineageTag: 37efa632-b350-50b8-afa4-495411d027ff
 
 	measure 'Daily Budget $' = MAXX ( ALL ( ClaudeSpend ), ClaudeSpend[daily_budget_usd] )
 		formatString: $#,0.00
+		lineageTag: 9ff73fbb-76eb-5426-9860-dc0822faa3af
 
 	measure 'Budget Line $' = IF ( NOT ISBLANK ( [Claude Cost $] ), [Daily Budget $] )
 		formatString: $#,0.00
+		lineageTag: 58524843-36ff-5e71-83a1-e36cfc43343a
 
 	measure 'Avg Daily Cost $' = AVERAGEX ( VALUES ( ClaudeSpend[date] ), [Claude Cost $] )
 		formatString: $#,0.000
+		lineageTag: 97e620d4-be2b-5387-8cdb-ea7e0a2e9546
 
 	measure 'Days Over Budget' = COUNTROWS ( FILTER ( VALUES ( ClaudeSpend[date] ), [Claude Cost $] > [Daily Budget $] ) ) + 0
 		formatString: 0
+		lineageTag: efe8216a-c40c-559a-a291-75c9660a4981
 
 	measure 'Budget Used' = DIVIDE ( [Avg Daily Cost $], [Daily Budget $] )
 		formatString: 0%
+		lineageTag: ea67a02a-b094-59d9-a0bf-d52b0d314521
 
 	measure 'New Listings Submitted' = CALCULATE ( COUNTROWS ( Proposals ), Proposals[kind] = "create_listing" ) + 0
 		formatString: 0
+		lineageTag: 72589490-c91b-5b7c-b470-30de522e521d
 
 	measure 'Cost per New Listing $' = DIVIDE ( CALCULATE ( [Claude Cost $], ClaudeSpend[job] = "listing" ), [New Listings Submitted] )
 		formatString: $#,0.000
+		lineageTag: 1242a354-35f7-55a3-98d9-dfbe3541e6d9
 
 	column date
 		dataType: dateTime
 		formatString: dd mmm yyyy
+		lineageTag: 89c69df5-1437-5b71-a62b-3a63a9dc7d33
 		summarizeBy: none
 		sourceColumn: date
 
 	column job
 		dataType: string
+		lineageTag: f8870dc3-1f17-5da3-8874-e1c53e3e57cf
 		summarizeBy: none
 		sourceColumn: job
 
 	column model
 		dataType: string
+		lineageTag: e95d59ea-fd5c-5f9d-a23c-a9369206f23a
 		summarizeBy: none
 		sourceColumn: model
 
 	column calls
 		dataType: int64
+		lineageTag: 01305113-4adb-5ed9-9270-7d09a51a8160
 		summarizeBy: sum
 		sourceColumn: calls
 
 	column input_tokens
 		dataType: int64
+		lineageTag: 0be56cb4-3b08-559d-b2ac-fb3ce749ad24
 		summarizeBy: sum
 		sourceColumn: input_tokens
 
 	column output_tokens
 		dataType: int64
+		lineageTag: 4f2f3da7-fa7f-55a2-b839-8705c138a1b3
 		summarizeBy: sum
 		sourceColumn: output_tokens
 
 	column cost_usd
 		dataType: double
+		lineageTag: 84c64d24-8af5-55aa-aabf-23034c705e06
 		summarizeBy: sum
 		sourceColumn: cost_usd
 
 	column daily_budget_usd
 		dataType: double
+		lineageTag: e3969248-9728-5232-8d5d-cde412c284b5
 		summarizeBy: none
 		sourceColumn: daily_budget_usd
 

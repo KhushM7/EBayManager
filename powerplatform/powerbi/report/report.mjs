@@ -70,10 +70,10 @@ const dates = ["slicer", [960, 8, 304, 64], { Values: ["Calendar.Date"] }, {
   objects: { data: [{ properties: { mode: str("Between") } }] },
   syncGroup: { groupName: "Dates", fieldChanges: true, filterChanges: true },
 }];
-/** A row of cards across the page at y 76. */
+/** A row of cards across the page, from below the date slicer to the charts at y 180 (at 96 high the label was cut off). */
 const cards = (measures, x0 = 16, width = 1248) => {
   const w = Math.floor((width - 8 * (measures.length - 1)) / measures.length);
-  return measures.map((m, i) => ["card", [x0 + i * (w + 8), 76, w, 96], { Values: [m] }]);
+  return measures.map((m, i) => ["card", [x0 + i * (w + 8), 72, w, 106], { Values: [m] }]);
 };
 
 const PAGES = [

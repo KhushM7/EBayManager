@@ -1,49 +1,59 @@
 table PriceDecisions
+	lineageTag: 93356d74-8c97-5af2-a3e5-ad1fea3a8710
 
 	column item_id
 		dataType: string
+		lineageTag: d367d1db-6840-592f-96f6-8348d9375d98
 		summarizeBy: none
 		sourceColumn: item_id
 
 	column decided_at
 		dataType: dateTime
 		formatString: General Date
+		lineageTag: f25ff1ad-4efa-50fb-bdb0-75361eb0bea9
 		summarizeBy: none
 		sourceColumn: decided_at
 
 	column group
 		dataType: string
+		lineageTag: 05d73a33-f23b-5b53-a9e7-345e59112673
 		summarizeBy: none
 		sourceColumn: group
 
 	column strategy
 		dataType: string
+		lineageTag: 5395e3c7-80d1-5e7e-8c0d-880d2f74b2cc
 		summarizeBy: none
 		sourceColumn: strategy
 
 	column suggested_price
 		dataType: double
+		lineageTag: 93d3b577-9224-571e-97f9-dbb5e8511c33
 		summarizeBy: none
 		sourceColumn: suggested_price
 
 	column suggested_total_with_postage
 		dataType: double
+		lineageTag: 9d988b85-a661-53ae-ad50-8f861e6d7944
 		summarizeBy: sum
 		sourceColumn: suggested_total_with_postage
 
 	column market_price
 		dataType: double
+		lineageTag: 761f4b01-d0c6-52fc-bce8-046d0bb57278
 		summarizeBy: none
 		sourceColumn: market_price
 
 	column predicted_days
 		dataType: double
+		lineageTag: 840dd504-0903-52a8-ac50-b74105a35dab
 		summarizeBy: none
 		sourceColumn: predicted_days
 
 	column decided_date
 		dataType: dateTime
 		formatString: dd mmm yyyy
+		lineageTag: 720835fe-9acf-558b-b093-6ebe0ffa3f06
 		summarizeBy: none
 		sourceColumn: decided_date
 

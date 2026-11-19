@@ -1,97 +1,119 @@
 table PriceAccuracy
+	lineageTag: 0c7b7a0c-f9e8-544d-a741-236a2ac79992
 
 	measure 'Sales Compared' = COUNTROWS ( PriceAccuracy )
 		formatString: 0
+		lineageTag: 577478ad-e12e-51d3-aa81-70dbd9d7c11e
 
 	measure 'Mean Abs % Error' = AVERAGE ( PriceAccuracy[abs_pct_error] )
 		formatString: 0.0%
+		lineageTag: 14450e05-6624-5763-acb4-7e11cdd7f480
 
 	measure 'Median Abs % Error' = MEDIAN ( PriceAccuracy[abs_pct_error] )
 		formatString: 0.0%
+		lineageTag: a579c7c1-acee-5713-bf70-546fe5415e53
 
 	measure 'Mean Error £' = AVERAGE ( PriceAccuracy[error] )
 		formatString: £#,0.00;-£#,0.00
+		lineageTag: 0c87c925-bc51-5fa1-8180-935e240a61c4
 
 	measure 'Within 10%' = DIVIDE ( CALCULATE ( COUNTROWS ( PriceAccuracy ), PriceAccuracy[abs_pct_error] <= 0.1 ), [Sales Compared] )
 		formatString: 0%
+		lineageTag: 5f952eaa-75b0-59c7-ad4f-ca63ed983878
 
 	measure 'Sold Above Prediction' = DIVIDE ( CALCULATE ( COUNTROWS ( PriceAccuracy ), PriceAccuracy[error] > 0 ), [Sales Compared] )
 		formatString: 0%
+		lineageTag: 30b668d8-bcee-5ee3-b4ce-43670c89bd35
 
 	measure 'Priced Before Sale' = DIVIDE ( [Sales Compared], COUNTROWS ( Sales ) )
 		formatString: 0%
+		lineageTag: 77cb5c6c-8848-5a6b-a05d-6058237af1d9
 
 	column sale_id
 		dataType: string
+		lineageTag: 9c816835-3a9e-5bc4-a625-cddf5bce4939
 		summarizeBy: none
 		sourceColumn: sale_id
 
 	column sold_at
 		dataType: dateTime
 		formatString: General Date
+		lineageTag: 2bebc281-b696-5a64-9477-e2757ab0cf43
 		summarizeBy: none
 		sourceColumn: sold_at
 
 	column item_id
 		dataType: string
+		lineageTag: d0215010-cbb2-59dc-a543-b02449da1b81
 		summarizeBy: none
 		sourceColumn: item_id
 
 	column title
 		dataType: string
+		lineageTag: 1e8241c9-c94b-5401-8572-f98df6d0ac94
 		summarizeBy: none
 		sourceColumn: title
 
 	column group
 		dataType: string
+		lineageTag: 60082ea7-f822-5280-9f61-f88a79512ef2
 		summarizeBy: none
 		sourceColumn: group
 
 	column strategy
 		dataType: string
+		lineageTag: 4ea606dc-2ec9-5ab2-a127-7597f33ecd65
 		summarizeBy: none
 		sourceColumn: strategy
 
 	column predicted_at
 		dataType: dateTime
 		formatString: General Date
+		lineageTag: c5a16616-48d2-5abf-8d72-e525ae0cbd6a
 		summarizeBy: none
 		sourceColumn: predicted_at
 
 	column days_before_sale
 		dataType: double
+		lineageTag: f2e21e58-02d5-5021-8b48-e189e3dd90f7
 		summarizeBy: none
 		sourceColumn: days_before_sale
 
 	column predicted_price
 		dataType: double
+		lineageTag: 6ede2c19-4c02-52d6-8d07-8536927979b4
 		summarizeBy: none
 		sourceColumn: predicted_price
 
 	column market_price
 		dataType: double
+		lineageTag: 44f9ee40-c604-5e05-b285-92e836f3cefe
 		summarizeBy: none
 		sourceColumn: market_price
 
 	column sold_price
 		dataType: double
+		lineageTag: 085b8442-0b96-501f-80f0-731673ce6ae6
 		summarizeBy: none
 		sourceColumn: sold_price
 
 	column error
 		dataType: double
+		lineageTag: 4dc61a06-22de-5b6c-bf24-6cf013344e95
 		summarizeBy: sum
 		sourceColumn: error
 
 	column abs_pct_error
 		dataType: double
 		formatString: 0.0%
+		lineageTag: f59ed36f-1b57-59d8-9437-a8597e7fe3e6
 		summarizeBy: none
 		sourceColumn: abs_pct_error
 
 	column sold_date
 		dataType: dateTime
 		formatString: dd mmm yyyy
+		lineageTag: 8a8c40dc-fd63-5bc3-ae66-4f5f6ba699d5
 		summarizeBy: none
 		sourceColumn: sold_date
 

@@ -68,7 +68,7 @@ same checks as any upload. What the family typed goes in the draft's label only,
 | Phase | In the app | In K's tenant (not done) |
 | --- | --- | --- |
 | 0. Read-only API and connector | Built, tested; on for Sandbox | Read-only connector imported in K's developer environment and GetStatus answered `read_only: true` against Sandbox (2026-11-19). Intake connector: import before Phase 3 |
-| 1. Power BI "Shop Health" | Export built, tested; model written (Power Query, 37 DAX measures, TMDL), unopened | Load the model, build five pages (`powerplatform/powerbi/README.md`) |
+| 1. Power BI "Shop Health" | Export built, tested; model written (Power Query, 37 DAX measures, TMDL) | Model loaded from the TMDL script and all tables refreshed against Sandbox (2026-11-19, after two fixes: one-line measures, Anonymous credential). Left: the five pages (`powerplatform/powerbi/README.md`) |
 | 2. Power Automate | `/proposals/waiting` and `/digest` built, tested | Build three flows (`powerplatform/flows/README.md`) |
 | 3. Power Apps "Stock Room" | Intake built, tested | Dataverse tables, canvas app, one flow (`powerplatform/stockroom/README.md`) |
 | 4. Copilot Studio "Ask the shop" | Read-only MCP tools built, tested | Create the agent (`powerplatform/copilot/README.md`) |

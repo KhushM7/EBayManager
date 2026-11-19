@@ -35,6 +35,11 @@ and apply. In Model view, drag each table's date column onto `Calendar[Date]` (m
 `ClaudeSpend[date]`, `ListingsDaily[date]`. Mark `Calendar` as the date table. Then add each measure from
 `measures.dax` to the table its comment names, with its format.
 
+**If the refresh says "The 'X-Api-Key' header is only supported when connecting anonymously"**, Power BI saved
+another kind of sign-in for the address. File → Options and settings → **Data source settings** → pick the
+app's address → **Clear Permissions** → Close. Refresh again and, when asked, choose **Anonymous**, with the
+level set to the address's root (`https://ebay-autopilot-…azurewebsites.net/`), so it covers every file.
+
 ### 2. The pages
 
 Put a `Calendar[Date]` slicer (Between) on every page, synced.

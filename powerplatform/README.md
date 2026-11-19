@@ -13,8 +13,8 @@ the app. The app's side (the read-only API, the nightly export and the Stock Roo
 | `copilot/` | The "Ask the shop" Copilot Studio agent: instructions, tools and test questions | 4 |
 
 Built in K's developer environment against Sandbox so far: both connectors (imported), the Power BI report
-(refreshed, five pages checked) and two flows, the weekly digest and approval nudges (2026-11-19). The Teams card,
-Stock Room and the agent are still guides; the phase table in
+(refreshed, five pages checked) and two flows, the weekly digest and approval nudges, and Stock Room (2026-11-19). The Teams card and the agent
+are still guides; the phase table in
 [docs/power-platform.md](../docs/power-platform.md) says what is proven. The app's side is tested (`test/readonly.test.ts`).
 
 To run the remaining steps in a Claude session on K's own computer, see [LOCAL-SESSION.md](LOCAL-SESSION.md).

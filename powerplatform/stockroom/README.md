@@ -6,25 +6,43 @@ family logs things around the house they might sell, with a photo, where it is a
 is not a listing or a proposal: someone still takes it through the New listing wizard (photos, condition,
 price, postage) and a person approves the label before anything reaches eBay.
 
-**Partly built in K's developer environment (2026-11-19).** What differed from the recipe below:
+**Built and tested against Sandbox in K's developer environment (2026-11-19).** It's built differently from the recipe
+below in three places, because of what this environment offers:
 
-- **Done:** the `Stock Room` solution (publisher prefix `sr`); the Owner, Location and Item tables with every column.
-  The owner lookup on Item is called **Belongs to** (`sr_Belongsto`), not Owner, because "Owner" clashes with
-  Dataverse's built-in Owner column in Power Fx. Choice values: Decision Undecided 126550000 (default), Sell 126550001,
-  Keep 126550002, Ask K 126550003. One owner (K) and one location (Garage, box 3) were added to test with.
-- **The app** was made with Create → Start from data → Dataverse → Items. That gives one responsive screen (list and
-  form side by side, usable at phone width), not the three-screen phone template. It is saved and published as
-  "Stock Room". The filter chips, colours and the lock on a sent item are not added yet.
-- **The flow can't use a Dataverse trigger:** the Microsoft Dataverse connector is missing from this environment's
-  connector list, so "When a row is added, modified or deleted", "Download a file or an image" and "Update a row"
-  are unavailable. Instead the app calls the flow: `StockRoomSendDraft` (in the solution) is triggered by
-  "When Power Apps calls a flow (V2)" with text inputs RowId, ItemName and optional Owner, Location, Condition and
-  Photo (base64), calls **Send an item as a draft**, and responds with `draftid` and `status`. The app is then
-  meant to write those back with `Patch` and set Sent to EBayManager.
-- **Not finished:** adding the flow to the app failed with "Unable to add flow: you are missing permissions to one or
-  more connections" (connection `shared_logicflows`). The next step is to share or re-create that connection for the
-  flow (or recreate the flow from the app's Power Automate pane), then set the form's OnSuccess to call
-  `StockRoomSendDraft.Run(...)` when Decision is Sell, and run the check below once (it makes one Sandbox draft).
+- **Solution:** `Stock Room` (publisher `Stock Room`, prefix `sr`) holds the Owner, Location and Item tables, the
+  canvas app, the flow and the intake connection reference. The owner lookup on Item is called **Belongs to**
+  (`sr_Belongsto`), not Owner, because "Owner" clashes with Dataverse's built-in Owner column in Power Fx. Decision
+  values: Undecided 126550000 (default), Sell 126550001, Keep 126550002, Ask K 126550003. One owner (K) and one location
+  (Garage, box 3) were added to test with.
+- **App:** made with Create → Start from data → Dataverse → Items, which gives one responsive screen (list beside the
+  form, usable at phone width) rather than the three-screen phone template. Belongs to and Location were added to the
+  form with Edit fields. Saved and published as "Stock Room". The filter chips and colours aren't added. Nothing locks
+  Decision once an item is sent, but the app only sends while Sent to EBayManager is No, and EBayManager refuses a
+  second draft for the same row anyway.
+- **Flow, called by the app:** the Microsoft Dataverse connector isn't in this environment's connector list, so the
+  recipe's Dataverse trigger, "Download a file or an image" and "Update a row" can't be used. Instead:
+  - `StockRoomSendDraft`: trigger **When Power Apps calls a flow (V2)** with text inputs RowId and ItemName, plus
+    Owner, Location, Condition and Photo, all optional. It calls the intake connector's **Send an item as a draft**
+    (Photo goes in as `@{triggerBody()?['text_5']}`; the expression editor refuses it for the byte-typed field), then
+    **Respond to a PowerApp or flow** with `draftid` and `status`.
+  - Form1's **OnSuccess** (it keeps the template's `UpdateContext` first):
+    ```
+    UpdateContext({ CurrentItem: Self.LastSubmit, editMode: false, newMode: false });
+    If(Self.LastSubmit.Decision = 'Decision (Items)'.Sell && !Self.LastSubmit.'Sent to EBayManager',
+      With({r: StockRoomSendDraft.Run(Text(Self.LastSubmit.Item), Self.LastSubmit.Name,
+          {Owner: Self.LastSubmit.'Belongs to'.Name, Location: Self.LastSubmit.Location.Name, Condition: Text(Self.LastSubmit.Condition)})},
+        IfError(
+          UpdateContext({CurrentItem: Patch(Items, LookUp(Items, Item = Self.LastSubmit.Item),
+            {'Sent to EBayManager': true, 'Draft id': Left(r.draftid, 100), 'Send result': Left(r.status, 100)})});
+          Notify("Sent to EBayManager as a draft. Finish it in the app: New listing.", NotificationType.Success),
+          Notify("The draft was sent, but saving its id here failed: " & FirstError.Message, NotificationType.Error))))
+    ```
+    `Left(…, 100)` matters: Send result is a single-line text column (100 characters by default), and intake's status
+    sentence is longer, so the first version's Patch failed with "Network error when using Patch". `IfError` stops a
+    failure like that from showing as success.
+  - The photo isn't sent from the app yet (Photo is left empty). People add photos in the wizard anyway.
+- **Adding the flow to the app** first failed with "Unable to add flow: you are missing permissions to one or more
+  connections" (`shared_logicflows`). It worked after the flow was added to the solution and Studio was reopened.
 
 ## 1. Dataverse tables
 
@@ -91,6 +109,12 @@ any upload, metadata stripped. It does not treat what the family typed as facts 
 asks whoever lists it. Limits: 30 drafts a day, 50 open drafts in all, one draft per Stock Room row.
 
 ## Check it
+
+Checked on 2026-11-19 against Sandbox: an item saved as Keep sent nothing (Sent No, no draft id). Changed to Sell, it
+made one draft (`created: true`, no photo). Saved again with a note, it got the same draft id back and the reply
+"Already sent: the draft is in the app's drafts list.", so no second draft was made. The row then showed Sent Yes, the
+draft id and that reply. The draft is the Sandbox one named "Test desk lamp".
+
 
 - Add an item marked Keep: nothing appears in EBayManager.
 - Change it to Sell: within a minute a draft appears under New listing → drafts, with the photo. The item shows Sent.

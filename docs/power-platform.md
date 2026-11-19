@@ -6,8 +6,8 @@ for it in the app, the rules it keeps, and what is left for K to do in the Micro
 
 **Where it stands (2026-11-19).** The app's side is built and tested on the branch `power-platform`, not
 merged, and switched on for Sandbox only (production has no keys). In K's developer environment both connectors are
-imported, the Shop Health report runs in Power BI Desktop against Sandbox, and two of the three flows run. Stock Room
-and the agent are still recipes in [`powerplatform/`](../powerplatform/README.md); the phase table below says what is proven.
+imported, the Shop Health report runs in Power BI Desktop against Sandbox, and two of the three flows run, and Stock
+Room sends test items as Sandbox drafts. The agent is still a recipe in [`powerplatform/`](../powerplatform/README.md); the phase table below says what is proven.
 
 ## The rules, and how the code keeps them
 
@@ -70,7 +70,7 @@ same checks as any upload. What the family typed goes in the draft's label only,
 | 0. Read-only API and connector | Built, tested; on for Sandbox | Read-only connector imported in K's developer environment and GetStatus answered `read_only: true` against Sandbox (2026-11-19). Intake connector: import before Phase 3 |
 | 1. Power BI "Shop Health" | Export built, tested; model written (Power Query, 38 DAX measures, TMDL); the report written as a Power BI Project (`pbip/`: the model as TMDL files and all five pages), every file checked against Microsoft's schemas | Done against Sandbox (2026-11-19): `ShopHealth.pbip` opened from a copy outside the repository (`scripts/powerbi-open.ps1` sets the key), refreshed, all five pages checked with no visual in error, and saved. Fixes on the way: one-line measures, Anonymous credential, fixed lineage tags (Power BI wouldn't reopen the project without them), taller cards |
 | 2. Power Automate | `/proposals/waiting` and `/digest` built, tested | Weekly digest and approval nudges built and run by hand against Sandbox (2026-11-19), sending from Outlook.com: the free Mail connector is blocked for new tenants and the work account has no mailbox. Teams card not built: the work account has no Teams licence (`powerplatform/flows/README.md`) |
-| 3. Power Apps "Stock Room" | Intake built, tested | Partly built (2026-11-19): solution, three tables and the canvas app done. The Dataverse connector is missing here, so the send-as-draft flow is triggered by the app instead; it's built, but adding it to the app failed on a connection permission, and no draft has been sent yet (`powerplatform/stockroom/README.md`) |
+| 3. Power Apps "Stock Room" | Intake built, tested | Built and tested against Sandbox (2026-11-19): solution, three tables, canvas app and the send-as-draft flow; one test item made one draft, and saving it again made no second one. The Dataverse connector is missing here, so the app calls the flow instead of a Dataverse trigger (`powerplatform/stockroom/README.md`) |
 | 4. Copilot Studio "Ask the shop" | Read-only MCP tools built, tested | Create the agent (`powerplatform/copilot/README.md`) |
 
 ## For K: what to do, in order

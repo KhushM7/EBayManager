@@ -129,6 +129,10 @@ Claude Calls =
 Daily Budget $ =
     MAXX ( ALL ( ClaudeSpend ), ClaudeSpend[daily_budget_usd] )
 
+// ClaudeSpend · format $#,0.00
+Budget Line $ =
+    IF ( NOT ISBLANK ( [Claude Cost $] ), [Daily Budget $] )
+
 // ClaudeSpend · format $#,0.000
 Avg Daily Cost $ =
     AVERAGEX ( VALUES ( ClaudeSpend[date] ), [Claude Cost $] )

@@ -334,6 +334,18 @@ describe("the Power BI export", () => {
     }
   });
 
+  it("keeps the Power BI files free of the key and in step with build.mjs", () => {
+    const dir = "powerplatform/powerbi";
+    const parts = [readFileSync(`${dir}/shop-health.tmdl`, "utf8"), readFileSync(`${dir}/pbip/ShopHealth.SemanticModel/definition/expressions.tmdl`, "utf8")];
+    for (const text of parts) expect(text).toContain('expression ApiKey = "" meta');
+    // The one-file script and the project's tables come from the same text.
+    for (const t of ["Calendar", "Sales", "PriceAccuracy", "ClaudeSpend"]) {
+      const table = readFileSync(`${dir}/pbip/ShopHealth.SemanticModel/definition/tables/${t}.tmdl`, "utf8");
+      expect(parts[0]).toContain(table.trimEnd().split("\n").map((l) => (l ? `\t${l}` : l)).join("\n"));
+    }
+    expect(readFileSync(".gitignore", "utf8")).toContain(".pbi/");
+  });
+
   it("quotes cells safely and defuses spreadsheet formulas", () => {
     expect(csvCell('He said "hi", twice')).toBe('"He said ""hi"", twice"');
     expect(csvCell("=HYPERLINK(\"http://x\")")).toBe("\"'=HYPERLINK(\"\"http://x\"\")\"");

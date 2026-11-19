@@ -1,0 +1,106 @@
+table PriceAccuracy
+
+	measure 'Sales Compared' = COUNTROWS ( PriceAccuracy )
+		formatString: 0
+
+	measure 'Mean Abs % Error' = AVERAGE ( PriceAccuracy[abs_pct_error] )
+		formatString: 0.0%
+
+	measure 'Median Abs % Error' = MEDIAN ( PriceAccuracy[abs_pct_error] )
+		formatString: 0.0%
+
+	measure 'Mean Error £' = AVERAGE ( PriceAccuracy[error] )
+		formatString: £#,0.00;-£#,0.00
+
+	measure 'Within 10%' = DIVIDE ( CALCULATE ( COUNTROWS ( PriceAccuracy ), PriceAccuracy[abs_pct_error] <= 0.1 ), [Sales Compared] )
+		formatString: 0%
+
+	measure 'Sold Above Prediction' = DIVIDE ( CALCULATE ( COUNTROWS ( PriceAccuracy ), PriceAccuracy[error] > 0 ), [Sales Compared] )
+		formatString: 0%
+
+	measure 'Priced Before Sale' = DIVIDE ( [Sales Compared], COUNTROWS ( Sales ) )
+		formatString: 0%
+
+	column sale_id
+		dataType: string
+		summarizeBy: none
+		sourceColumn: sale_id
+
+	column sold_at
+		dataType: dateTime
+		formatString: General Date
+		summarizeBy: none
+		sourceColumn: sold_at
+
+	column item_id
+		dataType: string
+		summarizeBy: none
+		sourceColumn: item_id
+
+	column title
+		dataType: string
+		summarizeBy: none
+		sourceColumn: title
+
+	column group
+		dataType: string
+		summarizeBy: none
+		sourceColumn: group
+
+	column strategy
+		dataType: string
+		summarizeBy: none
+		sourceColumn: strategy
+
+	column predicted_at
+		dataType: dateTime
+		formatString: General Date
+		summarizeBy: none
+		sourceColumn: predicted_at
+
+	column days_before_sale
+		dataType: double
+		summarizeBy: none
+		sourceColumn: days_before_sale
+
+	column predicted_price
+		dataType: double
+		summarizeBy: none
+		sourceColumn: predicted_price
+
+	column market_price
+		dataType: double
+		summarizeBy: none
+		sourceColumn: market_price
+
+	column sold_price
+		dataType: double
+		summarizeBy: none
+		sourceColumn: sold_price
+
+	column error
+		dataType: double
+		summarizeBy: sum
+		sourceColumn: error
+
+	column abs_pct_error
+		dataType: double
+		formatString: 0.0%
+		summarizeBy: none
+		sourceColumn: abs_pct_error
+
+	column sold_date
+		dataType: dateTime
+		formatString: dd mmm yyyy
+		summarizeBy: none
+		sourceColumn: sold_date
+
+	partition PriceAccuracy = m
+		mode: import
+		source =
+				let
+					Source = fnExport("price_accuracy"),
+					Typed = Table.TransformColumnTypes(Source, {{"sale_id", type text}, {"sold_at", type datetimezone}, {"item_id", type text}, {"title", type text}, {"group", type text}, {"strategy", type text}, {"predicted_at", type datetimezone}, {"days_before_sale", type number}, {"predicted_price", type number}, {"market_price", type number}, {"sold_price", type number}, {"error", type number}, {"abs_pct_error", type number}}, "en-GB"),
+					WithDate = Table.AddColumn(Typed, "sold_date", each Date.From(DateTimeZone.ToUtc([sold_at])), type date)
+				in
+					WithDate

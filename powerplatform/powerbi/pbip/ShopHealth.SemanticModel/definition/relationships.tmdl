@@ -1,0 +1,27 @@
+relationship ListingsDaily_Calendar
+	fromColumn: ListingsDaily.date
+	toColumn: Calendar.Date
+
+relationship Sales_Calendar
+	fromColumn: Sales.sold_date
+	toColumn: Calendar.Date
+
+relationship Proposals_Calendar
+	fromColumn: Proposals.created_date
+	toColumn: Calendar.Date
+
+relationship PriceAccuracy_Calendar
+	fromColumn: PriceAccuracy.sold_date
+	toColumn: Calendar.Date
+
+relationship PriceDecisions_Calendar
+	fromColumn: PriceDecisions.decided_date
+	toColumn: Calendar.Date
+
+relationship HealthFlags_Calendar
+	fromColumn: HealthFlags.date
+	toColumn: Calendar.Date
+
+relationship ClaudeSpend_Calendar
+	fromColumn: ClaudeSpend.date
+	toColumn: Calendar.Date

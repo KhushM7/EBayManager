@@ -1,0 +1,78 @@
+table Sales
+
+	measure 'Revenue £' = SUM ( Sales[line_total] )
+		formatString: £#,0.00
+
+	measure 'Items Sold' = SUM ( Sales[quantity] )
+		formatString: 0
+
+	measure 'Avg Sale Price £' = AVERAGE ( Sales[item_price] )
+		formatString: £#,0.00
+
+	measure 'Avg Days to Sell' = AVERAGE ( Sales[days_to_sell] )
+		formatString: 0.0
+
+	measure 'Sell-through' = DIVIDE ( [Items Sold], [Items Sold] + [Active Listings] )
+		formatString: 0%
+
+	column sale_id
+		dataType: string
+		summarizeBy: none
+		sourceColumn: sale_id
+
+	column sold_at
+		dataType: dateTime
+		formatString: General Date
+		summarizeBy: none
+		sourceColumn: sold_at
+
+	column item_id
+		dataType: string
+		summarizeBy: none
+		sourceColumn: item_id
+
+	column title
+		dataType: string
+		summarizeBy: none
+		sourceColumn: title
+
+	column quantity
+		dataType: int64
+		summarizeBy: sum
+		sourceColumn: quantity
+
+	column item_price
+		dataType: double
+		summarizeBy: none
+		sourceColumn: item_price
+
+	column line_total
+		dataType: double
+		summarizeBy: sum
+		sourceColumn: line_total
+
+	column days_to_sell
+		dataType: double
+		summarizeBy: none
+		sourceColumn: days_to_sell
+
+	column source
+		dataType: string
+		summarizeBy: none
+		sourceColumn: source
+
+	column sold_date
+		dataType: dateTime
+		formatString: dd mmm yyyy
+		summarizeBy: none
+		sourceColumn: sold_date
+
+	partition Sales = m
+		mode: import
+		source =
+				let
+					Source = fnExport("sales"),
+					Typed = Table.TransformColumnTypes(Source, {{"sale_id", type text}, {"sold_at", type datetimezone}, {"item_id", type text}, {"title", type text}, {"quantity", Int64.Type}, {"item_price", type number}, {"line_total", type number}, {"days_to_sell", type number}, {"source", type text}}, "en-GB"),
+					WithDate = Table.AddColumn(Typed, "sold_date", each Date.From(DateTimeZone.ToUtc([sold_at])), type date)
+				in
+					WithDate

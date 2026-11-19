@@ -1,0 +1,40 @@
+table Calendar
+	dataCategory: Time
+
+	column Date
+		dataType: dateTime
+		isKey
+		formatString: dd mmm yyyy
+		summarizeBy: none
+		sourceColumn: Date
+
+	column Year
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: Year
+
+	column Month
+		dataType: string
+		summarizeBy: none
+		sourceColumn: Month
+
+	column 'Week Starting'
+		dataType: dateTime
+		formatString: dd mmm yyyy
+		summarizeBy: none
+		sourceColumn: Week Starting
+
+	partition Calendar = m
+		mode: import
+		source =
+				let
+					Start = #date(2025, 1, 1),
+					End = Date.EndOfYear(Date.From(DateTime.LocalNow())),
+					Days = List.Dates(Start, Duration.Days(End - Start) + 1, #duration(1, 0, 0, 0)),
+					AsTable = Table.FromList(Days, Splitter.SplitByNothing(), {"Date"}),
+					Typed = Table.TransformColumnTypes(AsTable, {{"Date", type date}}),
+					Year = Table.AddColumn(Typed, "Year", each Date.Year([Date]), Int64.Type),
+					Month = Table.AddColumn(Year, "Month", each Date.ToText([Date], "yyyy-MM"), type text),
+					Week = Table.AddColumn(Month, "Week Starting", each Date.StartOfWeek([Date], Day.Monday), type date)
+				in
+					Week

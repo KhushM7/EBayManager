@@ -1,0 +1,78 @@
+table ClaudeSpend
+
+	measure 'Claude Cost $' = SUM ( ClaudeSpend[cost_usd] )
+		formatString: $#,0.00
+
+	measure 'Claude Calls' = SUM ( ClaudeSpend[calls] )
+		formatString: #,0
+
+	measure 'Daily Budget $' = MAXX ( ALL ( ClaudeSpend ), ClaudeSpend[daily_budget_usd] )
+		formatString: $#,0.00
+
+	measure 'Budget Line $' = IF ( NOT ISBLANK ( [Claude Cost $] ), [Daily Budget $] )
+		formatString: $#,0.00
+
+	measure 'Avg Daily Cost $' = AVERAGEX ( VALUES ( ClaudeSpend[date] ), [Claude Cost $] )
+		formatString: $#,0.000
+
+	measure 'Days Over Budget' = COUNTROWS ( FILTER ( VALUES ( ClaudeSpend[date] ), [Claude Cost $] > [Daily Budget $] ) ) + 0
+		formatString: 0
+
+	measure 'Budget Used' = DIVIDE ( [Avg Daily Cost $], [Daily Budget $] )
+		formatString: 0%
+
+	measure 'New Listings Submitted' = CALCULATE ( COUNTROWS ( Proposals ), Proposals[kind] = "create_listing" ) + 0
+		formatString: 0
+
+	measure 'Cost per New Listing $' = DIVIDE ( CALCULATE ( [Claude Cost $], ClaudeSpend[job] = "listing" ), [New Listings Submitted] )
+		formatString: $#,0.000
+
+	column date
+		dataType: dateTime
+		formatString: dd mmm yyyy
+		summarizeBy: none
+		sourceColumn: date
+
+	column job
+		dataType: string
+		summarizeBy: none
+		sourceColumn: job
+
+	column model
+		dataType: string
+		summarizeBy: none
+		sourceColumn: model
+
+	column calls
+		dataType: int64
+		summarizeBy: sum
+		sourceColumn: calls
+
+	column input_tokens
+		dataType: int64
+		summarizeBy: sum
+		sourceColumn: input_tokens
+
+	column output_tokens
+		dataType: int64
+		summarizeBy: sum
+		sourceColumn: output_tokens
+
+	column cost_usd
+		dataType: double
+		summarizeBy: sum
+		sourceColumn: cost_usd
+
+	column daily_budget_usd
+		dataType: double
+		summarizeBy: none
+		sourceColumn: daily_budget_usd
+
+	partition ClaudeSpend = m
+		mode: import
+		source =
+				let
+					Source = fnExport("claude_spend"),
+					Typed = Table.TransformColumnTypes(Source, {{"date", type date}, {"job", type text}, {"model", type text}, {"calls", Int64.Type}, {"input_tokens", Int64.Type}, {"output_tokens", Int64.Type}, {"cost_usd", type number}, {"daily_budget_usd", type number}}, "en-GB")
+				in
+					Typed

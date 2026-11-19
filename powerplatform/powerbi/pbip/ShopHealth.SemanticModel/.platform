@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "SemanticModel",
+    "displayName": "ShopHealth"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "5f0c9a3e-2b7d-4c61-9e84-6a1d3f0b7c25"
+  }
+}

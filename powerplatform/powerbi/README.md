@@ -9,13 +9,38 @@ Query loads those; DAX does the sums.
 
 | File here | What it is |
 | --- | --- |
-| `shop-health.tmdl` | The whole model as one TMDL script: 2 parameters, the loader function, 9 tables, 37 measures, 7 relationships |
+| `shop-health.tmdl` | The whole model as one TMDL script: 2 parameters, the loader function, 9 tables, 38 measures, 7 relationships |
 | `queries.pq` | The same Power Query, one block per query, to paste by hand |
 | `measures.dax` | The same measures, to paste by hand |
-| `build.mjs` | Writes the three files above from one definition (`node powerplatform/powerbi/build.mjs`) |
+| `pbip/` | The finished report as a Power BI Project: `ShopHealth.pbip`, the model as TMDL files and the five pages (PBIR) |
+| `report/report.mjs` | The five pages' layout, written into `pbip/` |
+| `build.mjs` | Writes all of the above from one definition (`node powerplatform/powerbi/build.mjs`) |
+| `validate.py` | Checks every JSON file in `pbip/` against Microsoft's schemas (how to run it is at its top) |
 
-None of this has been opened in Power BI Desktop yet. The columns are checked against the export
-(`test/readonly.test.ts`); the DAX and TMDL are unproven until K loads them.
+The model has been loaded and refreshed in Power BI Desktop against Sandbox (2026-11-19). The columns are checked
+against the export (`test/readonly.test.ts`). The project in `pbip/` passes Microsoft's schemas but hasn't been opened
+in Power BI Desktop yet.
+
+## Open the finished report (quickest)
+
+The project has the model and all five pages already in place. Open a **copy** outside the repository: Power BI
+writes the key into the copy's files when you save, and it caches downloaded rows in `.pbi/` folders.
+
+1. Copy the project next to the dashboard you have now (PowerShell, from the repository):
+   `Copy-Item powerplatform\powerbi\pbip -Destination ..\EbayManagerPowerPlatform\ShopHealth -Recurse -Force`
+2. Open `..\EbayManagerPowerPlatform\ShopHealth\ShopHealth.pbip` in Power BI Desktop. If it won't open, turn on
+   File → Options and settings → Options → Preview features → **Power BI Project (.pbip) save option** and
+   **Store reports using enhanced metadata format (PBIR)**, restart, and open it again.
+3. Transform data → Edit parameters → paste the key into `ApiKey` (`BaseUrl` is already Sandbox's). Refresh. The
+   Anonymous sign-in you saved for the address is reused.
+4. Go through the five pages. On Sandbox most visuals are empty; what matters is that none shows an error.
+   Save (Ctrl+S) keeps the copy as a project. The old `dashboard.pbix` can then be deleted.
+
+Built a little differently from the recipe below: the funnel is a bar per stage (Suggested, Approved, Applied to
+eBay), since the funnel visual can't show three separate measures; the scatter's line is Power BI's ratio line
+(the average sold-to-predicted ratio, which sits on y = x when the engine is right on average); and the AI cost
+chart's budget line is `Budget Line $`, which is blank on days with no spend so the chart shows only days Claude
+ran. To change a page, change `report/report.mjs`, run `build.mjs`, then `validate.py`, and copy the project again.
 
 ## Build it
 
@@ -45,6 +70,9 @@ app's address → **Clear Permissions** → Close. Refresh again and, when asked
 level set to the address's root (`https://ebay-autopilot-…azurewebsites.net/`), so it covers every file.
 
 ### 2. The pages
+
+Already built in `pbip/` (above). By hand, in a report loaded from the TMDL script:
+
 
 Put a `Calendar[Date]` slicer (Between) on every page, synced.
 

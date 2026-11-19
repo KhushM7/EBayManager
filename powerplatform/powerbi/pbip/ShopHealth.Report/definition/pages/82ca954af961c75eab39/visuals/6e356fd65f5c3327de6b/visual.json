@@ -1,0 +1,60 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "6e356fd65f5c3327de6b",
+  "position": {
+    "x": 1064,
+    "y": 76,
+    "z": 7000,
+    "width": 200,
+    "height": 96,
+    "tabOrder": 7000
+  },
+  "visual": {
+    "visualType": "slicer",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Proposals"
+                    }
+                  },
+                  "Property": "dry_run"
+                }
+              },
+              "queryRef": "Proposals.dry_run",
+              "nativeQueryRef": "dry_run"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Dry run (False: real changes)'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

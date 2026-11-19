@@ -1,0 +1,92 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "a0e810cfc9f925be2f3f",
+  "position": {
+    "x": 856,
+    "y": 180,
+    "z": 10000,
+    "width": 408,
+    "height": 240,
+    "tabOrder": 10000
+  },
+  "visual": {
+    "visualType": "clusteredBarChart",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Proposals"
+                    }
+                  },
+                  "Property": "decided_by"
+                }
+              },
+              "queryRef": "Proposals.decided_by",
+              "nativeQueryRef": "decided_by"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Proposals"
+                    }
+                  },
+                  "Property": "Approved"
+                }
+              },
+              "queryRef": "Proposals.Approved",
+              "nativeQueryRef": "Approved"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Proposals"
+                    }
+                  },
+                  "Property": "Rejected"
+                }
+              },
+              "queryRef": "Proposals.Rejected",
+              "nativeQueryRef": "Rejected"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Decisions by person'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,31 @@
+table ListingsDaily
+
+	column date
+		dataType: dateTime
+		formatString: dd mmm yyyy
+		summarizeBy: none
+		sourceColumn: date
+
+	column active_listings
+		dataType: int64
+		summarizeBy: sum
+		sourceColumn: active_listings
+
+	column asking_total
+		dataType: double
+		summarizeBy: sum
+		sourceColumn: asking_total
+
+	column watchers
+		dataType: int64
+		summarizeBy: sum
+		sourceColumn: watchers
+
+	partition ListingsDaily = m
+		mode: import
+		source =
+				let
+					Source = fnExport("listings_daily"),
+					Typed = Table.TransformColumnTypes(Source, {{"date", type date}, {"active_listings", Int64.Type}, {"asking_total", type number}, {"watchers", Int64.Type}}, "en-GB")
+				in
+					Typed

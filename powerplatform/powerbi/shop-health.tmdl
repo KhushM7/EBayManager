@@ -471,6 +471,7 @@ createOrReplace
 
 		column abs_pct_error
 			dataType: double
+			formatString: 0.0%
 			summarizeBy: none
 			sourceColumn: abs_pct_error
 
@@ -612,6 +613,9 @@ createOrReplace
 		measure 'Daily Budget $' = MAXX ( ALL ( ClaudeSpend ), ClaudeSpend[daily_budget_usd] )
 			formatString: $#,0.00
 
+		measure 'Budget Line $' = IF ( NOT ISBLANK ( [Claude Cost $] ), [Daily Budget $] )
+			formatString: $#,0.00
+
 		measure 'Avg Daily Cost $' = AVERAGEX ( VALUES ( ClaudeSpend[date] ), [Claude Cost $] )
 			formatString: $#,0.000
 
@@ -704,4 +708,3 @@ createOrReplace
 	relationship ClaudeSpend_Calendar
 		fromColumn: ClaudeSpend.date
 		toColumn: Calendar.Date
-

@@ -1,0 +1,16 @@
+expression BaseUrl = "https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+
+expression ApiKey = "" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+
+expression fnExport =
+		(name as text) as table =>
+		let
+			// The key goes in a header, so the data source's credential in Power BI is "Anonymous". A wrong or empty key
+			// gets the app's blank 404, so an empty one is caught here with a clearer message.
+			Key = Text.Trim(ApiKey),
+			Checked = if Key = "" then error "Set the ApiKey parameter (Transform data > Edit parameters) to the read-only key, RO_API_KEY." else Key,
+			Raw = Web.Contents(Text.TrimEnd(Text.Trim(BaseUrl), "/"), [RelativePath = "api/ro/export/" & name & ".csv", Headers = [#"X-Api-Key" = Checked]]),
+			Csv = Csv.Document(Raw, [Delimiter = ",", Encoding = 65001, QuoteStyle = QuoteStyle.Csv]),
+			Promoted = Table.PromoteHeaders(Csv, [PromoteAllScalars = true])
+		in
+			Promoted

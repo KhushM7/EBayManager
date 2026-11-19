@@ -1,0 +1,83 @@
+table Listings
+
+	measure 'Active Listings' = COUNTROWS ( Listings )
+		formatString: 0
+
+	measure 'Asking Total £' = SUMX ( Listings, Listings[price] * Listings[quantity] )
+		formatString: £#,0.00
+
+	column item_id
+		dataType: string
+		summarizeBy: none
+		sourceColumn: item_id
+
+	column title
+		dataType: string
+		summarizeBy: none
+		sourceColumn: title
+
+	column price
+		dataType: double
+		summarizeBy: none
+		sourceColumn: price
+
+	column currency
+		dataType: string
+		summarizeBy: none
+		sourceColumn: currency
+
+	column quantity
+		dataType: int64
+		summarizeBy: sum
+		sourceColumn: quantity
+
+	column watchers
+		dataType: int64
+		summarizeBy: sum
+		sourceColumn: watchers
+
+	column views_7d
+		dataType: int64
+		summarizeBy: sum
+		sourceColumn: views_7d
+
+	column impressions_7d
+		dataType: int64
+		summarizeBy: sum
+		sourceColumn: impressions_7d
+
+	column start_date
+		dataType: dateTime
+		formatString: General Date
+		summarizeBy: none
+		sourceColumn: start_date
+
+	column days_listed
+		dataType: int64
+		summarizeBy: none
+		sourceColumn: days_listed
+
+	column health_flags
+		dataType: string
+		summarizeBy: none
+		sourceColumn: health_flags
+
+	column waiting_changes
+		dataType: int64
+		summarizeBy: sum
+		sourceColumn: waiting_changes
+
+	column snapshot_at
+		dataType: dateTime
+		formatString: General Date
+		summarizeBy: none
+		sourceColumn: snapshot_at
+
+	partition Listings = m
+		mode: import
+		source =
+				let
+					Source = fnExport("listings"),
+					Typed = Table.TransformColumnTypes(Source, {{"item_id", type text}, {"title", type text}, {"price", type number}, {"currency", type text}, {"quantity", Int64.Type}, {"watchers", Int64.Type}, {"views_7d", Int64.Type}, {"impressions_7d", Int64.Type}, {"start_date", type datetimezone}, {"days_listed", Int64.Type}, {"health_flags", type text}, {"waiting_changes", Int64.Type}, {"snapshot_at", type datetimezone}}, "en-GB")
+				in
+					Typed

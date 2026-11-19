@@ -1,0 +1,96 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "e2a991aedcef30f61fac",
+  "position": {
+    "x": 432,
+    "y": 180,
+    "z": 9000,
+    "width": 416,
+    "height": 240,
+    "tabOrder": 9000
+  },
+  "visual": {
+    "visualType": "barChart",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Proposals"
+                    }
+                  },
+                  "Property": "kind_label"
+                }
+              },
+              "queryRef": "Proposals.kind_label",
+              "nativeQueryRef": "kind_label"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Proposals"
+                    }
+                  },
+                  "Property": "Suggested"
+                }
+              },
+              "queryRef": "Proposals.Suggested",
+              "nativeQueryRef": "Suggested"
+            }
+          ]
+        },
+        "Series": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Proposals"
+                    }
+                  },
+                  "Property": "outcome"
+                }
+              },
+              "queryRef": "Proposals.outcome",
+              "nativeQueryRef": "outcome"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Outcome by kind of change'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

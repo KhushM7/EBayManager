@@ -1,0 +1,51 @@
+table HealthFlags
+
+	measure Flags = COUNTROWS ( HealthFlags )
+		formatString: 0
+
+	measure 'Flagged Listings' = DISTINCTCOUNT ( HealthFlags[item_id] )
+		formatString: 0
+
+	measure 'Flagged Then Changed' = VAR flagged = ADDCOLUMNS ( VALUES ( HealthFlags[item_id] ), "@first", CALCULATE ( MIN ( HealthFlags[date] ) ) ) RETURN COUNTROWS ( FILTER ( flagged, VAR i = HealthFlags[item_id] VAR d = [@first] RETURN NOT ISEMPTY ( FILTER ( ALL ( Proposals ), Proposals[item_id] = i && Proposals[applied] = TRUE () && Proposals[created_date] >= d ) ) ) )
+		formatString: 0
+
+	measure 'Flagged Then Sold' = VAR flagged = ADDCOLUMNS ( VALUES ( HealthFlags[item_id] ), "@first", CALCULATE ( MIN ( HealthFlags[date] ) ) ) RETURN COUNTROWS ( FILTER ( flagged, VAR i = HealthFlags[item_id] VAR d = [@first] RETURN NOT ISEMPTY ( FILTER ( ALL ( Sales ), Sales[item_id] = i && Sales[sold_date] >= d ) ) ) )
+		formatString: 0
+
+	measure 'Flagged Sold Rate' = DIVIDE ( [Flagged Then Sold], [Flagged Listings] )
+		formatString: 0%
+
+	column date
+		dataType: dateTime
+		formatString: dd mmm yyyy
+		summarizeBy: none
+		sourceColumn: date
+
+	column item_id
+		dataType: string
+		summarizeBy: none
+		sourceColumn: item_id
+
+	column title
+		dataType: string
+		summarizeBy: none
+		sourceColumn: title
+
+	column flag
+		dataType: string
+		summarizeBy: none
+		sourceColumn: flag
+
+	column detail
+		dataType: string
+		summarizeBy: none
+		sourceColumn: detail
+
+	partition HealthFlags = m
+		mode: import
+		source =
+				let
+					Source = fnExport("health_flags"),
+					Typed = Table.TransformColumnTypes(Source, {{"date", type date}, {"item_id", type text}, {"title", type text}, {"flag", type text}, {"detail", type text}}, "en-GB")
+				in
+					Typed

@@ -7,7 +7,7 @@ the app. The app's side (the read-only API, the nightly export and the Stock Roo
 | Folder | What it is | Phase |
 | --- | --- | --- |
 | `connector/` | The two custom connectors as OpenAPI 2.0 files: `ebaymanager-readonly.swagger.json` (reads only) and `ebaymanager-intake.swagger.json` (makes drafts only) | 0, 3 |
-| `powerbi/` | The Shop Health report's model: Power Query, DAX measures, one TMDL script, and the page-by-page build guide | 1 |
+| `powerbi/` | The Shop Health report: a Power BI Project with the model and all five pages (`pbip/`), plus the same model as Power Query, DAX and one TMDL script, and the page-by-page guide | 1 |
 | `flows/` | The three Power Automate flows: approval reminders, the weekly digest, and the Teams card | 2 |
 | `stockroom/` | The Stock Room canvas app: Dataverse tables, Power Fx, and the flow that sends "sell" items as drafts | 3 |
 | `copilot/` | The "Ask the shop" Copilot Studio agent: instructions, tools and test questions | 4 |

@@ -1,0 +1,130 @@
+table Proposals
+
+	measure Suggested = COUNTROWS ( Proposals )
+		formatString: 0
+
+	measure Approved = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "approved" )
+		formatString: 0
+
+	measure Rejected = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "rejected" )
+		formatString: 0
+
+	measure Expired = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "expired" )
+		formatString: 0
+
+	measure Waiting = CALCULATE ( COUNTROWS ( Proposals ), Proposals[outcome] = "waiting" )
+		formatString: 0
+
+	measure 'Applied to eBay' = CALCULATE ( COUNTROWS ( Proposals ), Proposals[applied] = TRUE () )
+		formatString: 0
+
+	measure 'Approval Rate' = DIVIDE ( [Approved], [Approved] + [Rejected] )
+		formatString: 0%
+
+	measure 'Human Override Rate' = DIVIDE ( [Rejected], [Approved] + [Rejected] )
+		formatString: 0%
+
+	measure 'Expiry Rate' = DIVIDE ( [Expired], [Suggested] - [Waiting] )
+		formatString: 0%
+
+	measure 'Median Hours to Decide' = MEDIAN ( Proposals[hours_to_decide] )
+		formatString: 0.0
+
+	column id
+		dataType: string
+		summarizeBy: none
+		sourceColumn: id
+
+	column kind
+		dataType: string
+		summarizeBy: none
+		sourceColumn: kind
+
+	column kind_label
+		dataType: string
+		summarizeBy: none
+		sourceColumn: kind_label
+
+	column item_id
+		dataType: string
+		summarizeBy: none
+		sourceColumn: item_id
+
+	column item_title
+		dataType: string
+		summarizeBy: none
+		sourceColumn: item_title
+
+	column status
+		dataType: string
+		summarizeBy: none
+		sourceColumn: status
+
+	column outcome
+		dataType: string
+		summarizeBy: none
+		sourceColumn: outcome
+
+	column applied
+		dataType: boolean
+		summarizeBy: none
+		sourceColumn: applied
+
+	column dry_run
+		dataType: boolean
+		summarizeBy: none
+		sourceColumn: dry_run
+
+	column created_at
+		dataType: dateTime
+		formatString: General Date
+		summarizeBy: none
+		sourceColumn: created_at
+
+	column decided_at
+		dataType: dateTime
+		formatString: General Date
+		summarizeBy: none
+		sourceColumn: decided_at
+
+	column expires_at
+		dataType: dateTime
+		formatString: General Date
+		summarizeBy: none
+		sourceColumn: expires_at
+
+	column hours_to_decide
+		dataType: double
+		summarizeBy: none
+		sourceColumn: hours_to_decide
+
+	column decided_by
+		dataType: string
+		summarizeBy: none
+		sourceColumn: decided_by
+
+	column old_price
+		dataType: double
+		summarizeBy: none
+		sourceColumn: old_price
+
+	column new_price
+		dataType: double
+		summarizeBy: none
+		sourceColumn: new_price
+
+	column created_date
+		dataType: dateTime
+		formatString: dd mmm yyyy
+		summarizeBy: none
+		sourceColumn: created_date
+
+	partition Proposals = m
+		mode: import
+		source =
+				let
+					Source = fnExport("proposals"),
+					Typed = Table.TransformColumnTypes(Source, {{"id", type text}, {"kind", type text}, {"kind_label", type text}, {"item_id", type text}, {"item_title", type text}, {"status", type text}, {"outcome", type text}, {"applied", type logical}, {"dry_run", type logical}, {"created_at", type datetimezone}, {"decided_at", type datetimezone}, {"expires_at", type datetimezone}, {"hours_to_decide", type number}, {"decided_by", type text}, {"old_price", type number}, {"new_price", type number}}, "en-GB"),
+					WithDate = Table.AddColumn(Typed, "created_date", each Date.From(DateTimeZone.ToUtc([created_at])), type date)
+				in
+					WithDate

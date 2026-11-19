@@ -1,0 +1,144 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "19777414c7b34cb2cf2a",
+  "position": {
+    "x": 16,
+    "y": 180,
+    "z": 8000,
+    "width": 408,
+    "height": 240,
+    "tabOrder": 8000
+  },
+  "visual": {
+    "visualType": "scatterChart",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "PriceAccuracy"
+                    }
+                  },
+                  "Property": "title"
+                }
+              },
+              "queryRef": "PriceAccuracy.title",
+              "nativeQueryRef": "title"
+            }
+          ]
+        },
+        "X": {
+          "projections": [
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "PriceAccuracy"
+                        }
+                      },
+                      "Property": "predicted_price"
+                    }
+                  },
+                  "Function": 1
+                }
+              },
+              "queryRef": "Average(PriceAccuracy.predicted_price)",
+              "nativeQueryRef": "Average of predicted_price"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "PriceAccuracy"
+                        }
+                      },
+                      "Property": "sold_price"
+                    }
+                  },
+                  "Function": 1
+                }
+              },
+              "queryRef": "Average(PriceAccuracy.sold_price)",
+              "nativeQueryRef": "Average of sold_price"
+            }
+          ]
+        },
+        "Tooltips": {
+          "projections": [
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "PriceAccuracy"
+                        }
+                      },
+                      "Property": "strategy"
+                    }
+                  },
+                  "Function": 3
+                }
+              },
+              "queryRef": "Min(PriceAccuracy.strategy)",
+              "nativeQueryRef": "Min of strategy"
+            }
+          ]
+        }
+      }
+    },
+    "objects": {
+      "ratioLine": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Predicted against sold (above the line: sold for more)'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

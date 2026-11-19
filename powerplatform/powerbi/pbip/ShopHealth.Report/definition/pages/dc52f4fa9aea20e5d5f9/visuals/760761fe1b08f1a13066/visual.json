@@ -1,0 +1,78 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "760761fe1b08f1a13066",
+  "position": {
+    "x": 640,
+    "y": 428,
+    "z": 9000,
+    "width": 624,
+    "height": 236,
+    "tabOrder": 9000
+  },
+  "visual": {
+    "visualType": "clusteredBarChart",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ClaudeSpend"
+                    }
+                  },
+                  "Property": "model"
+                }
+              },
+              "queryRef": "ClaudeSpend.model",
+              "nativeQueryRef": "model"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ClaudeSpend"
+                    }
+                  },
+                  "Property": "Claude Cost $"
+                }
+              },
+              "queryRef": "ClaudeSpend.Claude Cost $",
+              "nativeQueryRef": "Claude Cost $"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Cost by model'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

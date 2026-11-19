@@ -1,0 +1,78 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "f1852c83efdd49c06e20",
+  "position": {
+    "x": 16,
+    "y": 428,
+    "z": 8000,
+    "width": 616,
+    "height": 236,
+    "tabOrder": 8000
+  },
+  "visual": {
+    "visualType": "clusteredBarChart",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ClaudeSpend"
+                    }
+                  },
+                  "Property": "job"
+                }
+              },
+              "queryRef": "ClaudeSpend.job",
+              "nativeQueryRef": "job"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ClaudeSpend"
+                    }
+                  },
+                  "Property": "Claude Cost $"
+                }
+              },
+              "queryRef": "ClaudeSpend.Claude Cost $",
+              "nativeQueryRef": "Claude Cost $"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Cost by job'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

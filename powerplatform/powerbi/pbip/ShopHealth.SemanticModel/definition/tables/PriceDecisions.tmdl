@@ -1,0 +1,58 @@
+table PriceDecisions
+
+	column item_id
+		dataType: string
+		summarizeBy: none
+		sourceColumn: item_id
+
+	column decided_at
+		dataType: dateTime
+		formatString: General Date
+		summarizeBy: none
+		sourceColumn: decided_at
+
+	column group
+		dataType: string
+		summarizeBy: none
+		sourceColumn: group
+
+	column strategy
+		dataType: string
+		summarizeBy: none
+		sourceColumn: strategy
+
+	column suggested_price
+		dataType: double
+		summarizeBy: none
+		sourceColumn: suggested_price
+
+	column suggested_total_with_postage
+		dataType: double
+		summarizeBy: sum
+		sourceColumn: suggested_total_with_postage
+
+	column market_price
+		dataType: double
+		summarizeBy: none
+		sourceColumn: market_price
+
+	column predicted_days
+		dataType: double
+		summarizeBy: none
+		sourceColumn: predicted_days
+
+	column decided_date
+		dataType: dateTime
+		formatString: dd mmm yyyy
+		summarizeBy: none
+		sourceColumn: decided_date
+
+	partition PriceDecisions = m
+		mode: import
+		source =
+				let
+					Source = fnExport("price_decisions"),
+					Typed = Table.TransformColumnTypes(Source, {{"item_id", type text}, {"decided_at", type datetimezone}, {"group", type text}, {"strategy", type text}, {"suggested_price", type number}, {"suggested_total_with_postage", type number}, {"market_price", type number}, {"predicted_days", type number}}, "en-GB"),
+					WithDate = Table.AddColumn(Typed, "decided_date", each Date.From(DateTimeZone.ToUtc([decided_at])), type date)
+				in
+					WithDate

@@ -2,11 +2,13 @@
 //   queries.pq        the Power Query (M) for every table, to read or paste by hand
 //   measures.dax      every DAX measure, to read or paste by hand
 //   shop-health.tmdl  the whole model as one TMDL script, to paste into Power BI Desktop's TMDL view
+//   pbip/             a Power BI Project: the same model as TMDL files and the five report pages (report/report.mjs)
 // Run: node powerplatform/powerbi/build.mjs
 // test/readonly.test.ts checks every column named here exists in the export of the same name (src/ro/export.ts).
-import { writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { writeReport } from "./report/report.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -89,6 +91,8 @@ RETURN
   ["ClaudeSpend", "Claude Cost $", "SUM ( ClaudeSpend[cost_usd] )", "$#,0.00", "AI cost"],
   ["ClaudeSpend", "Claude Calls", "SUM ( ClaudeSpend[calls] )", "#,0", "AI cost"],
   ["ClaudeSpend", "Daily Budget $", "MAXX ( ALL ( ClaudeSpend ), ClaudeSpend[daily_budget_usd] )", "$#,0.00", "AI cost"],
+  // Blank on days with no spend, so a chart by date shows only days Claude was used.
+  ["ClaudeSpend", "Budget Line $", "IF ( NOT ISBLANK ( [Claude Cost $] ), [Daily Budget $] )", "$#,0.00", "AI cost"],
   ["ClaudeSpend", "Avg Daily Cost $", "AVERAGEX ( VALUES ( ClaudeSpend[date] ), [Claude Cost $] )", "$#,0.000", "AI cost"],
   ["ClaudeSpend", "Days Over Budget", "COUNTROWS ( FILTER ( VALUES ( ClaudeSpend[date] ), [Claude Cost $] > [Daily Budget $] ) ) + 0", "0", "AI cost"],
   ["ClaudeSpend", "Budget Used", "DIVIDE ( [Avg Daily Cost $], [Daily Budget $] )", "0%", "AI cost"],
@@ -103,6 +107,8 @@ RETURN
   ["Listings", "Asking Total £", "SUMX ( Listings, Listings[price] * Listings[quantity] )", "£#,0.00", "Sales"],
   ["Sales", "Sell-through", "DIVIDE ( [Items Sold], [Items Sold] + [Active Listings] )", "0%", "Sales"],
 ];
+
+const columnsOf = (t) => ({ ...t.columns, ...(t.dateFrom ? { [t.dateFrom[1]]: "date" } : {}) });
 
 const RELATIONSHIPS = TABLES.filter((t) => t.dateKey).map((t) => ({ from: `${t.table}.${t.dateKey}`, to: "Calendar.Date", name: `${t.table}_Calendar` }));
 
@@ -169,40 +175,94 @@ for (const [table, name, expr, format, p] of MEASURES) {
 }
 writeFileSync(join(here, "measures.dax"), dax);
 
-// --- TMDL script ---
+// --- TMDL ---
+// Each object is written at depth 0; the one-file script indents it under createOrReplace, and the Power BI Project
+// (pbip/) keeps it as a folder of TMDL files. Both come from the same text.
 
 const T = (n) => "\t".repeat(n);
 const block = (text, n) => text.split("\n").map((l) => (l ? T(n) + l.replace(/^( {4})+/, (s) => "\t".repeat(s.length / 4)) : "")).join("\n");
+const indent = (text, n) => text.split("\n").map((l) => (l ? T(n) + l : l)).join("\n");
 const q = (name) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : `'${name.replace(/'/g, "''")}'`);
 
-let tmdl = "createOrReplace\n\n";
-tmdl += `${T(1)}expression BaseUrl = "https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]\n\n`;
-tmdl += `${T(1)}expression ApiKey = "" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]\n\n`;
-tmdl += `${T(1)}expression fnExport =\n${block(FN_EXPORT, 3)}\n\n`;
+const expressionsTmdl = [
+  `expression BaseUrl = "https://ebay-autopilot-sandbox-wrpoyt.azurewebsites.net" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]\n`,
+  // Always empty in the repository: the key is set in Power BI Desktop, in a copy kept outside it.
+  `expression ApiKey = "" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]\n`,
+  `expression fnExport =\n${block(FN_EXPORT, 2)}\n`,
+].join("\n");
 
-tmdl += `${T(1)}table Calendar\n${T(2)}dataCategory: Time\n\n`;
-for (const [c, type, extra] of [["Date", "dateTime", `${T(3)}isKey\n${T(3)}formatString: dd mmm yyyy\n`], ["Year", "int64", ""], ["Month", "string", ""], ["Week Starting", "dateTime", `${T(3)}formatString: dd mmm yyyy\n`]])
-  tmdl += `${T(2)}column ${q(c)}\n${T(3)}dataType: ${type}\n${extra}${T(3)}summarizeBy: none\n${T(3)}sourceColumn: ${c}\n\n`;
-tmdl += `${T(2)}partition Calendar = m\n${T(3)}mode: import\n${T(3)}source =\n${block(CALENDAR, 5)}\n\n`;
+let calendarTmdl = `table Calendar\n${T(1)}dataCategory: Time\n\n`;
+for (const [c, type, extra] of [["Date", "dateTime", `${T(2)}isKey\n${T(2)}formatString: dd mmm yyyy\n`], ["Year", "int64", ""], ["Month", "string", ""], ["Week Starting", "dateTime", `${T(2)}formatString: dd mmm yyyy\n`]])
+  calendarTmdl += `${T(1)}column ${q(c)}\n${T(2)}dataType: ${type}\n${extra}${T(2)}summarizeBy: none\n${T(2)}sourceColumn: ${c}\n\n`;
+calendarTmdl += `${T(1)}partition Calendar = m\n${T(2)}mode: import\n${T(2)}source =\n${block(CALENDAR, 4)}\n`;
 
-for (const t of TABLES) {
-  tmdl += `${T(1)}table ${t.table}\n\n`;
+function tableTmdl(t) {
+  let out = `table ${t.table}\n\n`;
   for (const [, name, expr, format] of MEASURES.filter((m) => m[0] === t.table)) {
     // Always on one line: Power BI Desktop's TMDL view refused a multi-line measure followed by its formatString
     // ("Unexpected expression formatString", 2026-11-19). measures.dax keeps the readable layout.
-    tmdl += `${T(2)}measure ${q(name)} = ${expr.replace(/\s*\n\s*/g, " ")}\n`;
-    tmdl += `${T(3)}formatString: ${format}\n\n`;
+    out += `${T(1)}measure ${q(name)} = ${expr.replace(/\s*\n\s*/g, " ")}\n`;
+    out += `${T(2)}formatString: ${format}\n\n`;
   }
-  const cols = { ...t.columns, ...(t.dateFrom ? { [t.dateFrom[1]]: "date" } : {}) };
-  for (const [c, k] of Object.entries(cols)) {
-    const fmt = k === "date" ? `${T(3)}formatString: dd mmm yyyy\n` : k === "datetime" ? `${T(3)}formatString: General Date\n` : "";
+  for (const [c, k] of Object.entries(columnsOf(t))) {
+    const fmt = k === "date" ? "dd mmm yyyy" : k === "datetime" ? "General Date" : c === "abs_pct_error" ? "0.0%" : "";
     // Ids and day counts are never summed by default; money and counts are.
     const sum = ["number", "int"].includes(k) && !/(_id|days_listed|daily_budget_usd|abs_pct_error|price|days_to_sell|days_before_sale|predicted_days|hours_to_decide|rate)$/.test(c) ? "sum" : "none";
-    tmdl += `${T(2)}column ${q(c)}\n${T(3)}dataType: ${TMDL_TYPE[k]}\n${fmt}${T(3)}summarizeBy: ${sum}\n${T(3)}sourceColumn: ${c}\n\n`;
+    out += `${T(1)}column ${q(c)}\n${T(2)}dataType: ${TMDL_TYPE[k]}\n${fmt ? `${T(2)}formatString: ${fmt}\n` : ""}${T(2)}summarizeBy: ${sum}\n${T(2)}sourceColumn: ${c}\n\n`;
   }
-  tmdl += `${T(2)}partition ${t.table} = m\n${T(3)}mode: import\n${T(3)}source =\n${block(query(t), 5)}\n\n`;
+  return `${out}${T(1)}partition ${t.table} = m\n${T(2)}mode: import\n${T(2)}source =\n${block(query(t), 4)}\n`;
 }
-for (const r of RELATIONSHIPS) tmdl += `${T(1)}relationship ${r.name}\n${T(2)}fromColumn: ${r.from}\n${T(2)}toColumn: ${r.to}\n\n`;
+
+const relationshipsTmdl = RELATIONSHIPS.map((r) => `relationship ${r.name}\n${T(1)}fromColumn: ${r.from}\n${T(1)}toColumn: ${r.to}\n`).join("\n");
+const tableTexts = [["Calendar", calendarTmdl], ...TABLES.map((t) => [t.table, tableTmdl(t)])];
+
+const tmdl = `createOrReplace\n\n${[expressionsTmdl, ...tableTexts.map(([, x]) => x), relationshipsTmdl].map((x) => indent(x, 1)).join("\n")}`;
 writeFileSync(join(here, "shop-health.tmdl"), tmdl);
 
-console.log(`Wrote queries.pq, measures.dax and shop-health.tmdl (${TABLES.length} tables, ${MEASURES.length} measures, ${RELATIONSHIPS.length} relationships)`);
+// --- Power BI Project (pbip/) ---
+
+const model = {
+  tables: Object.fromEntries([["Calendar", { columns: ["Date", "Year", "Month", "Week Starting"], measures: [] }], ...TABLES.map((t) => [t.table, { columns: Object.keys(columnsOf(t)), measures: MEASURES.filter((m) => m[0] === t.table).map((m) => m[1]) }])]),
+};
+const files = writeReport({ model });
+const modelDir = "ShopHealth.SemanticModel/definition";
+files[`${modelDir}/database.tmdl`] = "database\n\tcompatibilityLevel: 1567\n";
+files[`${modelDir}/model.tmdl`] = [
+  "model Model",
+  "\tculture: en-GB",
+  "\tdefaultPowerBIDataSourceVersion: powerBI_V3",
+  "\tsourceQueryCulture: en-GB",
+  "\tdataAccessOptions",
+  "\t\tlegacyRedirects",
+  "\t\treturnErrorValuesAsNull",
+  // No hidden date tables for every date column: Calendar is the date table.
+  "\tannotation __PBI_TimeIntelligenceEnabled = 0",
+  "",
+  ...tableTexts.map(([n]) => `ref table ${q(n)}`),
+  "",
+].join("\n");
+files[`${modelDir}/expressions.tmdl`] = expressionsTmdl;
+files[`${modelDir}/relationships.tmdl`] = relationshipsTmdl;
+for (const [n, x] of tableTexts) files[`${modelDir}/tables/${n}.tmdl`] = x;
+files["ShopHealth.SemanticModel/definition.pbism"] = JSON.stringify({ $schema: "https://developer.microsoft.com/json-schemas/fabric/item/semanticModel/definitionProperties/1.0.0/schema.json", version: "4.0", settings: {} }, null, 2) + "\n";
+files["ShopHealth.SemanticModel/.platform"] = platform("SemanticModel", "ShopHealth", "5f0c9a3e-2b7d-4c61-9e84-6a1d3f0b7c25");
+files["ShopHealth.Report/.platform"] = platform("Report", "ShopHealth", "8e2d4b17-93a6-4f0e-b5c8-1d7a6e3f9024");
+files["ShopHealth.pbip"] = JSON.stringify({ $schema: "https://developer.microsoft.com/json-schemas/fabric/pbip/pbipProperties/1.0.0/schema.json", version: "1.0", artifacts: [{ report: { path: "ShopHealth.Report" } }], settings: { enableAutoRecovery: true } }, null, 2) + "\n";
+
+function platform(type, displayName, logicalId) {
+  return JSON.stringify({ $schema: "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json", metadata: { type, displayName }, config: { version: "2.0", logicalId } }, null, 2) + "\n";
+}
+
+const pbip = join(here, "pbip");
+rmSync(join(pbip, "ShopHealth.Report", "definition"), { recursive: true, force: true });
+rmSync(join(pbip, "ShopHealth.SemanticModel", "definition"), { recursive: true, force: true });
+for (const [path, text] of Object.entries(files)) {
+  mkdirSync(dirname(join(pbip, path)), { recursive: true });
+  writeFileSync(join(pbip, path), text);
+}
+// Power BI's own base theme, unchanged (MIT, from github.com/microsoft/fabric-cicd, sample/workspace).
+const themeDir = join(pbip, "ShopHealth.Report/StaticResources/SharedResources/BaseThemes");
+mkdirSync(themeDir, { recursive: true });
+copyFileSync(join(here, "report", "CY24SU10.json"), join(themeDir, "CY24SU10.json"));
+
+console.log(`Wrote queries.pq, measures.dax, shop-health.tmdl and pbip/ (${TABLES.length} tables, ${MEASURES.length} measures, ${RELATIONSHIPS.length} relationships)`);

@@ -12,7 +12,10 @@ lists exactly the routes the app serves.
 
 ## Import (once per connector)
 
-1. Power Automate (or Power Apps) → **Custom connectors** → **New custom connector** → **Import an OpenAPI file**. Pick the file.
+1. Pick the developer environment (top right, **Environments**), not "Default Directory (default)".
+   Then in Power Automate's left menu: **More** → **Discover all** → under **Data**, **Custom connectors** (the
+   pin icon keeps it in the menu). There is no Data tab in the menu itself any more. Then **New custom
+   connector** → **Import an OpenAPI file**, and pick the file.
 2. **General**: the host is Sandbox's. For the real account change it to `ebay-autopilot-production-wrpoyt.azurewebsites.net`. Keep the base URL (`/api/ro` or `/api/intake`).
 3. **Security**: API Key, parameter label `API key`, parameter name `X-Api-Key`, location **Header**. (The file already says this; check it.)
 4. **Create connector**, then **Test** → **New connection** → paste the key → run `GetStatus` (read-only) and expect `"read_only": true`.

@@ -6,7 +6,25 @@ family logs things around the house they might sell, with a photo, where it is a
 is not a listing or a proposal: someone still takes it through the New listing wizard (photos, condition,
 price, postage) and a person approves the label before anything reaches eBay.
 
-Not built yet: this is the recipe.
+**Partly built in K's developer environment (2026-11-19).** What differed from the recipe below:
+
+- **Done:** the `Stock Room` solution (publisher prefix `sr`); the Owner, Location and Item tables with every column.
+  The owner lookup on Item is called **Belongs to** (`sr_Belongsto`), not Owner, because "Owner" clashes with
+  Dataverse's built-in Owner column in Power Fx. Choice values: Decision Undecided 126550000 (default), Sell 126550001,
+  Keep 126550002, Ask K 126550003. One owner (K) and one location (Garage, box 3) were added to test with.
+- **The app** was made with Create → Start from data → Dataverse → Items. That gives one responsive screen (list and
+  form side by side, usable at phone width), not the three-screen phone template. It is saved and published as
+  "Stock Room". The filter chips, colours and the lock on a sent item are not added yet.
+- **The flow can't use a Dataverse trigger:** the Microsoft Dataverse connector is missing from this environment's
+  connector list, so "When a row is added, modified or deleted", "Download a file or an image" and "Update a row"
+  are unavailable. Instead the app calls the flow: `StockRoomSendDraft` (in the solution) is triggered by
+  "When Power Apps calls a flow (V2)" with text inputs RowId, ItemName and optional Owner, Location, Condition and
+  Photo (base64), calls **Send an item as a draft**, and responds with `draftid` and `status`. The app is then
+  meant to write those back with `Patch` and set Sent to EBayManager.
+- **Not finished:** adding the flow to the app failed with "Unable to add flow: you are missing permissions to one or
+  more connections" (connection `shared_logicflows`). The next step is to share or re-create that connection for the
+  flow (or recreate the flow from the app's Power Automate pane), then set the form's OnSuccess to call
+  `StockRoomSendDraft.Run(...)` when Decision is Sell, and run the check below once (it makes one Sandbox draft).
 
 ## 1. Dataverse tables
 

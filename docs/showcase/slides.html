@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>EBayManager slides</title>
+<!-- 1920x1080 slides for the PDF carousel and the video (scripts/showcase-build.mjs). -->
+<style>
+  @page { size: 1920px 1080px; margin: 0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #07080c; color: #eef0f6; font-family: "Segoe UI", system-ui, sans-serif; }
+  .slide { width: 1920px; height: 1080px; position: relative; overflow: hidden; padding: 90px 110px; break-after: page;
+    background: radial-gradient(1100px 600px at 10% -10%, rgba(91,140,255,.22), transparent 60%),
+                radial-gradient(900px 600px at 105% 30%, rgba(46,214,154,.12), transparent 60%), #07080c; }
+  .kicker { font-size: 26px; font-weight: 700; color: #5b8cff; letter-spacing: .08em; text-transform: uppercase; }
+  h1 { font-size: 112px; line-height: 1; letter-spacing: -.035em; margin: 26px 0 30px; }
+  h1 span, h2 span { background: linear-gradient(90deg, #8fb0ff, #2ed69a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  h2 { font-size: 64px; letter-spacing: -.025em; margin: 18px 0 16px; line-height: 1.05; }
+  p.lede { font-size: 34px; color: #9aa2b6; max-width: 1400px; line-height: 1.4; margin: 0; }
+  p.lede b { color: #eef0f6; }
+  .stats { display: flex; gap: 22px; position: absolute; left: 110px; right: 110px; bottom: 90px; }
+  .stat { flex: 1; background: #10121a; border: 1px solid #232838; border-radius: 24px; padding: 28px 32px; }
+  .stat b { display: block; font-size: 60px; letter-spacing: -.02em; }
+  .stat span { font-size: 24px; color: #9aa2b6; }
+  .media { position: absolute; left: 110px; right: 110px; top: 300px; bottom: 70px; display: flex; gap: 30px; align-items: flex-start; justify-content: center; }
+  .media img { max-height: 100%; max-width: 100%; border-radius: 18px; border: 1px solid #232838; box-shadow: 0 40px 100px -30px #000; }
+  .media.phones img { border: 8px solid #1d2130; border-radius: 34px; height: 100%; }
+  .flow { display: flex; gap: 18px; margin-top: 70px; }
+  .step { flex: 1; background: #10121a; border: 1px solid #232838; border-radius: 26px; padding: 34px 30px; min-height: 360px; }
+  .step .n { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: #151826; border: 1px solid #232838; font-weight: 800; font-size: 24px; color: #5b8cff; }
+  .step h3 { font-size: 40px; margin: 24px 0 12px; }
+  .step p { font-size: 27px; color: #9aa2b6; margin: 0; line-height: 1.4; }
+  .step.gate { border-color: #2ed69a; box-shadow: 0 0 60px -10px rgba(46,214,154,.45); }
+  .step.gate .n { color: #2ed69a; }
+  ul.rules { list-style: none; padding: 0; margin: 50px 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  ul.rules li { background: #10121a; border: 1px solid #232838; border-radius: 22px; padding: 28px 30px 28px 84px; position: relative; font-size: 28px; color: #9aa2b6; line-height: 1.35; }
+  ul.rules li b { color: #eef0f6; display: block; font-size: 32px; margin-bottom: 4px; }
+  ul.rules li::before { content: "✓"; position: absolute; left: 28px; top: 30px; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: rgba(46,214,154,.15); color: #2ed69a; font-weight: 800; font-size: 20px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 50px; max-width: 1650px; }
+  .tags span { font-size: 28px; padding: 10px 22px; border-radius: 999px; background: #151826; border: 1px solid #232838; color: #c9cfdf; }
+  .foot { position: absolute; left: 110px; bottom: 80px; font-size: 30px; color: #9aa2b6; }
+  .foot b { color: #8fb0ff; }
+  .note { position: absolute; right: 110px; bottom: 30px; font-size: 18px; color: #5f6780; }
+</style>
+</head>
+<body>
+<section class="slide">
+  <div class="kicker">Project · TypeScript · Azure · Claude · Power Platform</div>
+  <h1>EBayManager<br><span>an AI selling assistant that asks first</span></h1>
+  <p class="lede">Reviews eBay listings nightly, prices from the live market, builds listings from photos and drafts buyer replies.
+    <b>Nothing changes on eBay until a person taps Approve</b>, enforced in code.</p>
+  <div class="stats">
+    <div class="stat"><b>462</b><span>automated tests</span></div>
+    <div class="stat"><b>~23k</b><span>lines of TypeScript</span></div>
+    <div class="stat"><b>1</b><span>code path that may write to eBay</span></div>
+    <div class="stat"><b>Live</b><span>on a real eBay account</span></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">The core idea</div>
+  <h2>The AI suggests. <span>A person decides.</span></h2>
+  <div class="flow">
+    <div class="step"><div class="n">1</div><h3>Read</h3><p>Nightly snapshot of listings, orders and traffic from eBay.</p></div>
+    <div class="step"><div class="n">2</div><h3>Think</h3><p>Rules flag weak listings; Claude reviews them with read-only tools.</p></div>
+    <div class="step"><div class="n">3</div><h3>Propose</h3><p>A signed, expiring proposal with its reasoning.</p></div>
+    <div class="step gate"><div class="n">4</div><h3>Approve</h3><p>Push notification or Inbox: Approve or Reject.</p></div>
+    <div class="step"><div class="n">5</div><h3>Write</h3><p>One write gate sends it to eBay and audits it.</p></div>
+  </div>
+</section>
+
+<section class="slide">
+  <div class="kicker">The app · Inbox</div>
+  <h2>Every change waits for a tap</h2>
+  <div class="media"><img src="img/pwa-approval-desktop.jpg" alt=""></div>
+  <div class="note">Sample data</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">The app · Insights</div>
+  <h2>The shop at a glance</h2>
+  <div class="media"><img src="img/pwa-insights-desktop.jpg" alt=""></div>
+  <div class="note">Sample data</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">The app · New listing</div>
+  <h2>From photos to a listing, with checks</h2>
+  <div class="media"><img src="img/pwa-wizard-desktop.jpg" alt=""></div>
+  <div class="note">Sample data</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">One PWA · phone and desktop</div>
+  <h2>Installable, with push approvals</h2>
+  <div class="media phones">
+    <img src="img/pwa-approval-phone.jpg" alt=""><img src="img/pwa-listings-phone.jpg" alt=""><img src="img/pwa-insights-phone.jpg" alt=""><img src="img/pwa-wizard-phone.jpg" alt="">
+  </div>
+  <div class="note">Sample data</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Power BI · generated as code (PBIP, TMDL, 38 DAX measures)</div>
+  <h2>How often people overrule the AI</h2>
+  <div class="media"><img src="img/pbi-approvals.jpg" alt=""></div>
+  <div class="note">eBay Sandbox data</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Power BI · AI cost</div>
+  <h2>Every Claude call costed, under a hard cap</h2>
+  <div class="media"><img src="img/pbi-aicost.jpg" alt=""></div>
+  <div class="note">eBay Sandbox data</div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Safety</div>
+  <h2>Rules enforced in code, <span>not prompts</span></h2>
+  <ul class="rules">
+    <li><b>One write gate</b>Only ebayWrite() may call eBay; tests fail the build if anything else does.</li>
+    <li><b>Locked kinds</b>Prices, messages, offers and new listings can never auto-apply.</li>
+    <li><b>Floors and steps</b>The owner's floor in code; at most 10% a price step.</li>
+    <li><b>Hidden site</b>Blank 404 for strangers; email plus authenticator code.</li>
+    <li><b>Read-only Power Platform</b>A scoped key that can't write, approve or see buyers.</li>
+    <li><b>Sandbox first</b>Live only after go-live tests A to H passed.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <div class="kicker">Stack</div>
+  <h2>Built end to end</h2>
+  <div class="tags">
+    <span>TypeScript</span><span>Azure Functions</span><span>Cosmos DB</span><span>Blob Storage</span><span>Key Vault</span><span>Bicep</span>
+    <span>GitHub Actions</span><span>Preact</span><span>Tailwind</span><span>Framer Motion</span><span>PWA + Web Push</span><span>Anthropic API</span>
+    <span>MCP</span><span>eBay APIs</span><span>ONNX Runtime</span><span>Container Apps</span><span>Vitest</span><span>Power BI</span>
+    <span>Power Automate</span><span>Power Apps + Dataverse</span><span>Copilot Studio</span>
+  </div>
+  <div class="foot">Khush Mehta · <b>github.com/KhushM7/EBayManager</b></div>
+</section>
+</body>
+</html>

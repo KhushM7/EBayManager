@@ -71,6 +71,11 @@ Design docs: [roadmap](docs/roadmap.md), [Power Platform](docs/power-platform.md
 - **Git in Claude sessions** (K): commits are authored as K with GitHub's private address (`Khush Mehta <124626664+KhushM7@users.noreply.github.com>`, never a personal email: the repository is public), unsigned, with no co-author or session lines and no mention of Claude as author. New branches have plain names: no `claude/` prefix, no random letters at the end.
 - **Deploying from GitHub** (K): `.github/workflows/deploy.yml`, started by hand or by Claude. Sandbox deploys at once; production waits for K's approval in GitHub and deploys only from `main` (README, "Deploying from GitHub").
 
+## Decisions (2026-11-24, finishing)
+
+- **Nothing that costs to run** (K): Claude is switched off on production with `CLAUDE_DAILY_BUDGET_USD=0` (`claudeDailyBudgetUsd` in `src/rules.ts`, set from `infra/production.bicepparam`; the setting can only lower the $1 cap). The Power Automate digest and nudge flows are turned off. Copilot Studio stays unpublished (no credits). Power Platform stays read-only and off in production (no keys).
+- **Showcase** (K): `docs/showcase/` holds a page, a PDF carousel, a short video and screenshots for K's CV and LinkedIn, on sample data and Sandbox only (`scripts/showcase-build.mjs`). Never put real account, buyer or production data in it.
+
 ## Rules that are enforced in code, never in prompts
 
 These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the approval rules on 2026-11-02.
@@ -123,6 +128,7 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `.github/workflows/deploy.yml`, `scripts/azure-github-oidc.mjs` | Deploying from GitHub with K's approval for production, and its one-time Azure set-up |
 | `src/ro/`, `src/links.ts`, `src/mcp-core.ts` | The read-only API for Power Platform ([power-platform.md](docs/power-platform.md)): `tables.ts` (what may leave: no buyer details, allowlisted proposal fields), `handler.ts` (the key, the limits, the GET routes and the read-only MCP tools), `digest.ts` (the weekly digest in words), `export.ts` (the nightly CSV files for Power BI). It imports nothing that writes; `test/readonly.test.ts` follows its imports. `links.ts` is the approval-link signing; `mcp-core.ts` the small MCP server both `/mcp` and `/api/ro/mcp` use |
 | `scripts/check-power-platform.mjs` | Checks the two Power Platform APIs on a deployed environment: hidden without a key; with the read-only key, reads only |
+| `docs/showcase/`, `scripts/showcase-build.mjs` | The portfolio showcase: page, slides, screenshots (sample data and Sandbox only), and the script that builds the single-file page, the PDF and the video |
 | `src/intake.ts` | Stock Room intake: `POST /api/intake/drafts` with its own key makes a new-listing draft (one per row, 30 a day) and nothing else |
 | `powerplatform/` | What K builds in the Microsoft tenant: the two custom connectors (OpenAPI 2.0), the Power BI model (`powerbi/build.mjs` writes the Power Query, DAX and TMDL), and recipes for the flows, the Stock Room app and the Copilot Studio agent. None of it has been opened in a Microsoft tool yet |
 | `src/todos.ts`, `src/store/todos.ts`, `web/src/todos.tsx` | Inbox to-dos: what needs K but isn't an eBay change, filed by the audit and the nightly ([approvals.md](docs/approvals.md)) |

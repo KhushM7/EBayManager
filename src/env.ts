@@ -27,6 +27,8 @@ export interface Env {
    * jobs run inline instead (src/background.ts).
    */
   enqueue?: (message: { jobId: string }) => void | Promise<void>;
+  /** Azure's logger for this invocation (src/log.ts). Unset in tests. */
+  logSink?: (level: "info" | "warn" | "error", line: string) => void;
   /** K's operations key: reads /health (X-Health-Key). On Sandbox only, also a test sign-in. */
   DASHBOARD_KEY: string;
   /**

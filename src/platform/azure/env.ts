@@ -59,6 +59,7 @@ export function azureEnv(): Omit<Env, "enqueue"> {
     SIGNIN_PATH: opt("SIGNIN_PATH"),
     VAPID_KEY: opt("VAPID_KEY"),
     ANTHROPIC_API_KEY: opt("ANTHROPIC_API_KEY"),
+    CLAUDE_DAILY_BUDGET_USD: opt("CLAUDE_DAILY_BUDGET_USD"),
     ALLOW_KEY_LOGIN: opt("ALLOW_KEY_LOGIN"),
     MCP_ENABLED: opt("MCP_ENABLED"),
     EBAY_DELETION_TOKEN: opt("EBAY_DELETION_TOKEN"),

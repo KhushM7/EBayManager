@@ -1,3 +1,5 @@
+import type { LogEvent } from "../log";
+import { eventOp, type EventName, type ReasonCode } from "./events";
 import { hashId, pad13, seqId, type Doc, type DocStore, type PatchOp } from "./doc";
 
 // Everything else the app keeps: settings and the eBay token, listings (snapshots, traffic, K's settings,
@@ -5,6 +7,8 @@ import { hashId, pad13, seqId, type Doc, type DocStore, type PatchOp } from "./d
 // sold-data usage and cache, Claude usage, audit reports, nightly health flags, locks and background jobs.
 
 const strip = ({ id, pk, type, _etag, ttl, ...r }: any) => r;
+const isAdvice = { f: "type", op: "=" as const, v: "bundle_advice" };
+const adviceEvent = (id: string, event: EventName, at: number, o: { actor?: string | null; reason_code?: ReasonCode }) => ({ suggestion_id: id, source: "advice" as const, item_id: null, kind: "bundle_advice", event, at, ...o });
 const safeKey = (k: string) => /^[\w:.-]{1,200}$/.test(k);
 
 /** Document ids for the documents this file writes. */
@@ -183,6 +187,13 @@ export function listingsRepo(docs: DocStore) {
       });
       return rows.map((d) => strip(d) as LatestRow).sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)));
     },
+    /** Listings that were live since a time but aren't in the latest set: sold or ended. */
+    async leftSince(since: number): Promise<LatestRow[]> {
+      const ptr = await docs.get<any>("kv", "listings_latest", "listings_latest");
+      if (!ptr) return [];
+      const rows = await docs.query<any>(L, { where: [{ f: "type", op: "=", v: "latest" }, { f: "taken_at", op: ">=", v: since }, { f: "taken_at", op: "<", v: ptr.taken_at }] });
+      return rows.map((d) => strip(d) as LatestRow);
+    },
     latest: async (itemId: string): Promise<LatestRow | null> => {
       const d = await docs.get(L, "latest", itemId);
       return d ? (strip(d) as LatestRow) : null;
@@ -286,6 +297,17 @@ export interface OrderDoc {
 
 const safeItem = (id: string) => /^[\w-]{1,64}$/.test(id);
 
+export interface CommitmentDoc {
+  line_id: string;
+  item_id: string;
+  title: string;
+  quantity: number;
+  price: number | null;
+  created_at: number;
+  first_seen: number;
+  state: "unpaid" | "paid" | "gone";
+}
+
 export function ordersRepo(docs: DocStore) {
   const O = "orders" as const;
   const toItems = (items: { itemId: string; title: string; quantity: number; price: number | null }[]) =>
@@ -323,6 +345,27 @@ export function ordersRepo(docs: DocStore) {
       }
       return added;
     },
+    /** True once per order: the caller may tell K about this sale. */
+    async announce(orderId: string, at: number): Promise<boolean> {
+      let first = false;
+      await mutate(docs, O, orderId, orderId, (cur) => {
+        first = Boolean(cur) && !cur!.announced_at;
+        return first ? ({ ...cur!, announced_at: at } as Doc) : null;
+      });
+      return first;
+    },
+    /** A purchase on eBay nobody has paid for yet. Kept apart from orders, which are paid. No buyer. True if new. */
+    async saveCommitment(c: Omit<CommitmentDoc, "first_seen">, at: number): Promise<boolean> {
+      const id = `c:${c.line_id}`;
+      let isNew = false;
+      await mutate(docs, O, id, id, (cur) => {
+        isNew = !cur;
+        const next = { ...(cur ?? { id, pk: id, first_seen: at }), type: "commitment", ...c, created_at: cur?.created_at ?? c.created_at } as Doc;
+        return cur && JSON.stringify(next) === JSON.stringify(cur) ? null : next;
+      });
+      return isNew;
+    },
+    commitments: async (): Promise<CommitmentDoc[]> => (await docs.query<any>(O, { where: [{ f: "type", op: "=", v: "commitment" }] })).map((d) => strip(d) as CommitmentDoc),
     all: async (): Promise<OrderDoc[]> => (await docs.query<any>(O, { where: [{ f: "type", op: "=", v: "order" }] })).map((d) => strip(d) as OrderDoc),
     since: async (since: number): Promise<OrderDoc[]> =>
       (
@@ -344,6 +387,29 @@ export const orderLines = (orders: OrderDoc[]) =>
 
 // --- Buyer questions and Best Offers already seen (container messages) ---
 
+export interface OfferDoc {
+  best_offer_id: string;
+  item_id: string;
+  item_title?: string | null;
+  buyer: string;
+  price: number;
+  list_price?: number | null;
+  buyer_message?: string | null;
+  status?: string | null;
+  code_type?: string | null;
+  full_price?: boolean;
+  first_seen?: number;
+  last_seen?: number;
+  /** Older documents' only time. */
+  seen_at?: number;
+  expires_at?: number | null;
+  outcome?: string | null;
+  answered_by?: "app" | "ebay" | null;
+  answered_at?: number | null;
+  answer?: string | null;
+  proposal_id: string | null;
+}
+
 export function messagesRepo(docs: DocStore) {
   const M = "messages" as const;
   const qid = docIds.question;
@@ -355,10 +421,30 @@ export function messagesRepo(docs: DocStore) {
       const id = await qid(r.message_id);
       await docs.upsert(M, { id, pk: id, type: "question", ...r });
     },
-    async recordOffer(r: { best_offer_id: string; item_id: string; buyer: string; price: number; seen_at: number; proposal_id: string }) {
-      const id = await oid(r.best_offer_id);
-      await docs.upsert(M, { id, pk: id, type: "offer", ...r });
+    offer: async (offerId: string): Promise<OfferDoc | null> => {
+      const d = await docs.get<any>(M, await oid(offerId), await oid(offerId));
+      return d ? (strip(d) as OfferDoc) : null;
     },
+    /** Keeps what's known of an offer; fields not given are left as they are. */
+    async saveOffer(r: Partial<OfferDoc> & { best_offer_id: string }) {
+      const id = await oid(r.best_offer_id);
+      await mutate(docs, M, id, id, (cur) => ({ ...(cur ?? { id, pk: id, outcome: null, answered_by: null, proposal_id: null }), type: "offer", ...r }));
+    },
+    /** The app's answer reached eBay. */
+    async answered(offerId: string, action: string, at: number) {
+      const id = await oid(offerId);
+      await mutate(docs, M, id, id, (cur) =>
+        cur ? { ...cur, answered_by: "app", answered_at: at, answer: action, outcome: action === "accept" ? "accepted" : action === "decline" ? "declined" : "countered" } : null,
+      );
+    },
+    offers: async (): Promise<OfferDoc[]> =>
+      (await docs.query<any>(M, { where: [{ f: "type", op: "=", v: "offer" }] })).map((d) => strip(d) as OfferDoc).sort((a, b) => (b.first_seen ?? b.seen_at ?? 0) - (a.first_seen ?? a.seen_at ?? 0)),
+    /** The last 100 polls, one document each, reused in turn. No buyer data (src/ebay/inbox.ts, CallDiag). */
+    async savePoll(slot: number, r: Record<string, unknown>) {
+      const id = `poll:${slot % 100}`;
+      await docs.upsert(M, { id, pk: id, type: "poll", ...r });
+    },
+    polls: async (): Promise<any[]> => (await docs.query<any>(M, { where: [{ f: "type", op: "=", v: "poll" }] })).map(strip).sort((a, b) => b.at - a.at),
     async deleteByBuyer(username: string) {
       const qs = await docs.query<any>(M, { where: [{ f: "type", op: "=", v: "question" }, { f: "sender", op: "=", v: username }], fields: ["id"] });
       const os = await docs.query<any>(M, { where: [{ f: "type", op: "=", v: "offer" }, { f: "buyer", op: "=", v: username }], fields: ["id"] });
@@ -453,14 +539,15 @@ export function pricingRepo(docs: DocStore) {
       for (const [grp, p] of rows) await docs.upsert(P, { id: await paramsId(grp), pk: "_params", type: "params", grp, ...p, updated_at: now });
     },
     async lastBundleAt(): Promise<number | null> {
-      const [d] = await docs.query<any>(P, { pk: "_bundle", orderBy: ["at", "desc"], limit: 1, fields: ["at"] });
+      const [d] = await docs.query<any>(P, { pk: "_bundle", where: [isAdvice], orderBy: ["at", "desc"], limit: 1, fields: ["at"] });
       return d?.at ?? null;
     },
     /** Marks open advice replaced and records the new run and advice, in one transaction. */
     async replaceBundleAdvice(now: number, advice: { kind: string; itemIds: string[]; detail: string }[]) {
-      const open = await docs.query<any>(P, { pk: "_bundle", where: [{ f: "status", op: "=", v: "open" }], fields: ["id"] });
+      const open = await docs.query<any>(P, { pk: "_bundle", where: [isAdvice, { f: "status", op: "=", v: "open" }], fields: ["id", "item_ids"] });
       const { ok } = await docs.batch(P, "_bundle", [
-        ...open.map((o) => ({ op: "patch" as const, id: o.id, ops: [{ op: "set" as const, path: "/status", value: "replaced" }] })),
+        ...open.map((o) => ({ op: "patch" as const, id: o.id, ops: [{ op: "set" as const, path: "/status", value: "replaced" }, { op: "set" as const, path: "/decided_at", value: now }, { op: "set" as const, path: "/closed_reason", value: "replaced_by_run" }] })),
+        ...open.map((o) => eventOp("_bundle", adviceEvent(o.id, "replaced", now, { reason_code: "replaced_by_run" }))),
         { op: "create", doc: { id: `${pad13(now)}-000`, pk: "_bundle", type: "bundle_advice", at: now, kind: "run", item_ids: "", detail: "{}", status: "done" } },
         ...advice.map((a, i) => ({
           op: "create" as const,
@@ -470,8 +557,37 @@ export function pricingRepo(docs: DocStore) {
       if (!ok) throw new Error("Couldn't save the bundle advice");
     },
     openAdvice: async () =>
-      (await docs.query<any>(P, { pk: "_bundle", where: [{ f: "status", op: "=", v: "open" }], orderBy: ["id", "asc"] })).map((d) => ({ id: d.id as string, at: d.at as number, detail: d.detail as string })),
-    dismissAdvice: (id: string) => docs.patch(P, id, "_bundle", [{ op: "set", path: "/status", value: "dismissed" }], [{ f: "status", op: "=", v: "open" }]),
+      (await docs.query<any>(P, { pk: "_bundle", where: [isAdvice, { f: "status", op: "=", v: "open" }], orderBy: ["id", "asc"] })).map((d) => ({ id: d.id as string, at: d.at as number, detail: d.detail as string })),
+    dismissAdvice: async (id: string, by: string | null = null, now = Date.now()) =>
+      (
+        await docs.batch(P, "_bundle", [
+          {
+            op: "patch",
+            id,
+            ops: [{ op: "set", path: "/status", value: "dismissed" }, { op: "set", path: "/decided_at", value: now }, { op: "set", path: "/decided_by", value: by }, { op: "set", path: "/closed_reason", value: "person" }],
+            cond: [isAdvice, { f: "status", op: "=", v: "open" }],
+          },
+          eventOp("_bundle", adviceEvent(id, "dismissed", now, { actor: by, reason_code: "person" })),
+        ])
+      ).ok,
+    /** The old advice for History (its run markers left out), any status. */
+    allAdvice: async (): Promise<{ id: string; at: number; kind: string; item_ids: string; detail: string; status: string; decided_at: number | null; decided_by: string | null }[]> =>
+      (await docs.query<any>(P, { pk: "_bundle", where: [isAdvice, { f: "kind", op: "!=", v: "run" }] })).map((d) => ({ id: d.id, at: d.at, kind: d.kind, item_ids: d.item_ids ?? "", detail: d.detail, status: d.status, decided_at: d.decided_at ?? null, decided_by: d.decided_by ?? null })),
+    /** The Bundle assistant took over (2026-11-24): advice still open closes. Returns how many. */
+    async retireAdvice(now: number): Promise<number> {
+      let n = 0;
+      for (const o of await docs.query<any>(P, { pk: "_bundle", where: [isAdvice, { f: "status", op: "=", v: "open" }], fields: ["id"] }))
+        if (
+          (
+            await docs.batch(P, "_bundle", [
+              { op: "patch", id: o.id, ops: [{ op: "set", path: "/status", value: "replaced" }, { op: "set", path: "/decided_at", value: now }, { op: "set", path: "/closed_reason", value: "replaced_by_run" }], cond: [{ f: "status", op: "=", v: "open" }] },
+              eventOp("_bundle", adviceEvent(o.id, "replaced", now, { reason_code: "replaced_by_run" })),
+            ])
+          ).ok
+        )
+          n++;
+      return n;
+    },
 
     // Claude's identification of a listing, cached (container cache).
     async getIdentity(key: string): Promise<string | null> {
@@ -628,6 +744,19 @@ export function jobsRepo(docs: DocStore) {
       const rows = await docs.query<any>(J, { pk: "health", where: [{ f: "checked_at", op: ">=", v: since }], orderBy: ["checked_at", "asc"] });
       return rows.map((d) => ({ checked_at: d.checked_at, flags: d.flags ?? [] }));
     },
+    /** The app's log (src/log.ts): one document per event, gone after ttlSec. */
+    addEvent: async (e: Omit<LogEvent, "id">, ttlSec: number) => {
+      await docs.create(J, { id: seqId(e.created_at), pk: `event:${new Date(e.created_at).toISOString().slice(0, 10)}`, type: "event", ...e, ttl: ttlSec });
+    },
+    recentEvents: async (o: { since: number; status?: LogEvent["status"][]; limit?: number }): Promise<LogEvent[]> =>
+      (
+        await docs.query<any>(J, {
+          where: [{ f: "type", op: "=", v: "event" }, { f: "created_at", op: ">=", v: o.since }, ...(o.status ? [{ f: "status", op: "in" as const, v: o.status }] : [])],
+          orderBy: ["created_at", "desc"],
+          limit: o.limit ?? 200,
+        })
+      ).map((d) => ({ id: d.id, ...strip(d) }) as LogEvent),
+
     /** A lock that frees itself after ttlSec even if its holder crashes. */
     acquireLock: (name: string, ttlSec: number) => docs.create(J, { id: `lock:${name}`, pk: "lock", type: "lock", at: Date.now(), ttl: ttlSec }),
     releaseLock: (name: string) => docs.delete(J, `lock:${name}`, "lock"),

@@ -7,18 +7,19 @@ import { watched } from "../services";
 // Read-only REST calls to the Sell APIs (Fulfillment orders, Analytics traffic). GET only; nothing here
 // changes the account, and the read-only scopes cover both.
 
-async function sellGet(env: Env, path: string): Promise<any> {
+/** `watch: false` keeps a refusal out of the service check: a permission K hasn't given yet isn't eBay being down. */
+export async function sellGet(env: Env, path: string, opts: { watch?: boolean } = {}): Promise<any> {
   assertRest("GET", `${ebayHosts(env).api}${path}`);
   const token = await userToken(env);
-  const res = await watched(env, "ebay", () =>
+  const send = () =>
     fetch(`${ebayHosts(env).api}${path}`, {
       headers: {
         Authorization: `Bearer ${token}`,
         "X-EBAY-C-MARKETPLACE-ID": env.EBAY_MARKETPLACE,
         Accept: "application/json",
       },
-    }),
-  );
+    });
+  const res = opts.watch === false ? await send() : await watched(env, "ebay", send);
   if (res.status === 204) return {};
   if (!res.ok) throw new Error(`GET ${path.split("?")[0]} failed: ${res.status} ${(await res.text()).slice(0, 300)}`);
   return res.json();
@@ -216,15 +217,27 @@ export async function getCampaigns(env: Env): Promise<Campaign[]> {
  * Listings eBay will let K send an offer to watchers for (Negotiation API findEligibleItems): they have
  * interested buyers and no offer already out. Read only.
  */
-export async function getEligibleForOffers(env: Env): Promise<string[]> {
-  const out: string[] = [];
+export async function getEligibleForOffers(env: Env): Promise<EligibleForOffers> {
+  const ids: string[] = [];
+  let reply = "";
   for (let offset = 0; offset < 1000; offset += 200) {
     const data = await sellGet(env, `/sell/negotiation/v1/find_eligible_items?limit=200&offset=${offset}`);
-    const items = data?.eligibleItems ?? [];
-    out.push(...items.map((i: any) => String(i.listingId)));
+    const items = Array.isArray(data?.eligibleItems) ? data.eligibleItems : [];
+    // What eBay actually sent, for the log: enough to tell "none" from a shape we don't read.
+    if (!offset)
+      reply = Object.keys(data ?? {}).length
+        ? `200, total ${data.total ?? "not given"}, fields ${Object.keys(data).sort().join(" ")}${items[0] ? `, item fields ${Object.keys(items[0]).sort().join(" ")}` : ""}`
+        : "204 no content (eBay says no listing is eligible)";
+    ids.push(...items.map((i: any) => i?.listingId).filter((x: unknown) => x != null).map(String));
     if (items.length < 200) break;
   }
-  return out;
+  return { ids, reply };
+}
+
+export interface EligibleForOffers {
+  ids: string[];
+  /** eBay's status, total and field names, for the nightly's record. */
+  reply: string;
 }
 
 /** Listings in running Promoted Listings campaigns, with their ad rates. */

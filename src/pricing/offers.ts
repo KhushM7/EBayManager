@@ -1,5 +1,5 @@
 import type { Decision, MarketState } from "./model";
-import { endPrice } from "./model";
+import { endPrice, reliableDays } from "./model";
 import { r2 } from "../util";
 
 // Best Offers judged against the pricing engine (docs/pricing-engine.md, "Offers"). The principle is the
@@ -30,7 +30,9 @@ export interface OfferAnswer {
 }
 
 /**
- * - Accept if the offer is at least the reservation value.
+ * - Accept an offer at or above the asking price, always: it's what K asked for.
+ * - Accept if the offer is at least the reservation value, and the sale model has a reliable wait to base it on.
+ *   Without one, carrying on can't be valued, so accepting less than the asking price is never suggested.
  * - Counter if it's below: at the reservation value, or halfway to the asking price if that's higher (eBay
  *   buyers expect to meet in the middle), never above the asking price, with a precise ending (a precise
  *   counter signals a firm seller, per Backus, Blake & Tadelis).
@@ -38,12 +40,23 @@ export interface OfferAnswer {
  */
 export function answerOffer(i: OfferInput): OfferAnswer | null {
   const d = i.decision;
+  if (i.asking > 0 && i.offer >= i.asking - 0.005)
+    return { action: "accept", counterPrice: null, reservation: r2(i.asking), reason: `£${i.offer.toFixed(2)} is your full asking price.` };
   if (d.strategy === "ask" || d.price == null || d.options.length < 2) return null;
   const rec = d.options[1];
   // Present value of carrying on at the recommended price (already net of waiting costs).
   const carryOn = Math.max(0, rec.expectedValue);
   // Never below the long-run value floor of this item, nor K's floor.
   const valueFloor = i.market?.valueFloor != null ? Math.max(0, i.market.valueFloor - i.postage) : 0;
+  if (reliableDays(rec.daysToSell) == null || rec.expectedValue <= 0) {
+    // No reliable estimate: the line is three quarters of the asking price (or a floor, if higher), and the answer
+    // is never "accept": a counter K can change, or a decline for a lowball.
+    const line = r2(Math.min(i.asking, Math.max(i.asking * 0.75, valueFloor, i.floor ?? 0)));
+    const why = "How long this would take to sell can't be estimated reliably, so accepting less than your price isn't suggested: it's your call.";
+    if (i.offer < i.asking * 0.5) return { action: "decline", counterPrice: null, reservation: line, reason: `£${i.offer.toFixed(2)} is under half your asking price. ${why}` };
+    const c = r2(Math.min(i.asking, Math.max(line, endPrice((i.offer + i.asking) / 2, "hold"), i.floor ?? 0)));
+    return { action: "counter", counterPrice: c, reservation: line, reason: `Counter at £${c.toFixed(2)}. ${why} Market: ${d.why}` };
+  }
   const reservation = r2(Math.max(carryOn, valueFloor, i.floor ?? 0));
 
   if (i.offer >= reservation) {

@@ -1,4 +1,4 @@
-import { r2 } from "../util";
+import { MAX_DAYS, r2, reliableDays } from "../util";
 // The pricing engine's maths (docs/pricing-engine.md). Pure functions only: no I/O, so every step is tested
 // and explainable. Prices here are totals the buyer pays (item + postage), GBP.
 
@@ -259,9 +259,11 @@ export function hazard(p: number, m: number, demandPerDay: number, supply: numbe
 
 export const daysToSell = (h: number) => (h > 0 ? 1 / h : Infinity);
 
+export { MAX_DAYS, reliableDays };
+
 /** A wait for K to read: estimates past a year mean the model has too little demand to go on, so none is given. */
 export const daysText = (d: number | null | undefined) =>
-  d == null || !Number.isFinite(d) || d > 365 ? "no reliable estimate (over a year at today's demand)" : d <= 1 ? "about a day" : `about ${Math.round(d)} days`;
+  d == null || !Number.isFinite(d) || d > MAX_DAYS ? "no reliable estimate (over a year at today's demand)" : d <= 1 ? "about a day" : `about ${Math.round(d)} days`;
 
 /** How many listings compete, for K: close matches count part of one, so it's rounded. */
 export const listed = (supply: number) => (Number.isInteger(supply) ? String(supply) : supply < 10 ? supply.toFixed(1) : String(Math.round(supply)));
@@ -316,7 +318,8 @@ export interface PriceOption {
   position?: Position;
   /** Item price K lists (total - postage). */
   price: number;
-  daysToSell: number;
+  /** Null when there's no reliable estimate (over MAX_DAYS): then expectedValue isn't to be relied on either. */
+  daysToSell: number | null;
   chance30: number;
   keeps: number;
   expectedValue: number;
@@ -368,7 +371,7 @@ const option = (total: number, m: number, d: number, n: number, c: Costs, params
   return {
     total: r2(total),
     price: r2(total - c.postage),
-    daysToSell: Math.round(daysToSell(h)),
+    daysToSell: reliableDays(daysToSell(h)),
     chance30: Math.round(chanceWithin(h, 30) * 100) / 100,
     keeps: r2(net(total, c)),
     expectedValue: r2(value(total, h, c)),
@@ -627,9 +630,9 @@ export function decide(input: DecideInput): Decision {
       const hold = costs.holdPerDay ?? 0.02;
       const stale = Math.max(0, (input.listedDays ?? 0) + recovery - Math.max(STALE_AFTER_DAYS, input.listedDays ?? 0));
       const v = Math.exp(-delta * recovery) * after.expectedValue - hold * (recovery + stale);
-      held = { ...after, daysToSell: after.daysToSell + Math.round(recovery), expectedValue: r2(v) };
+      held = { ...after, daysToSell: after.daysToSell == null ? null : reliableDays(after.daysToSell + Math.round(recovery)), expectedValue: r2(v) };
     }
-    if (held && held.expectedValue > now.expectedValue * 1.1) {
+    if (held && held.expectedValue > now.expectedValue + Math.abs(now.expectedValue) * 0.1) {
       strategy = "hold";
       pick = held;
       why += ` Holding at £${held.price.toFixed(2)} is worth about £${(held.expectedValue - now.expectedValue).toFixed(2)} more than selling into the dip.`;

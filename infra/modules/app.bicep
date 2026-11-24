@@ -114,8 +114,9 @@ resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   properties: {
     sku: { name: 'PerGB2018' }
     retentionInDays: 30
-    // A hard daily ingestion cap keeps logging inside the free allowance.
-    workspaceCapping: { dailyQuotaGb: json('0.15') }
+    // A hard daily ingestion cap. Azure's free 5 GB a month is shared by both environments' workspaces, so the two
+    // caps together (0.15 GB a day, 4.65 GB in a 31-day month) stay inside it. The app itself logs far less.
+    workspaceCapping: { dailyQuotaGb: json(env == 'production' ? '0.1' : '0.05') }
   }
 }
 

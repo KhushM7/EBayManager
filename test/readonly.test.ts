@@ -85,7 +85,7 @@ describe("the Power Platform code can't reach the write gate", () => {
       const files = reachable(entry);
       for (const f of FORBIDDEN) expect(files.has(f), `${entry} reaches ${f}`).toBe(false);
       // The whole of what it does load, so a new import is a deliberate change to this list.
-      const allowed = /^src\/(ro\/|store\/(index|data|doc|memory|proposals|auth|todos|drafts)\.ts$|(env|rules|links|util|mcp-core|photos|intake)\.ts$)/;
+      const allowed = /^src\/(ro\/|store\/(index|data|doc|events|memory|proposals|auth|todos|drafts)\.ts$|(env|rules|links|util|mcp-core|photos|intake)\.ts$)/;
       for (const f of files) expect(allowed.test(f), `${entry} reaches ${f}`).toBe(true);
     });
 

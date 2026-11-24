@@ -42,7 +42,8 @@ describe("no comparable sales", () => {
   });
 
   it("files that as 'Set the price yourself', and a model question as before", async () => {
-    const env = { store: memoryStore() } as Env;
+    // Claude on: with it off, a model question isn't asked, because nothing would read the answer.
+    const env = { store: memoryStore(), ANTHROPIC_API_KEY: "k" } as Env;
     await filePriceQuestions(env, ["1", "2"], [
       { itemId: "1", title: "TV stand", question: "No sales ... What price do you want for it?", reason: "no_sales" },
       { itemId: "2", title: "Lights", question: "Which brand?", reason: "unidentified" },

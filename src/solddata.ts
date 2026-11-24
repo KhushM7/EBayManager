@@ -1,3 +1,4 @@
+import { log, swallow } from "./log";
 import type { Env } from "./env";
 import { watched } from "./services";
 
@@ -106,7 +107,7 @@ const quotaKey = (p: Provider, slot: Slot) => (slot === 1 ? `solddata_quota:${p}
 
 async function recordQuota(env: Env, p: Provider, slot: Slot, h: Headers) {
   const q = quotaFromHeaders(p, h);
-  if (q) await env.store.kv.setJson(quotaKey(p, slot), q).catch(() => null);
+  if (q) await env.store.kv.setJson(quotaKey(p, slot), q).catch(swallow(env, "solddata.quota_unsaved", { detail: p }));
 }
 
 /** A key the provider refused as out of credit: recorded as used up until its window resets. */
@@ -114,12 +115,12 @@ async function markUsedUp(env: Env, p: Provider, slot: Slot, now = Date.now()) {
   const last = await providerQuota(env, p, slot, now);
   await env.store.kv
     .setJson(quotaKey(p, slot), { limit: last?.limit ?? MONTHLY_CAP[p], remaining: 0, resetAt: last?.resetAt ?? nextUtcMonth(now), at: now } satisfies ProviderQuota)
-    .catch(() => null);
+    .catch(swallow(env, "solddata.quota_unsaved", { detail: p }));
 }
 
 /** The provider's last report for a key, if it's for the current allowance window. */
 export async function providerQuota(env: Env, p: Provider, slot: Slot = 1, now = Date.now()): Promise<ProviderQuota | null> {
-  const q = await env.store.kv.getJson<ProviderQuota>(quotaKey(p, slot)).catch(() => null);
+  const q = await env.store.kv.getJson<ProviderQuota>(quotaKey(p, slot)).catch(swallow(env, "solddata.quota_unread", { detail: p }));
   return q && now < q.resetAt ? q : null;
 }
 
@@ -138,8 +139,9 @@ export async function refreshQuota(env: Env, p: Provider, slot: Slot = 1, maxAge
         ? await fetch(`${HOSTS.trawl}/health`, { headers: { "x-api-key": k.key } })
         : await fetch(`${HOSTS.compsapi}/v1/usage`, { headers: { "X-API-Key": k.key, "User-Agent": "EBayManager/1.0", Accept: "application/json" } });
     await recordQuota(env, p, slot, res.headers);
-  } catch {
+  } catch (err) {
     // Keep the last report.
+    await log(env, "warn", "solddata.quota_refresh", { detail: p, err });
   }
   return providerQuota(env, p, slot, now);
 }

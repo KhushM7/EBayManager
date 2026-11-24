@@ -4,11 +4,13 @@ import { money } from "./format";
 
 // K's edits to drafts before approving: the reply to a buyer, or the answer to a Best Offer.
 
-export const EDITABLE = ["message", "best_offer_response"];
+export const EDITABLE = ["message", "new_message", "best_offer_response"];
+
+const isText = (p: Proposal) => p.kind === "message" || p.kind === "new_message";
 
 export function DraftEditor({ p, onSaved, onSignedOut }: { p: Proposal; onSaved: () => void; onSignedOut: () => void }) {
   const a = p.payload ?? {};
-  const [editing, setEditing] = useState(p.kind === "message" && !a.body);
+  const [editing, setEditing] = useState(isText(p) && !a.body);
   const [body, setBody] = useState<string>(a.body ?? "");
   const [action, setAction] = useState<string>(a.action ?? "counter");
   const [counter, setCounter] = useState<string>(a.counterPrice != null ? String(a.counterPrice) : "");
@@ -21,7 +23,7 @@ export function DraftEditor({ p, onSaved, onSignedOut }: { p: Proposal; onSaved:
     setBusy(true);
     setError(null);
     try {
-      const changes = p.kind === "message" ? { body } : { action, counterPrice: Number(counter), message };
+      const changes = isText(p) ? { body } : { action, counterPrice: Number(counter), message };
       await api(`/proposals/${p.id}/edit`, { body: changes });
       setEditing(false);
       onSaved();
@@ -33,13 +35,17 @@ export function DraftEditor({ p, onSaved, onSignedOut }: { p: Proposal; onSaved:
     }
   };
 
-  if (p.kind === "message")
+  if (isText(p))
     return (
       <div class="draft">
-        <blockquote class="quote">
-          <span class="muted small" style={{ display: "block" }}>{a.recipientId} asked</span>
-          {a.question}
-        </blockquote>
+        {p.kind === "new_message" ? (
+          <p class="meta">To {a.recipientId || "a buyer"}</p>
+        ) : (
+          <blockquote class="quote">
+            <span class="muted small" style={{ display: "block" }}>{a.recipientId} asked</span>
+            {a.question}
+          </blockquote>
+        )}
         {editing ? (
           <form class="form" onSubmit={save}>
             <label for={`reply-${p.id}`}>Your reply</label>
@@ -73,8 +79,10 @@ export function DraftEditor({ p, onSaved, onSignedOut }: { p: Proposal; onSaved:
     <div class="draft">
       <p class="meta">
         {money(a.offerPrice)} offered by {a.buyer}, asking {money(a.listPrice)}
-        {a.listPrice ? ` (${Math.round(((a.listPrice - a.offerPrice) / a.listPrice) * 100)}% below)` : ""}.
+        {a.fullPrice ? " (full asking price)" : a.listPrice ? ` (${Math.round(((a.listPrice - a.offerPrice) / a.listPrice) * 100)}% below)` : ""}.
       </p>
+      {a.expiresAt && <p class="meta">{a.expiresAt > Date.now() ? `Answer by ${new Date(a.expiresAt).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })}.` : "This offer has expired."}</p>}
+      {a.floor != null && ((a.action === "accept" && a.offerPrice < a.floor) || (a.action === "counter" && a.counterPrice < a.floor)) && <p class="error">Below your floor of {money(a.floor)}.</p>}
       {a.buyerMessage && <blockquote class="quote">{a.buyerMessage}</blockquote>}
       {editing ? (
         <form class="form" onSubmit={save}>

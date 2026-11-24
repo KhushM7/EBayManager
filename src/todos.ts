@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 import type { AuditReport, Finding } from "./firstday";
-import type { Flag } from "./health";
+import { claudeAvailable } from "./rules";
 import type { TodoInput } from "./store";
 
 // Inbox to-dos (docs/approvals.md, "To-dos"): everything that needs K but isn't an eBay change. The first-day
@@ -56,9 +56,10 @@ const WORDING: Record<string, Wording> = {
   handling: { kind: "you", title: "Shorten the handling time", detail: (f) => `${f.title}. ${f.detail}`, fp: (f) => f.title },
   best_offer: { kind: "you", title: "Consider turning on Best Offer", detail: (f) => f.detail },
   price_gap: {
-    kind: "you",
+    kind: "answer",
     title: "Check the price",
-    detail: (f) => `${f.title}. ${f.detail} The engine isn't confident enough to propose a change.`,
+    question: () => "What should it sell for? Dismiss to keep today's price.",
+    detail: (f) => `${f.title}. ${f.detail} The engine isn't confident enough to propose a change. Your answer becomes this listing's price, with a label to approve.`,
     fp: (f) => f.title.split(" by ")[0],
   },
   ended_unsold: { kind: "you", title: "Decide whether to relist", detail: (f) => f.detail },
@@ -110,7 +111,9 @@ export function auditTodos(report: Pick<AuditReport, "listings" | "findings">): 
 }
 
 export async function fileAuditTodos(env: Env, report: Pick<AuditReport, "listings" | "findings">, now: number) {
-  return env.store.todos.sync("audit", { codes: AUDIT_TODO_CODES }, auditTodos(withCodes(report)), now);
+  // With Claude off, a review nobody can run isn't filed (and one already open is left as it is).
+  const codes = AUDIT_TODO_CODES.filter((c) => c !== "claude_review" || claudeAvailable(env));
+  return env.store.todos.sync("audit", { codes }, auditTodos(withCodes(report)).filter((x) => x.code !== "claude_review" || claudeAvailable(env)), now);
 }
 
 /** Codes for findings in reports saved before findings had one (before 2026-11-05), from their wording. */
@@ -156,6 +159,8 @@ function withCodes<R extends Pick<AuditReport, "listings" | "findings">>(report:
 
 /** The nightly price review's questions, for the listings it priced this run. */
 export async function filePriceQuestions(env: Env, priced: string[], asked: { itemId: string; title: string; question: string; reason?: string }[], now: number) {
+  // With Claude off the engine can't read K's answer about what the item is, so it isn't asked for; a price is.
+  const codes = claudeAvailable(env) ? ["engine_question", "own_price"] : ["own_price"];
   const todos = asked.map((a) =>
     fromFinding({
       area: "listing",
@@ -168,7 +173,7 @@ export async function filePriceQuestions(env: Env, priced: string[], asked: { it
       fix: "you",
     }),
   );
-  return env.store.todos.sync("nightly", { codes: ["engine_question", "own_price"], itemIds: priced }, todos, now);
+  return env.store.todos.sync("nightly", { codes, itemIds: priced }, todos.filter((x) => codes.includes(x.code)), now);
 }
 
 /** A price in K's words ("£65", "65.50", "about 60 quid"): the first amount, or null. */
@@ -178,43 +183,15 @@ export function parsePrice(text: string): number | null {
   return n > 0 && n < 100_000 ? Math.round(n * 100) / 100 : null;
 }
 
-const FLAG_ACTION: Record<string, string> = {
-  stale: "Freshen this listing",
-  watched_not_selling: "Nudge the watchers",
-  low_views: "Help buyers find this listing",
-  low_click_through: "Make this listing stand out in search",
-};
-
 /**
- * The nightly health flags that didn't end in an approval label: a to-do with the flags and what Claude's
- * triage said. Listings with a label waiting already have their item in the Inbox.
+ * Closes to-dos that no longer apply. Health flags alone are never a to-do (K, 2026-11-24): "help buyers find this
+ * listing" with nothing to approve helps nobody. The sales ladder files the step that can be taken, as a label, and
+ * says nothing when there isn't one; the flags themselves stay on Insights.
  */
-export async function fileHealthTodos(
-  env: Env,
-  live: { itemId: string; title: string }[],
-  flagged: { itemId: string; flags: Flag[] }[],
-  notes: Map<string, string>,
-  hasLabel: (itemId: string) => boolean,
-  now: number,
-) {
-  const titles = new Map(live.map((l) => [l.itemId, l.title]));
-  const todos: TodoInput[] = flagged
-    .filter((f) => !hasLabel(f.itemId))
-    .map((f) => {
-      const note = notes.get(f.itemId);
-      return {
-        code: "health",
-        kind: "you",
-        itemId: f.itemId,
-        itemTitle: titles.get(f.itemId) ?? null,
-        title: FLAG_ACTION[f.flags[0].flag] ?? "Look at this listing",
-        detail: [...f.flags.map((x) => x.detail), note ? `Claude: ${note}` : ""].filter(Boolean).join("\n"),
-        fingerprint: f.flags.map((x) => x.flag).sort().join(","),
-      };
-    });
-  const r = await env.store.todos.sync("nightly", { codes: ["health"], itemIds: live.map((l) => l.itemId) }, todos, now);
-  const ended = await env.store.todos.resolveForEnded(live.map((l) => l.itemId), now);
-  return { ...r, resolved: r.resolved + ended };
+export async function closeStaleTodos(env: Env, live: { itemId: string }[], now: number) {
+  const ids = live.map((l) => l.itemId);
+  const r = await env.store.todos.sync("nightly", { codes: ["health"], itemIds: ids }, [], now);
+  return { opened: r.opened, resolved: r.resolved + (await env.store.todos.resolveForEnded(ids, now)) };
 }
 
 /** Days an own-priced listing may go unsold before the Inbox suggests K reviews the price (and again after each further period). */

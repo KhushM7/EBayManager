@@ -1,5 +1,5 @@
 import type { Env } from "./env";
-import { consentUrl, exchangeCode, READONLY_SCOPES, userScopes } from "./ebay/auth";
+import { consentScopes, consentUrl, exchangeCode } from "./ebay/auth";
 import { handleAccountDeletion } from "./deletion";
 import { handleApi } from "./api";
 import { finishOAuth, isKnownDevice, startOAuth } from "./auth/users";
@@ -12,6 +12,8 @@ import { envPrefix } from "./notify";
 import { pollInbox } from "./inbox";
 import { checkAllowances } from "./allowance";
 import { checkServices } from "./services";
+import { checkHeartbeat, noteNightly, notePoll, outsideHeartbeat } from "./monitor";
+import { swallow } from "./log";
 import { runNightly } from "./nightly";
 import { decide, getProposal, verifyDecision } from "./proposals";
 
@@ -67,17 +69,31 @@ export async function handle(request: Request, env: Env): Promise<Response> {
   return withSecurityHeaders(res, isApp ? "app" : isPage ? "page" : "data");
 }
 
-/** The scheduled jobs: the 02:00 UTC nightly run, and the buyer-message poll every 15 minutes. */
-export async function runScheduled(kind: "nightly" | "poll", env: Env) {
-  if (kind === "nightly") return runNightly(env);
+/** The scheduled jobs: the 02:00 UTC nightly run, and the poll for offers, messages and sales every 5 minutes. */
+export async function runScheduled(kind: "nightly" | "poll", env: Env, opts: { checks?: boolean } = {}) {
+  if (kind === "nightly") {
+    const r = await runNightly(env);
+    await noteNightly(env, r.steps);
+    await checkHeartbeat(env, ["poll"]);
+    return r;
+  }
+  let problems: string[] = [];
   try {
-    return await pollInbox(env);
+    const r = await pollInbox(env);
+    problems = r.errors;
+    return r;
+  } catch (e) {
+    problems = [e instanceof Error ? e.message : String(e)];
+    throw e;
   } finally {
+    await notePoll(env, problems);
+    await checkHeartbeat(env, ["nightly"]);
     // Allowances running low or out, and outside services that are down (eBay sign-in, Claude, sold data),
     // become Inbox to-dos with a notification (store reads only). They run even when the poll failed, as it
     // does when eBay stops accepting the app's sign-in: that's exactly when K needs to hear.
-    await checkAllowances(env).catch((e) => console.error(`allowances: ${e instanceof Error ? e.message : String(e)}`));
-    await checkServices(env).catch((e) => console.error(`services: ${e instanceof Error ? e.message : String(e)}`));
+    // These stay at every 15 minutes; the poll itself runs every 5.
+    if (opts.checks !== false) await checkAllowances(env).catch(swallow(env, "allowances.failed"));
+    if (opts.checks !== false) await checkServices(env).catch(swallow(env, "services.failed"));
   }
 }
 
@@ -97,7 +113,12 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
   const signin = signinPath(env);
 
   // Public by necessity: eBay calls the first, and its developer settings link to the second.
-  if (path === "/ebay/account-deletion") return handleAccountDeletion(env, request, url);
+  if (path === "/ebay/account-deletion") {
+    const res = await handleAccountDeletion(env, request, url);
+    // eBay's notices arrive all day whatever the timers do, so they also check that the timers still run.
+    if (request.method === "POST" && res.status === 204) await outsideHeartbeat(env);
+    return res;
+  }
   if (path === "/privacy.html" && env.ASSETS) return env.ASSETS.serve(request);
   // Fetched by the browser without cookies, so they can't need a session: the app icons (for installing and
   // notifications) and the service worker script. No data and no app name in them. The manifest stays
@@ -151,11 +172,13 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
     if (!code || !state || !cookie.includes(`oauth_state=${state}`)) return blank();
     const started = await finishOAuth(env, state);
     if (!started) return html("<h1>This eBay sign-in expired or wasn't started by the owner. Start again from Settings.</h1>", 400);
-    const scopes = userScopes(env, started.readonly);
+    // The same scopes the sign-in was started with (fixed then, so what's stored is what eBay was asked for).
+    const asked = await env.store.kv.getJson<{ state: string; scopes: string[] }>("oauth_asked");
+    const scopes = asked?.state === state ? asked.scopes : await consentScopes(env, started.readonly, false);
     await exchangeCode(env, code, scopes);
     // A "Reconnect eBay" to-do closes now rather than at the next poll.
     await checkServices(env).catch(() => null);
-    const kind = scopes === READONLY_SCOPES ? "read-only" : "full";
+    const kind = scopes.some((s) => s.endsWith("sell.inventory.readonly")) ? "read-only" : "full";
     return html(`<h1>eBay ${escHtml(env.EBAY_ENV)} connected</h1><p>Scopes: ${kind}. You can close this tab.</p>`);
   }
 
@@ -182,11 +205,13 @@ const route = async (request: Request, env: Env, url: URL): Promise<Response> =>
     if (session?.user.role !== "owner") return blank();
     const readonly = url.searchParams.get("readonly") === "1";
     // The owner's start is recorded server-side; the callback accepts only that state, once, within 10 minutes.
+    const scopes = await consentScopes(env, readonly, url.searchParams.get("messages") === "1");
     const state = await startOAuth(env, session.user.id, readonly);
+    await env.store.kv.setJson("oauth_asked", { state, scopes });
     return new Response(null, {
       status: 302,
       headers: {
-        Location: consentUrl(env, state, userScopes(env, readonly)),
+        Location: consentUrl(env, state, scopes),
         "Set-Cookie": `oauth_state=${state}; HttpOnly; Secure; SameSite=Lax; Path=/oauth; Max-Age=600`,
       },
     });

@@ -73,12 +73,12 @@ const todo = (id: string, kind: string, code: string, title: string, detail: str
   created_at: now - 2 * h, at: now - 2 * h, decided_at: null as number | null, decided_by: null as string | null, note: null as string | null, ...extra,
 });
 const todos = [
-  todo("a1", "answer", "engine_question", "Answer the pricing engine's question", "Your answer is saved as a fact about this listing, then the engine prices it again.", { item_id: "178310678490", item_title: "Designer ceiling lights x2, brushed brass", question: 'What exactly is the "ceiling light" (brand and model)?' }),
-  todo("a2", "answer", "measurements", "Add the measurements", "Missing: Item Width, Item Height, Item Depth. They're saved as facts, and Claude puts them in the item specifics on a label for you to approve.", { item_id: "178305367532", item_title: "Hemnes TV bench, white stain, 148 cm", question: "Measurements, for example: Width 110 cm, Height 44 cm, Weight 32 kg" }),
-  todo("c1", "claude", "claude_review", "Let Claude improve this listing", "6 specifics found in published specs: Brand, Model, Colour, Material, Type, Style, from the published specifications for the IKEA Hemnes TV bench.\nThin description: 140 characters. Add condition, what's included and measurements if known.", { item_id: "178305367532", item_title: "Hemnes TV bench, white stain, 148 cm" }),
+  todo("a1", "answer", "engine_question", "Answer the pricing engine's question", "Your answer is saved as a fact about this listing, then the engine prices it again.", { item_id: "110591497601", item_title: "Designer ceiling lights x2, brushed brass", question: 'What exactly is the "ceiling light" (brand and model)?' }),
+  todo("a2", "answer", "measurements", "Add the measurements", "Missing: Item Width, Item Height, Item Depth. They're saved as facts, and Claude puts them in the item specifics on a label for you to approve.", { item_id: "110591497700", item_title: "Hemnes TV bench, white stain, 148 cm", question: "Measurements, for example: Width 110 cm, Height 44 cm, Weight 32 kg" }),
+  todo("c1", "claude", "claude_review", "Let Claude improve this listing", "6 specifics found in published specs: Brand, Model, Colour, Material, Type, Style, from the published specifications for the IKEA Hemnes TV bench.\nThin description: 140 characters. Add condition, what's included and measurements if known.", { item_id: "110591497700", item_title: "Hemnes TV bench, white stain, 148 cm" }),
   todo("c2", "claude", "claude_review", "Let Claude improve this listing", "1 specifics found in published specs: Connectivity, from the published specifications for the Galaxy Buds 2 Pro.", { item_id: "178245985136", item_title: "Samsung Galaxy Buds 2 Pro Case" }),
-  todo("y1", "you", "photos", "Add more photos", "4 photos now. More angles, the label or model number, and close-ups of any wear help it sell.", { item_id: "178310678490", item_title: "Designer ceiling lights x2, brushed brass" }),
-  todo("y2", "you", "health", "Freshen this listing", "Listed 112 days with no watchers.\nOnly 0 views in the last 7 days.\nClaude: A clearer title with the brand and diameter should bring it into more searches.", { source: "nightly", item_id: "178310678490", item_title: "Designer ceiling lights x2, brushed brass" }),
+  todo("y1", "you", "photos", "Add more photos", "4 photos now. More angles, the label or model number, and close-ups of any wear help it sell.", { item_id: "110591497601", item_title: "Designer ceiling lights x2, brushed brass" }),
+  todo("y2", "you", "health", "Freshen this listing", "Listed 112 days with no watchers.\nOnly 0 views in the last 7 days.\nClaude: A clearer title with the brand and diameter should bring it into more searches.", { source: "nightly", item_id: "110591497601", item_title: "Designer ceiling lights x2, brushed brass" }),
 ];
 
 const devices = [{ endpoint: "https://fcm.googleapis.com/fcm/send/abc", user_agent: "Mozilla/5.0 (Linux; Android 15) Chrome/141.0", created_at: now - 26 * h, last_ok_at: now - 2 * h, last_error: null }];
@@ -136,6 +136,26 @@ export function mockApi(): Plugin {
         // New listing: the real drafts server with stand-ins (mock-drafts.ts); its labels join the sample Inbox.
         if (process.env.MOCK !== "signedout" && (await draftsMock(server, req, res, raw, { proposals }))) return;
         if (p === "/login") return body.key === "demo" ? send({ ok: true }) : send({ error: "Wrong key" }, 401);
+        if (p.startsWith("/bundles")) {
+          const items = [["110591497965", "TEST Classic Strategy Board Game Complete", 12], ["110591497599", "TEST Family Word Game", 8]].map(([itemId, title, price]) => ({ itemId, title, price }));
+          const tiers = [{ count: 2, percent: 10 }];
+          const examples = [{ count: 2, percent: 10, low: { titles: ["a", "b"], full: 21.6, pays: 19.46, saves: 2.14, youGet: 18 }, high: null }];
+          const group = { id: "g1", name: "Board games", source: "rules", reason: "Both are board games.", itemIds: items.map((x) => x.itemId), items, leftOut: [], tiers, examples, valid: true };
+          const x = { key: "k1", action: "activate", groupId: "g1", title: "Start the Board games bundle", why: "Two related games, neither selling alone.", itemIds: group.itemIds, exclude: ["110591497601"], tiers, examples, guide: [{ where: "eBay app", steps: ["Open Selling, then Bundles.", "Set Buy 2 to 10%.", "Exclude the listings below, then Save."] }] };
+          return send({ listings: [...items, { itemId: "110591497601", title: "TEST White Ceramic Coffee Mug 350ml", price: 6 }].map((l) => ({ ...l, unfit: null })), active: null, suggestion: x, groups: [group], history: [], splits: [] });
+        }
+        if (p === "/suggestions/attention") return send([]);
+        if (p === "/suggestions/seen") return send({ ok: true });
+        if (p === "/suggestions/history") {
+          const day = 86_400_000;
+          const all = [
+            { key: "proposal:h1", source: "proposal", id: "h1", kind: "price", item_id: "110591497700", item_title: "TEST TV stand", title: "Price £40.00 to £55.00", detail: "Just under the cheapest used one.", outcome: { group: "done", words: "Applied by K" }, at: Date.now() - day, filed_at: Date.now() - 2 * day },
+            { key: "todo:h2:1", source: "todo", id: "todo:h2", kind: "measurements", item_id: "110591497700", item_title: "TEST TV stand", title: "Add measurements", detail: null, outcome: { group: "declined", words: "Dismissed by K" }, at: Date.now() - 3 * day, filed_at: Date.now() - 4 * day },
+            { key: "proposal:h3", source: "proposal", id: "h3", kind: "promote", item_id: "110591497601", item_title: null, title: "Promote at 2%", detail: null, outcome: { group: "closed", words: "Ran out after 7 days" }, at: Date.now() - 9 * day, filed_at: Date.now() - 16 * day },
+          ];
+          const want = url.searchParams.get("outcome");
+          return send({ rows: all.filter((r) => !want || r.outcome.group === want), next: null });
+        }
         if (p === "/todos") return send(todos.filter((x) => x.status === (url.searchParams.get("status") ?? "open")));
         const todoAction = p.match(/^\/todos\/(todo:[\w-]+)\/(done|dismiss|answer|claude)$/);
         if (todoAction) {
@@ -146,6 +166,31 @@ export function mockApi(): Plugin {
           Object.assign(x, { status: todoAction[2] === "dismiss" ? "dismissed" : "done", decided_at: Date.now(), decided_by: "K", note });
           return send({ ok: true, note: note ?? undefined });
         }
+        if (p === "/offers") return send({ offers: [{ best_offer_id: "bo1", item_id: "110591497965", item_title: "TEST Classic Strategy Board Game Complete", buyer: "offer_buyer", price: 12, list_price: 12, full_price: true, first_seen: now - h, expires_at: now + 20 * h, outcome: null, proposal_id: "o1", open: true, waiting_on: "you", floor: 8, label_status: "pending", label_result: null }], canMessage: false, lastPoll: { at: now - 120_000, errors: [] } });
+        if (p === "/sales") return send([{ id: "s1", at: now - 26 * h, title: "TEST Desk Lamp", price: 14, itemIds: ["110591497600"], state: "paid" }]);
+        if (p === "/conversations") {
+          const c = (id: string, otherParty: string, itemId: string | null, itemTitle: string | null, itemPrice: number | null, lastText: string, lastMine: boolean, ago: number, unread = 0) => ({ id, otherParty, itemId, itemTitle, itemPrice, image: null, lastText, lastMine, lastAt: now - ago, unread });
+          return send({ canMessage: true, conversations: [
+            c("c1", "sample_buyer", "110591497965", "TEST Classic Strategy Board Game Complete", 12, "That sounds good, I'll pick it up on Saturday then.", false, h, 2),
+            c("c2", "another_sample", "110591497601", "TEST White Ceramic Coffee Mug 350ml", 6, "Posted this morning, second class.", true, 27 * h),
+            c("c3", "long_ago_sample", null, null, null, "Thanks, it arrived safely.", false, 52 * 24 * h),
+          ] });
+        }
+        if (/^\/conversations\/c\d/.test(p)) {
+          const day = 24 * h;
+          const msg = (n: number, side: string, text: string, ago: number) => ({ id: "m" + n, side, text, at: now - ago });
+          return send({ older: null, sends: [{ id: "s1", body: "Saturday works. Any time after ten is fine.", status: "pending", result: null, at: now - 10 * 60_000 }], messages: [
+            msg(1, "buyer", "Hi, are all the pieces there?", 3 * day),
+            msg(2, "me", "Hi, yes. I counted them against the list in the box and nothing is missing.", 3 * day - h),
+            msg(3, "buyer", "Great.", 3 * day - 2 * h),
+            msg(4, "buyer", "Could I collect it instead of having it posted? I'm only a few miles away and it would save you packing it up. If that's awkward then posting is fine as well, I'm in no rush at all.", 3 * day - 2 * h - 60_000),
+            msg(5, "me", "Collection is fine, just choose it at the checkout.", 2 * day),
+            msg(6, "buyer", "Ordered. Thanks On Fri, 20 Nov 2026, 10:13 pm Sample Buyer, <sample@example.com> wrote: Collection is fine", day),
+            msg(7, "buyer", "Is the weekend any good?", 2 * h),
+            msg(8, "buyer", "That sounds good, I'll pick it up on Saturday then.", h),
+          ] });
+        }
+        if (p === "/inbox/poll") return send({ questions: 0, offers: 0, errors: [] });
         if (p === "/listings") return send(listings);
         if (p === "/listings/refresh") return send({ count: listings.length });
         if (p === "/activity") return send(activity);
@@ -228,14 +273,14 @@ const mockReport = {
   seller: { userId: "k-sells", feedbackScore: 41, positivePercent: 100, businessType: "Private" },
   listings: [
     {
-      itemId: "178305367532", title: "Samsung Galaxy Buds 2 Pro Case", url: null, price: 18.99, postage: 2.7, collectionOnly: false, listedDays: 113, watchers: 5, views7d: 2,
+      itemId: "110591497700", title: "Samsung Galaxy Buds 2 Pro Case", url: null, price: 18.99, postage: 2.7, collectionOnly: false, listedDays: 113, watchers: 5, views7d: 2,
       photos: 3, specifics: 2, descriptionChars: 90,
       pricing: { strategy: "compete", price: 15.5, why: "A crowded market: 14 weeks of supply at the recent sales rate.", confidence: 0.55 },
       promotion: { action: "promote", rate: 2.5, why: "Saturated market and 113 days listed without a sale. A 2.5% general ad should cut the wait from about 60 to 48 days.", suggestedRate: 6.4 },
       findings: [finding("high", "Above the market by 23%", "Compete at £15.50.", "proposal"), finding("medium", "Short title", "Uses 31 of 80 characters.", "claude"), finding("medium", "Thin description", "90 characters.", "claude")],
     },
     {
-      itemId: "178310678490", title: "Designer ceiling lights x2, brushed brass", url: null, price: 45, postage: null, collectionOnly: true, listedDays: 111, watchers: 0, views7d: 1,
+      itemId: "110591497601", title: "Designer ceiling lights x2, brushed brass", url: null, price: 45, postage: null, collectionOnly: true, listedDays: 111, watchers: 0, views7d: 1,
       photos: 2, specifics: 1, descriptionChars: 0,
       pricing: { strategy: "ask", price: null, why: "", confidence: 0, question: "Which brand and model are the lights, and what diameter?" },
       promotion: null,
@@ -265,7 +310,7 @@ const mockReport = {
     finding("medium", "Promote at 2.5%", "Saturated market and 113 days listed without a sale.", "proposal", "Samsung Galaxy Buds 2 Pro Case", "promotion"),
     finding("medium", "Ended unsold: Phone case bundle", "3 people watched it but nobody bought: the price was probably a little high.", "you", "Phone case bundle", "unsold"),
   ],
-  proposals: [{ id: "x", kind: "price", itemId: "178305367532" }, { id: "y", kind: "promote", itemId: "178305367532" }],
-  forClaude: ["178305367532", "178310678490"],
+  proposals: [{ id: "x", kind: "price", itemId: "110591497700" }, { id: "y", kind: "promote", itemId: "110591497700" }],
+  forClaude: ["110591497700", "110591497601"],
   steps: { snapshot: "4 listings", listings: "4 read in full", prices: "2 priced, 1 proposed, 1 need your answer", promotion: "4 checked, 1 proposed", messages: "9 answered questions, 5 sent messages", style: "learned from 14 replies", policies: "1 return, 1 postage and 1 payment policies." },
 };

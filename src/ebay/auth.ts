@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 import { assertRest } from "./allowlist";
 import { ebayHosts, PRODUCTION_HOSTS } from "./hosts";
+import { canMessage, MESSAGE_SCOPE } from "./messages";
 import { classifyStatus, recordFailure, recordOk, type Service } from "../services";
 
 // Scope URIs are the same on Sandbox and production.
@@ -32,6 +33,17 @@ export const READONLY_SCOPES = [
 /** Read-only unless writes are on and read-only wasn't asked for. */
 export const userScopes = (env: Env, readonly = false) =>
   readonly || env.WRITE_MODE !== "approval" ? READONLY_SCOPES : FULL_SCOPES;
+
+/**
+ * What to ask eBay for when someone connects. The messaging permission is asked for only when the owner chooses
+ * it, or when the saved sign-in already holds it: asking by default could make every sign-in fail if eBay doesn't
+ * grant it to this app. An existing sign-in keeps the scopes it was given (userToken refreshes with those).
+ */
+export async function consentScopes(env: Env, readonly: boolean, messages: boolean): Promise<string[]> {
+  const base = userScopes(env, readonly);
+  if (base === READONLY_SCOPES) return base;
+  return messages || (await canMessage(env)) ? [...base, MESSAGE_SCOPE] : base;
+}
 
 const basic = (appId: string, certId: string) => "Basic " + btoa(`${appId}:${certId}`);
 

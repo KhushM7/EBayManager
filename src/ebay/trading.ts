@@ -162,12 +162,22 @@ export async function restWrite(env: Env, method: "POST" | "DELETE", path: strin
   return { status: res.status, body: json, location: res.headers.get("Location") };
 }
 
+/** eBay answered with a failure: the parsed reply is kept, so its error codes and shape can be logged. */
+export class TradingError extends Error {
+  constructor(
+    message: string,
+    readonly doc: any,
+  ) {
+    super(message);
+  }
+}
+
 export function parseTradingResponse(call: string, xml: string): any {
   const doc = parser.parse(xml)[`${call}Response`];
   if (!doc) throw new Error(`Unexpected Trading response for ${call}: ${xml.slice(0, 300)}`);
   if (doc.Ack === "Failure") {
     const errs = [doc.Errors].flat().map((e: any) => e?.LongMessage ?? e?.ShortMessage);
-    throw new Error(`${call} failed: ${errs.join("; ")}`);
+    throw new TradingError(`${call} failed: ${errs.join("; ")}`, doc);
   }
   return doc;
 }
@@ -253,7 +263,8 @@ export function titleLockReason(item: any, openOffers = 0): string | null {
 
 /** Offers on a listing that are still open: the buyer's waiting for K, or K's counter waiting for the buyer. */
 export function openOfferCount(doc: any, now = Date.now()): number {
-  const items = [doc?.ItemBestOffersArray?.ItemBestOffers ?? []].flat();
+  // One listing's offers come back as BestOfferArray, the whole account's as ItemBestOffersArray.
+  const items = [doc?.ItemBestOffersArray?.ItemBestOffers ?? [], doc?.BestOfferArray ? { BestOfferArray: doc.BestOfferArray } : []].flat();
   return items
     .flatMap((ib: any) => [ib?.BestOfferArray?.BestOffer ?? []].flat())
     .filter((o: any) => ["Active", "Pending", "Countered"].includes(String(o?.Status ?? o?.BestOfferStatus ?? "")))

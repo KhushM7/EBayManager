@@ -1,3 +1,4 @@
+import { log, swallow } from "./log";
 import type { Env } from "./env";
 import { push } from "./notify";
 import type { TodoInput } from "./store/todos";
@@ -42,7 +43,7 @@ const cache = (env: Env) => {
 };
 
 export async function serviceState(env: Env, s: Service): Promise<ServiceState> {
-  const st = (await env.store.kv.getJson<ServiceState>(key(s)).catch(() => null)) ?? EMPTY;
+  const st = (await env.store.kv.getJson<ServiceState>(key(s)).catch(swallow(env, "services.state_unread", { detail: s }))) ?? EMPTY;
   cache(env).set(s, st);
   return st;
 }
@@ -55,8 +56,9 @@ export async function recordOk(env: Env, s: Service, now = Date.now()) {
     const next: ServiceState = { ...EMPTY, lastOkAt: now };
     cache(env).set(s, next);
     await env.store.kv.setJson(key(s), next);
-  } catch {
+  } catch (err) {
     // Recording health must never break the call it's recording.
+    await log(env, "warn", "services.not_recorded", { detail: s, err });
   }
 }
 
@@ -76,8 +78,9 @@ export async function recordFailure(env: Env, s: Service, kind: FailureKind, err
     };
     cache(env).set(s, next);
     await env.store.kv.setJson(key(s), next);
-  } catch {
+  } catch (err) {
     // As above.
+    await log(env, "warn", "services.not_recorded", { detail: s, err });
   }
 }
 
@@ -242,7 +245,7 @@ export async function checkServices(env: Env, now = Date.now()): Promise<string>
   const r = await env.store.todos.sync("services", { codes: [CODE] }, todos, now);
   if (r.opened) {
     const fresh = (await env.store.todos.list("open")).filter((t) => t.code === CODE && !before.has(t.id));
-    for (const t of fresh) await push(env, t.title, t.detail.split("\n")[0], undefined, `service-${t.id}`).catch(() => null);
+    for (const t of fresh) await push(env, t.title, t.detail.split("\n")[0], undefined, `service-${t.id}`).catch(swallow(env, "push.failed", { detail: t.title }));
   }
   return `${todos.length} down${r.opened ? `, ${r.opened} new` : ""}${r.resolved ? `, ${r.resolved} back` : ""}`;
 }

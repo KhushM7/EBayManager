@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "preact/hooks";
 import { api, SignedOut, type Me } from "./api";
 import { ago } from "./format";
+import { useSeen } from "./history";
 import { EASE_OUT, Icons, item, list } from "./ui";
 
 // Inbox to-dos (src/todos.ts): what needs one of you but isn't an eBay change. Each leads with what to do.
@@ -20,6 +21,8 @@ export interface Todo {
   question: string | null;
   status: string;
   created_at: number;
+  /** When this time round opened; created_at is the first time it was ever filed. */
+  opened_at?: number;
   decided_at: number | null;
   decided_by: string | null;
   note: string | null;
@@ -74,6 +77,7 @@ function Detail({ text: full }: { text: string }) {
 }
 
 function TodoLabel({ t, i, owner, onDone, onSignedOut }: { t: Todo; i: number; owner: boolean; onDone: () => void; onSignedOut: () => void }) {
+  const seen = useSeen(t.id);
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
@@ -97,7 +101,7 @@ function TodoLabel({ t, i, owner, onDone, onSignedOut }: { t: Todo; i: number; o
   const canAnswer = t.kind === "answer" && owner;
   const [tone, word, Icon] = KIND[t.kind];
   return (
-    <motion.li layout variants={item} exit={{ opacity: 0, x: 40, transition: { duration: 0.25 } }} class="card glow-hover list-none">
+    <motion.li ref={seen} layout variants={item} exit={{ opacity: 0, x: 40, transition: { duration: 0.25 } }} class="card glow-hover list-none">
       <div class="flex items-start gap-3">
         <span class={`grid size-10 flex-none place-items-center rounded-xl ${tone}`}>
           <Icon size={18} />
@@ -146,7 +150,7 @@ function TodoLabel({ t, i, owner, onDone, onSignedOut }: { t: Todo; i: number; o
               Dismiss
             </motion.button>
             <span class="ml-auto text-xs text-muted">
-              {t.source === "nightly" ? "Nightly check" : "Store Pulse"} · {ago(t.created_at)}
+              {t.source === "nightly" ? "Nightly check" : t.source === "audit" ? "Store Pulse" : "EBayManager"} · {ago(t.opened_at ?? t.created_at)}
             </span>
           </motion.div>
         )}

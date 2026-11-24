@@ -1,3 +1,4 @@
+import { swallow } from "./log";
 import type { Env } from "./env";
 import { completeOnce, MODELS, type MessagesApi } from "./claude";
 
@@ -24,7 +25,7 @@ export const MAX_RULES = 20;
 export const MAX_RULE_TEXT = 300;
 
 export async function getRules(env: Env): Promise<ListingRule[]> {
-  return (await env.store.kv.getJson<ListingRule[]>(KEY).catch(() => null)) ?? [];
+  return (await env.store.kv.getJson<ListingRule[]>(KEY).catch(swallow(env, "guidance.rules_unread"))) ?? [];
 }
 
 /** Why a rule can't be kept, or null. eBay bans contact details and links in listings, so a rule can't carry one. */
@@ -90,7 +91,7 @@ export async function draftRule(env: Env, feedback: string, api?: MessagesApi): 
       maxTokens: 600,
     },
     api,
-  ).catch(() => null);
+  ).catch(swallow(env, "guidance.draft"));
   // Claude unavailable: K's own words stand as the rule, for K to confirm.
   if (!out) return asIs;
   if (!out.ok) return { ok: false, kind: "wording", text: "", replaces: null, note: clean(out.note) || "That isn't something every listing can follow." };

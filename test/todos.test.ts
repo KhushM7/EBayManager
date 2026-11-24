@@ -3,7 +3,7 @@ import { memoryStore, type TodoInput } from "../src/store";
 import type { Env } from "../src/env";
 import { handleApi } from "../src/api";
 import { auditListing, settingsFindings } from "../src/firstday";
-import { AUDIT_TODO_CODES, auditTodos, fileAuditTodos, fileHealthTodos, filePriceQuestions, lastSentence } from "../src/todos";
+import { AUDIT_TODO_CODES, auditTodos, fileAuditTodos, closeStaleTodos, filePriceQuestions, lastSentence } from "../src/todos";
 
 const NOW = Date.parse("2026-11-05T02:00:00Z");
 const t = (code: string, itemId: string | null, fingerprint = code, extra: Partial<TodoInput> = {}): TodoInput => ({
@@ -117,7 +117,7 @@ describe("audit findings as to-dos", () => {
 
 describe("nightly to-dos", () => {
   it("files the engine's questions for the listings it priced", async () => {
-    const env = { store: memoryStore() } as Env;
+    const env = { store: memoryStore(), ANTHROPIC_API_KEY: "k" } as Env;
     await filePriceQuestions(env, ["1", "2"], [{ itemId: "1", title: "Lamp", question: "Which brand?" }], NOW);
     expect(await env.store.todos.list("open")).toEqual([expect.objectContaining({ code: "engine_question", item_id: "1", item_title: "Lamp", question: "Which brand?", source: "nightly" })]);
     // Priced again with an answer: no question, so it resolves. Item 3 wasn't priced, so its question would stay.
@@ -125,19 +125,20 @@ describe("nightly to-dos", () => {
     expect(await env.store.todos.list("open")).toHaveLength(0);
   });
 
-  it("files flagged listings without a label, with Claude's note, and closes those that ended", async () => {
+  it("asks only for a price while Claude is off, and leaves an open question alone", async () => {
+    const env = { store: memoryStore(), ANTHROPIC_API_KEY: "k" } as Env;
+    await filePriceQuestions(env, ["1"], [{ itemId: "1", title: "Lamp", question: "Which brand?" }], NOW);
+    const off = { ...env, CLAUDE_DAILY_BUDGET_USD: "0" } as Env;
+    await filePriceQuestions(off, ["1", "2", "3"], [{ itemId: "2", title: "Mug", question: "Which brand?" }, { itemId: "3", title: "Rug", question: "Price?", reason: "no_sales" }], NOW + 1);
+    expect((await env.store.todos.list("open")).map((x) => `${x.code} ${x.item_id}`).sort()).toEqual(["engine_question 1", "own_price 3"]);
+  });
+
+  it("closes a health to-do filed before flags stopped being to-dos, and those of ended listings", async () => {
     const env = { store: memoryStore() } as Env;
-    const live = [{ itemId: "1", title: "Lamp" }, { itemId: "2", title: "Mug" }];
-    const flagged = [
-      { itemId: "1", flags: [{ flag: "stale", detail: "Listed 112 days with no watchers." }] },
-      { itemId: "2", flags: [{ flag: "low_views", detail: "Only 1 view." }] },
-    ] as any;
-    await fileHealthTodos(env, live, flagged, new Map([["1", "A clearer title should help."]]), (id) => id === "2", NOW);
-    expect(await env.store.todos.list("open")).toEqual([
-      expect.objectContaining({ item_id: "1", title: "Freshen this listing", detail: "Listed 112 days with no watchers.\nClaude: A clearer title should help." }),
-    ]);
-    const r = await fileHealthTodos(env, [{ itemId: "2", title: "Mug" }], [], new Map(), () => false, NOW + 1);
-    expect(r.resolved).toBe(1);
+    await env.store.todos.sync("nightly", { codes: ["health", "photos"] }, [t("health", "1"), t("photos", "1"), t("photos", "2")], NOW);
+    const r = await closeStaleTodos(env, [{ itemId: "1" }], NOW + 1);
+    expect(r).toMatchObject({ opened: 0, resolved: 2 });
+    expect((await env.store.todos.list("open")).map((x) => `${x.code} ${x.item_id}`)).toEqual(["photos 1"]);
   });
 
   it("takes Claude's closing sentence", () => {
@@ -183,6 +184,7 @@ describe("to-do API", () => {
   });
 
   it("files the to-dos from a report saved before to-dos existed, once, working out the old findings' codes", async () => {
+    env.ANTHROPIC_API_KEY = "k";
     const old = (title: string, fix: string, itemId: string | null = "1") => ({ area: "listing", severity: "medium", itemId, itemTitle: "Lamp", title, detail: "Item Length, Maximum Height. Not published.", fix });
     const findings = [old("Measurements missing", "you"), old("2 photos", "you"), old("Short title", "claude"), old("Above the market by 11%", "proposal"), old("23 sales, £630.14", "none", null)];
     await env.store.reports.add(NOW, "sandbox", JSON.stringify({ listings: [{ itemId: "1", title: "Lamp", findings: findings.slice(0, 4) }], findings, steps: {} }));
@@ -194,6 +196,14 @@ describe("to-do API", () => {
     // Once only: dismissing everything doesn't bring them back.
     for (const x of list) await call(`/todos/${x.id}/dismiss`, {});
     expect(await (await call("/todos")).json()).toEqual([]);
+  });
+
+  it("leaves a Claude to-do open when Claude is off", async () => {
+    await env.store.todos.sync("audit", { codes: ["claude_review"] }, [t("claude_review", "1", "c", { kind: "claude" })], NOW);
+    const [todo] = await env.store.todos.list("open");
+    const res = await call(`/todos/${todo.id}/claude`, {});
+    expect(res.status).toBe(409);
+    expect((await env.store.todos.get(todo.id))!.status).toBe("open");
   });
 
   it("refuses an answer on a to-do that doesn't take one, and unknown ids", async () => {

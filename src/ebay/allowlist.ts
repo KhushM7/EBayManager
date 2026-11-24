@@ -34,6 +34,8 @@ const REST: { method: string; prefix: string }[] = [
   { method: "GET", prefix: "/commerce/notification/v1/public_key/" },
   // Negotiation API findEligibleItems: listings with watchers eBay will let K send an offer to (read only).
   { method: "GET", prefix: "/sell/negotiation/v1/find_eligible_items" },
+  // Message API: K's conversations with buyers (read only; works once K has given that permission).
+  { method: "GET", prefix: "/commerce/message/v1/conversation" },
   // Media API getImage: a listing photo's eBay address and expiry, after the gate uploaded it.
   { method: "GET", prefix: "/commerce/media/v1_beta/image/" },
 ];
@@ -52,6 +54,8 @@ export const REST_WRITE: { method: string; prefix: string }[] = [
   // all four; nothing else under it is called.
   { method: "POST", prefix: "/sell/marketing/v1/ad_campaign" },
   { method: "DELETE", prefix: "/sell/marketing/v1/ad_campaign/" },
+  // Message API sendMessage (2026-11-24), for an approved new_message: a message K wrote.
+  { method: "POST", prefix: "/commerce/message/v1/send_message" },
 ];
 
 export class CallNotAllowed extends Error {}

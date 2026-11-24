@@ -1,0 +1,31 @@
+# Checks from outside that production answers, so a stopped app is noticed even though it can't say so itself.
+# It asks the one public endpoint (eBay's account-deletion challenge), which needs no secret and shows no data.
+# Set the repository variable UPTIME_URL to the app's address; until then this does nothing. A failure is emailed
+# by GitHub. GitHub runs schedules late at busy times and stops them after 60 days without repository activity.
+name: uptime
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    if: vars.UPTIME_URL != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: The app answers
+        env:
+          UPTIME_URL: ${{ vars.UPTIME_URL }}
+        run: |
+          for try in 1 2 3; do
+            if curl --silent --show-error --fail --max-time 60 "${UPTIME_URL%/}/ebay/account-deletion?challenge_code=uptime" | grep -q challengeResponse; then
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "The app did not answer."
+          exit 1

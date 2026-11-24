@@ -34,7 +34,7 @@ Settings shows **Last push delivered** with a **Send test push** button, so a br
 | Login | Email and authenticator-app code for K and up to two managers, set by K with `scripts/people.mjs`; the site is hidden from everyone else | Free |
 | Claude | Anthropic API | About $3–6 a month (the only running cost) |
 
-Nothing runs continuously. The app runs only when a request, a push decision, a timer (02:00 nightly, every 15 minutes for messages) or a background job arrives. Running the system on the phone itself would be worse, for no saving: the cron needs a machine that's always on, and eBay's OAuth callback and notifications need a public HTTPS address.
+Nothing runs continuously. The app runs only when a request, a push decision, a timer (02:00 nightly, every 5 minutes for offers, messages and sales) or a background job arrives. Running the system on the phone itself would be worse, for no saving: the cron needs a machine that's always on, and eBay's OAuth callback and notifications need a public HTTPS address.
 
 ## Stack
 
@@ -58,7 +58,7 @@ Nothing runs continuously. The app runs only when a request, a push decision, a 
 
 | Screen | Shows | Actions |
 | --- | --- | --- |
-| **Inbox** (home) | To-dos first (answers, then Claude drafts, then things to do yourself; see [approvals.md](approvals.md#to-dos-2026-11-05-ks-choice)), then pending proposals, newest first. Each label shows old → new values, the reason and guardrail flags | Answer, let Claude draft, done or dismiss; approve, reject, batch approve |
+| **Inbox** (home) | To-dos first (answers, then Claude drafts, then things to do yourself; see [approvals.md](approvals.md#to-dos-2026-11-05-ks-choice)), then pending proposals, newest first. Each label shows old → new values, the reason and guardrail flags Two tabs: **To decide**, with anything past the decision but not finished (held, sending, refused by eBay) at the top, and **History**, every closed suggestion with its outcome in words, filters, search and paging | Answer, let Claude draft, done or dismiss; approve, reject, batch approve |
 | **Store Pulse** (was Audit, `/pulse`) | A ring of passed checks and a one-line summary of the last first-day audit and how many to-dos and labels it left, with folded sections: listings, sold history, ended listings, settings and what it read (failed parts flagged) | Run again (owner), open the Inbox |
 | **Listings** | Every active listing with price, days listed, watchers, floor and pending labels | Review with Claude, price check, K's facts and floor (owner) |
 | **Listing detail** | Price, views and watchers over time from snapshots, comps, proposal history, K's floor price and notes | Edit floor and notes (stored in the app only) |

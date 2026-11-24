@@ -9,3 +9,5 @@ dist/
 # Power BI Desktop: local settings and the data cache (holds downloaded rows)
 .pbi/
 *.pbix
+# Saved job results (scripts/export-jobs.mjs): real listings, never committed
+exports/

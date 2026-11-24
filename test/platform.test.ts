@@ -121,7 +121,7 @@ describe("ntfy fallback on Node", () => {
       globalThis.fetch = vi.fn(async () => {
         throw new TypeError("network down");
       }) as any;
-      await expect(push(env, "Price: 1 → 2", "x")).resolves.toBeUndefined();
+      await expect(push(env, "Price: 1 → 2", "x")).resolves.toBe(0);
     } finally {
       globalThis.fetch = real;
     }

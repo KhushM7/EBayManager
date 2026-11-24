@@ -1,3 +1,4 @@
+import { log, swallow } from "./log";
 import { getRules, standingFacts, withListingRules } from "./guidance";
 import type { Env } from "./env";
 import type { DraftFacts, DraftReview, DraftRow, DraftSpecific } from "./store";
@@ -126,9 +127,9 @@ export async function reviewDraft(env: Env, id: string, api?: MessagesApi): Prom
   const review = cleanReview(out, images.length, Date.now());
 
   const q = [review.brand, review.model, review.product].filter(Boolean).join(" ").slice(0, 300) || d.title || "";
-  const categories = q ? await categorySuggestions(env, q).catch(() => []) : [];
+  const categories = q ? await categorySuggestions(env, q).catch(async (err) => (await log(env, "warn", "draft.categories", { err }), [])) : [];
   const category = categories[0] ?? null;
-  const aspects = category ? await categoryAspectDetails(env, category.id).catch(() => []) : [];
+  const aspects = category ? await categoryAspectDetails(env, category.id).catch(async (err) => (await log(env, "warn", "draft.aspects", { err }), [])) : [];
   // Published specs only for an exactly identified product, each kept only with a page search returned.
   let specs: DraftRow["specs"] = null;
   // A re-check of the same exact product in the same category keeps the specs already found (the same search
@@ -139,7 +140,7 @@ export async function reviewDraft(env: Env, id: string, api?: MessagesApi): Prom
     review.exact && prev?.exact && d.specs?.exact && same(prev.product, review.product) && same(prev.brand, review.brand) && same(prev.model, review.model) && same(d.category?.id, category?.id);
   if (unchanged) specs = d.specs!;
   else if (review.exact) {
-    const found = await lookupSpecs(env, { ItemID: id, Title: review.product, Description: review.visibleFacts.map((f) => f.fact).join(". ") }, aspects.map((a) => a.name), api).catch(() => null);
+    const found = await lookupSpecs(env, { ItemID: id, Title: review.product, Description: review.visibleFacts.map((f) => f.fact).join(". ") }, aspects.map((a) => a.name), api).catch(swallow(env, "draft.specs"));
     if (found) specs = { product: found.product, exact: found.exact, note: found.note, specs: found.specs, aliases: found.aliases ?? [] };
   }
   return (await env.store.drafts.patch(id, { review, categories, category, aspects, specs }, Date.now()))!;
@@ -203,7 +204,7 @@ export async function chooseCategory(env: Env, id: string, categoryId: string): 
   const d = await env.store.drafts.get(id);
   const category = d?.categories?.find((c) => c.id === categoryId);
   if (!d || !category) throw new Error("Pick one of the suggested categories.");
-  const aspects = await categoryAspectDetails(env, category.id).catch(() => []);
+  const aspects = await categoryAspectDetails(env, category.id).catch(async (err) => (await log(env, "warn", "draft.aspects", { err }), []));
   return (await env.store.drafts.patch(id, { category, aspects, listing: d.listing ? { ...d.listing, specifics: [] } : null }, Date.now()))!;
 }
 
@@ -309,7 +310,7 @@ export async function composeDraft(env: Env, id: string, api?: MessagesApi): Pro
   if (!d.category) throw new Error("Pick a category first.");
   const fromK = factsText(d.facts, d.review);
   const specs = d.specs?.specs ?? [];
-  const style = await getStyle(env).catch(() => null);
+  const style = await getStyle(env).catch(swallow(env, "draft.style"));
   // K's standing rules for listings (src/guidance.ts): wording rules join the system prompt; K's standing facts
   // are K's facts like any other, so a specific may cite them.
   const rules = await getRules(env);

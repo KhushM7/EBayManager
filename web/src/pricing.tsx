@@ -2,12 +2,12 @@ import { useEffect, useState } from "preact/hooks";
 import { api, apiJob, SignedOut } from "./api";
 import { ago, money } from "./format";
 
-// The pricing engine in the dashboard (docs/pricing-engine.md): a price check on a listing, and bundle advice.
+// The pricing engine in the dashboard (docs/pricing-engine.md): a price check on a listing.
 
 interface Option {
   total: number;
   price: number;
-  daysToSell: number;
+  daysToSell: number | null;
   chance30: number;
   keeps: number;
   position?: { listed: number; dearer: number; sold: number; soldAtOrAbove: number };
@@ -52,8 +52,6 @@ const STRATEGY: Record<Decision["strategy"], [string, string]> = {
   ask: ["state-info", "Ask"],
   own: ["state-off", "Your price"],
 };
-
-const days = (d: number) => (!Number.isFinite(d) || d > 365 ? "over a year" : d <= 1 ? "about a day" : `about ${d} days`);
 
 export function PriceReport({ r }: { r: PriceResult }) {
   const d = r.decision;
@@ -217,55 +215,5 @@ export function PriceCheck({ itemId, current, onSignedOut, onChanged }: { itemId
       {state.result && <PriceReport r={state.result} />}
       {state.result && <PriceActions itemId={itemId} current={current} d={state.result.decision} onSignedOut={onSignedOut} onChanged={onChanged} />}
     </>
-  );
-}
-
-interface Advice {
-  id: string;
-  at: number;
-  kind: "combine" | "split";
-  itemIds: string[];
-  title: string;
-  reason: string;
-  separately: number;
-  together: number;
-  daysSeparately: number;
-  daysTogether: number;
-}
-
-export function BundleAdvice({ onSignedOut }: { onSignedOut: () => void }) {
-  const [rows, setRows] = useState<Advice[]>([]);
-  useEffect(() => {
-    api<Advice[]>("/pricing/advice")
-      .then(setRows)
-      .catch((e) => e instanceof SignedOut && onSignedOut());
-  }, []);
-  const dismiss = async (id: string) => {
-    setRows((r) => r.filter((a) => a.id !== id));
-    await api("/pricing/advice/dismiss", { body: { id } }).catch(() => {});
-  };
-  if (!rows.length) return null;
-  return (
-    <section class="paper" style={{ marginBottom: "16px" }} aria-label="Bundle advice">
-      <p class="kind">Advice</p>
-      {rows.map((a) => (
-        <div key={a.id} style={{ marginBottom: "12px" }}>
-          <h3 style={{ margin: "0 0 4px" }}>
-            {a.kind === "combine" ? "Sell together" : "Sell separately"}: {a.title}
-          </h3>
-          <p style={{ margin: "0 0 4px" }}>{a.reason}</p>
-          <p class="small">
-            {a.kind === "combine" ? "Together" : "As listed"}: about {money(a.kind === "combine" ? a.together : a.together)} in {days(a.daysTogether)}.{" "}
-            {a.kind === "combine" ? "Separately" : "Split"}: about {money(a.separately)}
-            {a.kind === "combine" ? `, the last selling in ${days(a.daysSeparately)}` : ""}. Values allow for waiting.
-            <span class="muted"> Items {a.itemIds.join(", ")}.</span>
-          </p>
-          <button class="btn-link" onClick={() => dismiss(a.id)}>
-            Dismiss
-          </button>
-        </div>
-      ))}
-      <p class="small muted" style={{ margin: 0 }}>Advice only. Any listing change you decide on still comes to you as a label.</p>
-    </section>
   );
 }

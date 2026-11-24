@@ -81,7 +81,7 @@ interface Draft {
   category?: { id: string; name: string; path: string } | null;
   aspects?: Aspect[];
   listing?: { title: string; description: string; specifics: { name: string; values: string[]; source: string; ref: string }[]; dropped: string[]; editedByK: boolean } | null;
-  pricing?: { strategy: string; price: number | null; total: number | null; why: string; confidence: number; question?: string; reason?: string; options: { price: number; daysToSell: number; position?: Position }[]; summary?: Summary | null } | null;
+  pricing?: { strategy: string; price: number | null; total: number | null; why: string; confidence: number; question?: string; reason?: string; options: { price: number; daysToSell: number | null; position?: Position }[]; summary?: Summary | null } | null;
   price?: { value: number; kind: "engine" | "own" | "adjusted"; floor: number | null; bestOffer: boolean } | null;
   parcel?: { lengthCm: number; widthCm: number; heightCm: number; weightKg: number } | null;
   quotes?: { at?: number; quotes: { carrier: string; service: string; price: number }[]; error?: string } | null;

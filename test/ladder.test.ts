@@ -33,6 +33,39 @@ describe("the sales ladder", () => {
     expect(ladderStep(input()).why).toMatch(/Seen \(20 views in 7 days\) but nobody is watching/);
   });
 
+  it("passes over a step that can't be taken, and never cuts a price because a check failed", () => {
+    const unseen = { views7d: 1, impressions7d: 300 };
+    const watched = { watchers: 3 };
+    expect(ladderStep(input({ ...watched, can: { offer: false } })).rung).toBe("price");
+    expect(ladderStep(input({ ...watched, can: { offer: null } })).rung).toBe("wait");
+    expect(ladderStep(input({ ...watched, can: { offer: false, price: false } })).rung).toBe("none");
+    expect(ladderStep(input({ ...unseen, can: { edit: false } })).rung).toBe("promote");
+    expect(ladderStep(input({ ...unseen, can: { edit: false, promote: false } })).rung).toBe("price");
+    expect(ladderStep(input({ ...unseen, can: { edit: false, promote: null } })).rung).toBe("wait");
+    expect(ladderStep(input({ ...unseen, can: { edit: false, promote: false, price: false } })).rung).toBe("none");
+    // A rejected ad isn't offered again for two weeks.
+    expect(ladderStep(input({ ...unseen, last: { revise: now - 12 * DAY, promote: now - 8 * DAY } })).rung).toBe("price");
+    // The production cases: a week old with over 100 impressions needs nothing; edited yesterday, it waits.
+    expect(ladderStep(input({ listedDays: 7, views7d: 2, impressions7d: 114 })).rung).toBe("none");
+    expect(ladderStep(input({ listedDays: 11, views7d: 1, impressions7d: 95, last: { revise: now - DAY } })).rung).toBe("wait");
+  });
+
+  it("works out from the store what could be done", async () => {
+    const env = { store: memoryStore(), WRITE_MODE: "approval", ANTHROPIC_API_KEY: "k" } as Env;
+    const start = new Date(now - 40 * DAY).toISOString();
+    const row = (item_id: string, watch_count: number) => ({ item_id, title: item_id, price: 20, currency: "GBP", quantity_available: 1, watch_count, start_time: start });
+    await env.store.listings.writeSnapshot(now, [row("1", 2), row("2", 2), row("3", 0), row("4", 0)]);
+    await env.store.listings.writeTraffic(now, ["1", "2", "3", "4"].map((itemId) => ({ itemId, views: 1, impressions: 300 })));
+    // 2 is eligible but the smallest offer is under its floor; 4 was looked at by Claude with nothing to change.
+    await env.store.listings.setFloorAndNotes("2", 19.5, null as any);
+    await env.store.kv.setJson("triage:4", { at: now - 3 * DAY, fingerprint: "", note: "", edit: true });
+    const rungs = async (e: Env, checks: Parameters<typeof ladderFor>[2]) => [...(await ladderFor(e, now, checks))].map(([, s]) => s.rung);
+    expect(await rungs(env, { eligible: new Set(["1", "2"]), promotable: new Set(["4"]) })).toEqual(["offer", "price", "listing", "promote"]);
+    expect(await rungs(env, { eligible: null, promotable: null })).toEqual(["wait", "wait", "listing", "wait"]);
+    // Claude off: no listing edit, so the next step that needs none.
+    expect(await rungs({ ...env, CLAUDE_DAILY_BUDGET_USD: "0" } as Env, { eligible: new Set(["1"]), promotable: new Set(["3"]) })).toEqual(["offer", "price", "promote", "price"]);
+  });
+
   it("one step a week, and nothing for a new listing or one with no figures", () => {
     expect(ladderStep(input({ watchers: 3, last: { price: now - 2 * DAY } })).rung).toBe("wait");
     expect(ladderStep(input({ listedDays: 3, views7d: 0 })).rung).toBe("none");

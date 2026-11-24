@@ -85,7 +85,7 @@ describe("write gate is the only path to eBay writes", () => {
   });
 
   it("prices, messages, offers and promotion are locked to approval", () => {
-    for (const k of ["price", "message", "best_offer_response", "offer_to_watchers", "create_listing", "end_listing", "policy", "promote"])
+    for (const k of ["price", "message", "new_message", "best_offer_response", "offer_to_watchers", "create_listing", "end_listing", "policy", "promote"])
       expect(LOCKED_KINDS).toContain(k);
   });
 });

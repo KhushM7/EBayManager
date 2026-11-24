@@ -17,6 +17,9 @@ param location string
 @description('The write gate: off (read-only) or approval (every eBay change needs approval). Production is approval since go-live, 2026-11-07.')
 param writeMode string
 
+@description('Lowers the Claude daily budget (US dollars); 0 switches Claude off. Empty keeps the code default (src/rules.ts).')
+param claudeDailyBudgetUsd string = ''
+
 @description('Object ID of the owner (K) in Entra ID: az ad signed-in-user show --query id -o tsv')
 param ownerObjectId string
 
@@ -72,6 +75,7 @@ module app 'modules/app.bicep' = {
     location: location
     suffix: suffix
     writeMode: writeMode
+    claudeDailyBudgetUsd: claudeDailyBudgetUsd
     ownerObjectId: ownerObjectId
     sandboxConveniences: env == 'production' ? false : sandboxConveniences
     cosmosEndpoint: cosmos.outputs.endpoint

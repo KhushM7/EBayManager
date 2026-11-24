@@ -1,0 +1,99 @@
+table Listings
+	lineageTag: 2c94bc8a-e45d-547b-bafd-e5fd68a59809
+
+	measure 'Active Listings' = COUNTROWS ( Listings )
+		formatString: 0
+		lineageTag: 57a0c6e0-52dd-5257-a9c9-f406eaa9bd0a
+
+	measure 'Asking Total £' = SUMX ( Listings, Listings[price] * Listings[quantity] )
+		formatString: £#,0.00
+		lineageTag: 8052f2dc-216c-5cdf-a306-ad2391c9fa22
+
+	column item_id
+		dataType: string
+		lineageTag: 47e441dd-e325-5dd9-a480-30444d02d9bb
+		summarizeBy: none
+		sourceColumn: item_id
+
+	column title
+		dataType: string
+		lineageTag: 1c45ef34-16cf-5e12-bc87-d218918a3c81
+		summarizeBy: none
+		sourceColumn: title
+
+	column price
+		dataType: double
+		lineageTag: a708d12e-8790-5f75-8896-6309f508848e
+		summarizeBy: none
+		sourceColumn: price
+
+	column currency
+		dataType: string
+		lineageTag: 19ce79dc-0c3f-5ac0-981d-6be1d19b6846
+		summarizeBy: none
+		sourceColumn: currency
+
+	column quantity
+		dataType: int64
+		lineageTag: 04a2f1b3-9741-5880-b9c4-0e54021faaa4
+		summarizeBy: sum
+		sourceColumn: quantity
+
+	column watchers
+		dataType: int64
+		lineageTag: ebd61c03-b480-535b-ab4e-eb9f80cab6b9
+		summarizeBy: sum
+		sourceColumn: watchers
+
+	column views_7d
+		dataType: int64
+		lineageTag: 92d48390-6c88-5c33-ba32-6c01853be7c1
+		summarizeBy: sum
+		sourceColumn: views_7d
+
+	column impressions_7d
+		dataType: int64
+		lineageTag: fb1410dd-177a-5856-876a-cd758ac4dc4e
+		summarizeBy: sum
+		sourceColumn: impressions_7d
+
+	column start_date
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: c2b6217f-5cf9-52da-b53b-b7e60ec5ed34
+		summarizeBy: none
+		sourceColumn: start_date
+
+	column days_listed
+		dataType: int64
+		lineageTag: cc7c8bb1-4b5c-51cb-954a-0b940352c26d
+		summarizeBy: none
+		sourceColumn: days_listed
+
+	column health_flags
+		dataType: string
+		lineageTag: 536afda0-6d59-5e0a-aac0-6d77fa9c5e99
+		summarizeBy: none
+		sourceColumn: health_flags
+
+	column waiting_changes
+		dataType: int64
+		lineageTag: 1e6f135c-d2b4-5ea7-a3db-13ce7ce3a120
+		summarizeBy: sum
+		sourceColumn: waiting_changes
+
+	column snapshot_at
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: c00c8899-8469-57d6-aefb-84e849598794
+		summarizeBy: none
+		sourceColumn: snapshot_at
+
+	partition Listings = m
+		mode: import
+		source =
+				let
+					Source = fnExport("listings"),
+					Typed = Table.TransformColumnTypes(Source, {{"item_id", type text}, {"title", type text}, {"price", type number}, {"currency", type text}, {"quantity", Int64.Type}, {"watchers", Int64.Type}, {"views_7d", Int64.Type}, {"impressions_7d", Int64.Type}, {"start_date", type datetimezone}, {"days_listed", Int64.Type}, {"health_flags", type text}, {"waiting_changes", Int64.Type}, {"snapshot_at", type datetimezone}}, "en-GB")
+				in
+					Typed

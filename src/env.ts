@@ -40,6 +40,8 @@ export interface Env {
   VAPID_KEY?: string;
   /** K's Anthropic API key, for the audit and nightly triage. */
   ANTHROPIC_API_KEY?: string;
+  /** Lowers the Claude daily budget for this environment; "0" stops Claude (src/rules.ts, claudeDailyBudgetUsd). */
+  CLAUDE_DAILY_BUDGET_USD?: string;
   /** "true" on Sandbox only: DASHBOARD_KEY signs in as a test owner. */
   ALLOW_KEY_LOGIN?: string;
   /** "true" to serve /mcp (Sandbox). Off in production. */
@@ -59,6 +61,15 @@ export interface Env {
   /** The self-hosted photo AI container (imageai/, docs/imageai.md): its https address and shared key. Unset: not set up. */
   IMAGEAI_URL?: string;
   IMAGEAI_KEY?: string;
+  /**
+   * The read-only key for Microsoft Power Platform (src/ro/handler.ts, docs/power-platform.md): reads /api/ro/*
+   * and nothing else. Unset or under 32 characters: that API doesn't exist.
+   */
+  RO_API_KEY?: string;
+  /** The Stock Room intake key (src/intake.ts): may create new-listing drafts and nothing else. Unset: off. */
+  INTAKE_API_KEY?: string;
+  /** Where the nightly run writes the Power BI export files (a private Blob container). Unset: built on request. */
+  exports?: Pick<PhotoStore, "put" | "get">;
   MCP_TOKEN: string;
   SIGNING_KEY: string;
   NTFY_TOPIC: string;

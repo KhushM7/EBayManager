@@ -1,0 +1,36 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "386ca7f256f42da92a95",
+  "position": {
+    "x": 16,
+    "y": 672,
+    "z": 9000,
+    "width": 1248,
+    "height": 40,
+    "tabOrder": 9000
+  },
+  "visual": {
+    "visualType": "textbox",
+    "drillFilterOtherVisuals": true,
+    "objects": {
+      "general": [
+        {
+          "properties": {
+            "paragraphs": [
+              {
+                "textRuns": [
+                  {
+                    "value": "Flags come from the nightly health check. Changed: a change was applied to eBay after the first flag. Sold: it sold after the first flag.",
+                    "textStyle": {
+                      "fontSize": "10pt"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

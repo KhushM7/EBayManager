@@ -1,0 +1,114 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "f1c3bf332c2cb3158b74",
+  "position": {
+    "x": 16,
+    "y": 180,
+    "z": 6000,
+    "width": 616,
+    "height": 240,
+    "tabOrder": 6000
+  },
+  "visual": {
+    "visualType": "columnChart",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Calendar"
+                    }
+                  },
+                  "Property": "Week Starting"
+                }
+              },
+              "queryRef": "Calendar.Week Starting",
+              "nativeQueryRef": "Week Starting"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "HealthFlags"
+                    }
+                  },
+                  "Property": "Flags"
+                }
+              },
+              "queryRef": "HealthFlags.Flags",
+              "nativeQueryRef": "Flags"
+            }
+          ]
+        },
+        "Series": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "HealthFlags"
+                    }
+                  },
+                  "Property": "flag"
+                }
+              },
+              "queryRef": "HealthFlags.flag",
+              "nativeQueryRef": "flag"
+            }
+          ]
+        }
+      },
+      "sortDefinition": {
+        "sort": [
+          {
+            "field": {
+              "Column": {
+                "Expression": {
+                  "SourceRef": {
+                    "Entity": "Calendar"
+                  }
+                },
+                "Property": "Week Starting"
+              }
+            },
+            "direction": "Ascending"
+          }
+        ],
+        "isDefaultSort": true
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Flags by week'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

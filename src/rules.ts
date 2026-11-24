@@ -44,3 +44,14 @@ export const PROMOTION_RATE = { min: 2, max: 4 } as const;
 
 /** Claude spend cap per UTC day. Runs refuse to start once it's reached (target is $3 to $6 a month). */
 export const CLAUDE_DAILY_BUDGET_USD = 1;
+
+/**
+ * Today's cap for this environment: CLAUDE_DAILY_BUDGET_USD, or lower when the app setting of the same name says
+ * so (0 stops Claude altogether, K, 2026-11-24). The setting can only lower the cap, never raise it.
+ */
+export function claudeDailyBudgetUsd(env: { CLAUDE_DAILY_BUDGET_USD?: string }): number {
+  const raw = env.CLAUDE_DAILY_BUDGET_USD?.trim();
+  if (!raw) return CLAUDE_DAILY_BUDGET_USD;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.min(CLAUDE_DAILY_BUDGET_USD, Math.max(0, n)) : 0;
+}

@@ -8,6 +8,7 @@ param env string
 param location string
 param suffix string
 param writeMode string
+param claudeDailyBudgetUsd string = ''
 param ownerObjectId string
 param sandboxConveniences bool
 param cosmosEndpoint string
@@ -44,6 +45,8 @@ var secrets = [
   'SIGNIN_PATH'
   'IMAGEAI_URL'
   'IMAGEAI_KEY'
+  'RO_API_KEY'
+  'INTAKE_API_KEY'
 ]
 
 var roles = {
@@ -84,6 +87,14 @@ resource deployments 'Microsoft.Storage/storageAccounts/blobServices/containers@
 resource photos 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
   parent: blob
   name: 'photos'
+  properties: { publicAccess: 'None' }
+}
+
+// The nightly Power BI export files (docs/power-platform.md): private, read only by the app, which serves them
+// through its read-only API. The app also makes this container itself if it's missing.
+resource exports 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blob
+  name: 'exports'
   properties: { publicAccess: 'None' }
 }
 
@@ -182,6 +193,7 @@ resource site 'Microsoft.Web/sites@2024-04-01' = {
           { name: 'APPLICATIONINSIGHTS_AUTHENTICATION_STRING', value: 'Authorization=AAD' }
           { name: 'EBAY_ENV', value: env }
           { name: 'WRITE_MODE', value: writeMode }
+          { name: 'CLAUDE_DAILY_BUDGET_USD', value: claudeDailyBudgetUsd }
           { name: 'EBAY_MARKETPLACE', value: 'EBAY_GB' }
           { name: 'EBAY_SITE_ID', value: '3' }
           { name: 'PUBLIC_URL', value: publicUrl }

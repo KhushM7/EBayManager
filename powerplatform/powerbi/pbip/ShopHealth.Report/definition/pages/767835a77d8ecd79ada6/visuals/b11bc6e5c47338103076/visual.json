@@ -1,0 +1,78 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "b11bc6e5c47338103076",
+  "position": {
+    "x": 848,
+    "y": 180,
+    "z": 10000,
+    "width": 416,
+    "height": 116,
+    "tabOrder": 10000
+  },
+  "visual": {
+    "visualType": "clusteredBarChart",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "PriceAccuracy"
+                    }
+                  },
+                  "Property": "group"
+                }
+              },
+              "queryRef": "PriceAccuracy.group",
+              "nativeQueryRef": "group"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "PriceAccuracy"
+                    }
+                  },
+                  "Property": "Mean Abs % Error"
+                }
+              },
+              "queryRef": "PriceAccuracy.Mean Abs % Error",
+              "nativeQueryRef": "Mean Abs % Error"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Error by group'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

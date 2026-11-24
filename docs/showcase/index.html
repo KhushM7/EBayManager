@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EBayManager</title>
+<meta name="description" content="An AI eBay selling assistant where nothing changes on eBay until a person approves it. TypeScript on Azure, Claude, a Preact PWA and Microsoft Power Platform.">
+<style>
+  :root {
+    --bg: #07080c; --panel: #10121a; --panel-2: #151826; --line: #232838; --text: #eef0f6; --muted: #9aa2b6;
+    --blue: #5b8cff; --green: #2ed69a; --amber: #f5b83d; --red: #ff5d6c; --radius: 18px;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 "Inter", "Segoe UI", system-ui, -apple-system, sans-serif; }
+  body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: -1;
+    background: radial-gradient(900px 500px at 15% -10%, rgba(91,140,255,.18), transparent 60%),
+                radial-gradient(700px 500px at 100% 20%, rgba(46,214,154,.10), transparent 60%); }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+  header { padding: 72px 0 40px; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px;
+    background: rgba(255,255,255,.03); color: var(--muted); font-size: 13px; font-weight: 600; }
+  .pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px var(--green); }
+  h1 { font-size: clamp(40px, 7vw, 72px); line-height: 1.02; letter-spacing: -.03em; margin: 22px 0 18px; }
+  h1 span { background: linear-gradient(90deg, #8fb0ff, var(--green)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { font-size: clamp(18px, 2.2vw, 21px); color: var(--muted); max-width: 760px; margin: 0; }
+  .lede b { color: var(--text); }
+  h2 { font-size: clamp(26px, 3.6vw, 36px); letter-spacing: -.02em; margin: 0 0 10px; }
+  h3 { font-size: 18px; margin: 0 0 6px; }
+  section { padding: 56px 0; border-top: 1px solid var(--line); }
+  .sub { color: var(--muted); margin: 0 0 28px; max-width: 760px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 40px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
+  .stat b { display: block; font-size: 30px; letter-spacing: -.02em; }
+  .stat span { color: var(--muted); font-size: 14px; }
+  .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; counter-reset: s; }
+  .step { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; position: relative; }
+  .step::before { counter-increment: s; content: counter(s); display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+    background: var(--panel-2); border: 1px solid var(--line); font-weight: 700; font-size: 13px; margin-bottom: 10px; color: var(--blue); }
+  .step.gate { border-color: rgba(46,214,154,.5); box-shadow: 0 0 0 1px rgba(46,214,154,.15), 0 10px 40px -10px rgba(46,214,154,.35); }
+  .step.gate::before { color: var(--green); }
+  .step p { margin: 0; color: var(--muted); font-size: 14px; }
+  figure { margin: 0; }
+  .shot { border-radius: 14px; border: 1px solid var(--line); overflow: hidden; background: var(--panel); box-shadow: 0 30px 80px -30px rgba(0,0,0,.8); }
+  .shot img { display: block; width: 100%; height: auto; }
+  figcaption { color: var(--muted); font-size: 14px; margin-top: 10px; }
+  figcaption b { color: var(--text); }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .stack { display: grid; gap: 34px; }
+  .phones { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+  .phones .shot { border-radius: 28px; border-width: 6px; border-color: #1d2130; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .tags span { font-size: 13px; padding: 4px 10px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); color: #c9cfdf; }
+  .rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .rules li { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px 14px 46px; position: relative; color: var(--muted); }
+  .rules li b { color: var(--text); }
+  .rules li::before { content: "✓"; position: absolute; left: 16px; top: 13px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(46,214,154,.15); color: var(--green); font-size: 12px; font-weight: 800; }
+  .arch { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; overflow-x: auto; }
+  .arch svg { display: block; min-width: 760px; width: 100%; height: auto; }
+  .note { font-size: 13px; color: var(--muted); }
+  footer { padding: 40px 0 70px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+  a { color: #8fb0ff; }
+  @media (max-width: 860px) {
+    .stats, .cards { grid-template-columns: 1fr 1fr; }
+    .flow { grid-template-columns: 1fr; }
+    .grid-2 { grid-template-columns: 1fr; }
+    .phones { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 520px) { .stats, .cards { grid-template-columns: 1fr; } header { padding-top: 48px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="pill"><i></i>Live on a real eBay account since November 2026 · approval mode</div>
+    <h1>EBayManager: <span>an AI selling assistant that asks first</span></h1>
+    <p class="lede">It reviews eBay listings every night, prices items from the live market, builds new listings from photos and
+      drafts replies to buyers. <b>Nothing changes on eBay until a person taps Approve.</b> That rule is enforced in code,
+      not left to a prompt.</p>
+    <div class="stats">
+      <div class="stat"><b>462</b><span>automated tests</span></div>
+      <div class="stat"><b>~23k</b><span>lines of TypeScript</span></div>
+      <div class="stat"><b>1</b><span>code path allowed to write to eBay</span></div>
+      <div class="stat"><b>~£0</b><span>a month to run, on Azure free tiers</span></div>
+    </div>
+  </header>
+
+  <section>
+    <h2>How a change reaches eBay</h2>
+    <p class="sub">The AI suggests and a person decides. Every suggestion becomes a signed, expiring proposal, and only one
+      function in the codebase can send it to eBay.</p>
+    <div class="flow">
+      <div class="step"><h3>Read</h3><p>The nightly run snapshots listings, orders and traffic from eBay's APIs.</p></div>
+      <div class="step"><h3>Think</h3><p>Rules flag weak listings; Claude reviews them with allowlisted, read-only tools.</p></div>
+      <div class="step"><h3>Propose</h3><p>A price, edit, offer or reply becomes a proposal with its reasoning.</p></div>
+      <div class="step gate"><h3>Approve</h3><p>Push notification or Inbox card: Approve or Reject, by POST only.</p></div>
+      <div class="step"><h3>Write</h3><p>The write gate checks mode, kill switch and approval, sends it and audits it.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The app</h2>
+    <p class="sub">One installable PWA is the website and the phone app: Preact, Tailwind and Framer Motion in a
+      "glass and glow" style, with Web Push approvals. The screenshots use sample data.</p>
+    <div class="stack">
+      <figure><div class="shot"><img src="img/pwa-approval-desktop.jpg" alt="Inbox with approval cards for a buyer reply, an offer, a price change and a listing edit" loading="lazy"></div>
+        <figcaption><b>Inbox.</b> Every proposed change waits here: swipe or tap Approve or Reject. Prices show old and new.</figcaption></figure>
+      <div class="grid-2">
+        <figure><div class="shot"><img src="img/pwa-insights-desktop.jpg" alt="Insights: revenue, sell-through, days to sell and store health" loading="lazy"></div>
+          <figcaption><b>Insights.</b> Revenue, sell-through and the nightly health check.</figcaption></figure>
+        <figure><div class="shot"><img src="img/pwa-pulse-desktop.jpg" alt="Store Pulse audit with checks passed" loading="lazy"></div>
+          <figcaption><b>Store Pulse.</b> A whole-shop audit: photos, descriptions, returns, history.</figcaption></figure>
+        <figure><div class="shot"><img src="img/pwa-wizard-desktop.jpg" alt="New listing wizard, step 1: photos with guidance" loading="lazy"></div>
+          <figcaption><b>New listing.</b> A six-step wizard: photo checks, sourced facts, price, postage.</figcaption></figure>
+        <figure><div class="shot"><img src="img/pwa-settings-desktop.jpg" alt="Settings with the Pause all changes switch" loading="lazy"></div>
+          <figcaption><b>Settings.</b> "Pause all changes" leads the page; people are set only by the owner.</figcaption></figure>
+      </div>
+      <div class="phones">
+        <figure><div class="shot"><img src="img/pwa-approval-phone.jpg" alt="Inbox on a phone" loading="lazy"></div></figure>
+        <figure><div class="shot"><img src="img/pwa-listings-phone.jpg" alt="Listings on a phone" loading="lazy"></div></figure>
+        <figure><div class="shot"><img src="img/pwa-insights-phone.jpg" alt="Insights on a phone" loading="lazy"></div></figure>
+        <figure><div class="shot"><img src="img/pwa-wizard-phone.jpg" alt="New listing wizard on a phone" loading="lazy"></div></figure>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The AI, kept on a short lead</h2>
+    <div class="cards">
+      <div class="card"><h3>Pricing engine</h3><p>Pools live listings and sold data for the same item in the same condition, classes the market and picks the price that maximises expected profit. It learns from what sells, and moves at most 10% a step.</p></div>
+      <div class="card"><h3>Claude, server side</h3><p>Sonnet for photo checks and listing text, Haiku for nightly triage and reply drafts. A tool-use loop with allowlisted tools, a logged cost per call and a hard daily budget.</p></div>
+      <div class="card"><h3>Never assume facts</h3><p>Specifications are looked up only for an exactly identified product, each with a verified source; otherwise the app asks.</p></div>
+      <div class="card"><h3>Self-hosted photo AI</h3><p>Background removal (IS-Net), spot removal (LaMa) and upscaling (Real-ESRGAN) on ONNX in a container that scales to zero.</p></div>
+      <div class="card"><h3>Sales ladder</h3><p>An unsold listing gets one push a week, chosen from its own figures: title, promotion, an offer to watchers, then price.</p></div>
+      <div class="card"><h3>Failures are loud</h3><p>If eBay refuses an approved change, an Inbox to-do carries the full diagnostics, and a notification points to it.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Architecture</h2>
+    <p class="sub">TypeScript on Azure, all infrastructure as code (Bicep). Sandbox and production are separate resource groups, each reaching only its own database through a managed identity.</p>
+    <div class="arch">
+      <svg viewBox="0 0 980 360" role="img" aria-label="Architecture diagram">
+        <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5b6688"/></marker></defs>
+        <g font-family="Segoe UI, system-ui, sans-serif" font-size="13" fill="#eef0f6">
+          <rect x="20" y="40" width="170" height="70" rx="12" fill="#151826" stroke="#5b8cff"/><text x="105" y="70" text-anchor="middle" font-weight="700">PWA (Preact)</text><text x="105" y="90" text-anchor="middle" fill="#9aa2b6">phone + desktop</text>
+          <rect x="20" y="140" width="170" height="70" rx="12" fill="#151826" stroke="#232838"/><text x="105" y="170" text-anchor="middle" font-weight="700">Web Push</text><text x="105" y="190" text-anchor="middle" fill="#9aa2b6">signed Approve / Reject</text>
+          <rect x="20" y="240" width="170" height="70" rx="12" fill="#151826" stroke="#232838"/><text x="105" y="270" text-anchor="middle" font-weight="700">Power Platform</text><text x="105" y="290" text-anchor="middle" fill="#9aa2b6">read-only API key</text>
+          <rect x="270" y="30" width="300" height="290" rx="16" fill="#10121a" stroke="#5b8cff"/>
+          <text x="420" y="58" text-anchor="middle" font-weight="700" font-size="15">Azure Functions (Flex Consumption)</text>
+          <rect x="295" y="76" width="250" height="40" rx="9" fill="#151826" stroke="#232838"/><text x="420" y="101" text-anchor="middle">API · sign-in (TOTP) · hidden site</text>
+          <rect x="295" y="126" width="250" height="40" rx="9" fill="#151826" stroke="#232838"/><text x="420" y="151" text-anchor="middle">Nightly run · 15-min inbox poll · queue</text>
+          <rect x="295" y="176" width="250" height="40" rx="9" fill="#151826" stroke="#232838"/><text x="420" y="201" text-anchor="middle">Pricing engine · Claude tool loop</text>
+          <rect x="295" y="226" width="250" height="40" rx="9" fill="#151826" stroke="#232838"/><text x="420" y="251" text-anchor="middle">Proposals (signed, expiring)</text>
+          <rect x="295" y="276" width="250" height="34" rx="9" fill="rgba(46,214,154,.12)" stroke="#2ed69a"/><text x="420" y="298" text-anchor="middle" font-weight="700" fill="#2ed69a">ebayWrite(): the one write gate</text>
+          <rect x="650" y="30" width="150" height="56" rx="12" fill="#151826" stroke="#232838"/><text x="725" y="63" text-anchor="middle">Cosmos DB</text>
+          <rect x="820" y="30" width="140" height="56" rx="12" fill="#151826" stroke="#232838"/><text x="890" y="63" text-anchor="middle">Blob · Key Vault</text>
+          <rect x="650" y="110" width="310" height="56" rx="12" fill="#151826" stroke="#232838"/><text x="805" y="143" text-anchor="middle">Anthropic API (Sonnet, Haiku)</text>
+          <rect x="650" y="190" width="310" height="56" rx="12" fill="#151826" stroke="#232838"/><text x="805" y="223" text-anchor="middle">Photo AI container (scales to zero)</text>
+          <rect x="650" y="270" width="310" height="56" rx="12" fill="#151826" stroke="#f5b83d"/><text x="805" y="296" text-anchor="middle" font-weight="700">eBay APIs</text><text x="805" y="314" text-anchor="middle" fill="#9aa2b6" font-size="12">Trading (XML) + REST, EBAY_GB</text>
+          <g stroke="#5b6688" stroke-width="1.6" fill="none" marker-end="url(#a)">
+            <path d="M190 75H268"/><path d="M190 175H268"/><path d="M190 275H268"/>
+            <path d="M570 58H648"/><path d="M570 138H648"/><path d="M570 218H648"/><path d="M545 293H648"/>
+          </g>
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <h2>Rules enforced in code</h2>
+    <ul class="rules">
+      <li><b>Every eBay write needs approval.</b> Anything that changes the account goes through a proposal and runs only after a person approves it.</li>
+      <li><b>One write gate.</b> Only <code>ebayWrite()</code> may call eBay write endpoints; source scans in the test suite fail the build if anything else does.</li>
+      <li><b>Locked kinds.</b> Prices, messages, offers, new listings, ending listings and promotion can never be set to apply automatically.</li>
+      <li><b>Floors and steps.</b> The owner's floor price is enforced in code; the engine moves at most 10% a step and flags bigger jumps.</li>
+      <li><b>A hidden site.</b> Anyone not signed in gets a blank 404 everywhere; three named people sign in with email and an authenticator code.</li>
+      <li><b>Sandbox first.</b> Everything was built and tested on eBay Sandbox; the real account went live only after go-live tests A–H passed.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Microsoft Power Platform</h2>
+    <p class="sub">Built around the app without giving it any power: Power Platform reads through a scoped, read-only API
+      (and a drafts-only intake), never holds eBay tokens, and sees no buyer data. Tested against Sandbox.</p>
+    <div class="grid-2">
+      <figure><div class="shot"><img src="img/pbi-approvals.jpg" alt="Power BI Approval funnel page" loading="lazy"></div>
+        <figcaption><b>Power BI: Approval funnel.</b> Approval and override rates, and outcome by kind of change.</figcaption></figure>
+      <figure><div class="shot"><img src="img/pbi-aicost.jpg" alt="Power BI AI cost page" loading="lazy"></div>
+        <figcaption><b>Power BI: AI cost.</b> Claude spend per day against the budget, by job and model.</figcaption></figure>
+    </div>
+    <div class="cards" style="margin-top:22px">
+      <div class="card"><h3>Power BI "Shop Health"</h3><p>A Power BI Project (PBIP/TMDL) generated from code: five pages, 38 DAX measures, fed by nightly CSV exports.</p></div>
+      <div class="card"><h3>Power Automate</h3><p>A weekly digest email and approval reminders from the read-only API. Built and run against Sandbox, then switched off.</p></div>
+      <div class="card"><h3>Power Apps "Stock Room"</h3><p>A Dataverse canvas app to log things around the house; items marked Sell go to the app as drafts, once each.</p></div>
+      <div class="card"><h3>Copilot Studio</h3><p>"Ask the shop": an agent whose only tools are nine read-only MCP tools on the app's own MCP endpoint.</p></div>
+      <div class="card"><h3>Custom connectors</h3><p>Two OpenAPI 2.0 connectors: one that only reads, one that only makes drafts.</p></div>
+      <div class="card"><h3>Proven boundaries</h3><p>Tests follow every import from the read-only code and fail if one reaches the write gate, eBay or Claude.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Stack</h2>
+    <div class="tags">
+      <span>TypeScript</span><span>Azure Functions</span><span>Cosmos DB</span><span>Blob Storage</span><span>Key Vault</span><span>Storage Queues</span>
+      <span>Bicep</span><span>GitHub Actions (OIDC)</span><span>Preact</span><span>Tailwind v4</span><span>Framer Motion</span><span>PWA + Web Push (VAPID)</span>
+      <span>Anthropic API</span><span>MCP</span><span>eBay Trading + REST APIs</span><span>ONNX Runtime</span><span>FastAPI</span><span>Container Apps</span>
+      <span>Vitest</span><span>Power BI (DAX, TMDL)</span><span>Power Automate</span><span>Power Apps + Dataverse</span><span>Copilot Studio</span>
+    </div>
+  </section>
+
+  <footer>
+    Designed and built by Khush Mehta · Source: <a href="https://github.com/KhushM7/EBayManager">github.com/KhushM7/EBayManager</a><br>
+    <span class="note">Screenshots use the app's sample data and eBay Sandbox test listings. No real account or buyer data is shown.</span>
+  </footer>
+</div>
+</body>
+</html>

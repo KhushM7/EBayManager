@@ -1,0 +1,62 @@
+table HealthFlags
+	lineageTag: 1b21a012-4a22-51ea-b86b-aca46fa8c486
+
+	measure Flags = COUNTROWS ( HealthFlags )
+		formatString: 0
+		lineageTag: 2943816e-c3d1-5a0c-8a60-9bed6c57a2ae
+
+	measure 'Flagged Listings' = DISTINCTCOUNT ( HealthFlags[item_id] )
+		formatString: 0
+		lineageTag: 9c390676-121b-5f7c-9aa6-a87dcbec1832
+
+	measure 'Flagged Then Changed' = VAR flagged = ADDCOLUMNS ( VALUES ( HealthFlags[item_id] ), "@first", CALCULATE ( MIN ( HealthFlags[date] ) ) ) RETURN COUNTROWS ( FILTER ( flagged, VAR i = HealthFlags[item_id] VAR d = [@first] RETURN NOT ISEMPTY ( FILTER ( ALL ( Proposals ), Proposals[item_id] = i && Proposals[applied] = TRUE () && Proposals[created_date] >= d ) ) ) )
+		formatString: 0
+		lineageTag: 6507e33b-4a63-5239-a856-b70e773aebaa
+
+	measure 'Flagged Then Sold' = VAR flagged = ADDCOLUMNS ( VALUES ( HealthFlags[item_id] ), "@first", CALCULATE ( MIN ( HealthFlags[date] ) ) ) RETURN COUNTROWS ( FILTER ( flagged, VAR i = HealthFlags[item_id] VAR d = [@first] RETURN NOT ISEMPTY ( FILTER ( ALL ( Sales ), Sales[item_id] = i && Sales[sold_date] >= d ) ) ) )
+		formatString: 0
+		lineageTag: 01b026a7-ee0c-5683-a0b4-652a1a8317ba
+
+	measure 'Flagged Sold Rate' = DIVIDE ( [Flagged Then Sold], [Flagged Listings] )
+		formatString: 0%
+		lineageTag: caf6b018-24c2-50a0-901d-0577372a79a2
+
+	column date
+		dataType: dateTime
+		formatString: dd mmm yyyy
+		lineageTag: cc37f91c-4aaf-53f8-a191-4cdb1df431e3
+		summarizeBy: none
+		sourceColumn: date
+
+	column item_id
+		dataType: string
+		lineageTag: da93a682-34be-58d1-a868-84f4d28c5440
+		summarizeBy: none
+		sourceColumn: item_id
+
+	column title
+		dataType: string
+		lineageTag: 58aae68e-c64e-5957-acca-a56fa7b2f76c
+		summarizeBy: none
+		sourceColumn: title
+
+	column flag
+		dataType: string
+		lineageTag: 88aefea5-d1b6-5b50-91af-811fddb6cf4e
+		summarizeBy: none
+		sourceColumn: flag
+
+	column detail
+		dataType: string
+		lineageTag: 28e52609-7cfe-58ba-bb97-60481a9f0af0
+		summarizeBy: none
+		sourceColumn: detail
+
+	partition HealthFlags = m
+		mode: import
+		source =
+				let
+					Source = fnExport("health_flags"),
+					Typed = Table.TransformColumnTypes(Source, {{"date", type date}, {"item_id", type text}, {"title", type text}, {"flag", type text}, {"detail", type text}}, "en-GB")
+				in
+					Typed

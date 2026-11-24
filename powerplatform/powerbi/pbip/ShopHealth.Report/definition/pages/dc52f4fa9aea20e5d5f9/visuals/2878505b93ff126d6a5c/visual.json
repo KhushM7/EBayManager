@@ -1,0 +1,38 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "2878505b93ff126d6a5c",
+  "position": {
+    "x": 1020,
+    "y": 72,
+    "z": 6000,
+    "width": 243,
+    "height": 106,
+    "tabOrder": 6000
+  },
+  "visual": {
+    "visualType": "card",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ClaudeSpend"
+                    }
+                  },
+                  "Property": "Cost per New Listing $"
+                }
+              },
+              "queryRef": "ClaudeSpend.Cost per New Listing $",
+              "nativeQueryRef": "Cost per New Listing $"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

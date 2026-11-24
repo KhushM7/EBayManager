@@ -6,3 +6,6 @@ web/dist/
 dist/
 .parcel2go-sample.json
 .idea/
+# Power BI Desktop: local settings and the data cache (holds downloaded rows)
+.pbi/
+*.pbix

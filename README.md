@@ -10,6 +10,14 @@ approves it**, from a notification or the Inbox.
   [listing assistant](docs/listing-assistant.md) · [add listing](docs/add-listing.md) · [app and dashboard](docs/app-and-dashboard.md) ·
   [safety and environments](docs/safety-and-environments.md) · [go-live tests](docs/go-live-tests.md) · [roadmap](docs/roadmap.md)
 
+## Showcase
+
+[docs/showcase/](docs/showcase/) has the project for a portfolio, on sample data and eBay Sandbox only (no real
+account or buyer data): a page (`index.html`, or `EBayManager-showcase.html` as one file to upload), a 10-slide
+PDF for a LinkedIn carousel (`EBayManager-slides.pdf`), a 30-second video (`EBayManager-tour.mp4`) and the
+screenshots (`img/`). `node scripts/showcase-build.mjs` rebuilds the three files from `index.html`, `slides.html`
+and `img/` (needs Chrome and ffmpeg).
+
 ## Where it runs
 
 | | Sandbox (testing) | Production (your real eBay account) |
@@ -116,6 +124,20 @@ questions about your items, setting prices directly, and signing other people ou
 **If a manager loses their phone:** sign them out from Settings → People → Sign out everywhere, then
 `people.mjs production new-code --email ...` when they have a new one. To end their access: `remove`.
 
+## Microsoft Power Platform (optional, off until you set it up)
+
+Power BI, Power Automate, Power Apps and Copilot Studio can read EBayManager's data through a read-only API
+with its own key, and the Stock Room app can send items as drafts. Neither can change eBay or decide anything.
+Both are off until their key exists. The steps, the rules and the open questions are in
+[docs/power-platform.md](docs/power-platform.md); what you build in the Microsoft tenant is in
+[powerplatform/](powerplatform/README.md).
+
+```powershell
+node scripts/make-keys.mjs --power-platform   # adds the two keys to .dev.vars (add .prod.vars for production)
+node scripts/azure-infra.mjs sandbox          # the app settings and the exports container
+node scripts/azure-secrets.mjs sandbox        # uploads the keys
+```
+
 ## Finishing touches (one time)
 
 - [ ] Merge the latest work branch into `main` with a pull request (now `photo-tools-and-live-fixes`), so GitHub's main matches what's live.
@@ -139,6 +161,12 @@ Measured from the app's own logs (2026-11-03 to 2026-11-07) and Azure's publishe
 | **Sold-price data** | Trawl and CompsAPI, hard monthly caps (250 and 100 look-ups) | Their plans' prices; capped |
 | **Photo AI (Container Apps)** | Background removal, spot removal and upscale in K's own container, scaled to zero ([docs/imageai.md](docs/imageai.md)) | **£0 when not used.** Billed only while an edit runs (plus 2 minutes before it scales back to zero), inside Azure's monthly free grant at this use |
 | **Azure in total** | | **About £0 to £3 a month.** A budget alert emails you at 50% and 100% of $5 |
+
+**Claude is switched off on production (2026-11-24)** so the app costs nothing to keep running:
+`claudeDailyBudgetUsd = '0'` in `infra/production.bicepparam` sets the app setting `CLAUDE_DAILY_BUDGET_USD` to 0,
+and every Claude call then refuses before it starts. The app still reads eBay, flags listings, prices with the
+engine and takes approvals; what needs Claude (photo checks, listing text, reply drafts, triage) says it is switched
+off. To turn it back on, delete the line (or set up to `'1'`) and run the infrastructure update.
 
 So far: production Claude $1.39 in 5 days (mostly the one-off first-day audit and spec look-ups), Sandbox $1.12.
 

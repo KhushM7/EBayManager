@@ -1,0 +1,78 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "d50107befb44d0038996",
+  "position": {
+    "x": 848,
+    "y": 304,
+    "z": 11000,
+    "width": 416,
+    "height": 116,
+    "tabOrder": 11000
+  },
+  "visual": {
+    "visualType": "clusteredBarChart",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "PriceAccuracy"
+                    }
+                  },
+                  "Property": "strategy"
+                }
+              },
+              "queryRef": "PriceAccuracy.strategy",
+              "nativeQueryRef": "strategy"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "PriceAccuracy"
+                    }
+                  },
+                  "Property": "Mean Error £"
+                }
+              },
+              "queryRef": "PriceAccuracy.Mean Error £",
+              "nativeQueryRef": "Mean Error £"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Mean error £ by strategy (high or low)'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

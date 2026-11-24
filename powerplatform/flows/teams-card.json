@@ -1,0 +1,24 @@
+{
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "type": "AdaptiveCard",
+  "version": "1.4",
+  "body": [
+    { "type": "TextBlock", "text": "@{items('Apply_to_each')?['kind_label']}", "weight": "Bolder", "size": "Medium", "wrap": true },
+    { "type": "TextBlock", "text": "@{coalesce(items('Apply_to_each')?['item_title'], 'No listing')}", "wrap": true, "spacing": "None" },
+    {
+      "type": "FactSet",
+      "facts": [
+        { "title": "Now", "value": "@{if(equals(items('Apply_to_each')?['details']?['oldPrice'], null), '-', concat('£', string(items('Apply_to_each')?['details']?['oldPrice'])))}" },
+        { "title": "Proposed", "value": "@{if(equals(items('Apply_to_each')?['details']?['newPrice'], null), '-', concat('£', string(items('Apply_to_each')?['details']?['newPrice'])))}" },
+        { "title": "For", "value": "@{items('Apply_to_each')?['for']}" },
+        { "title": "Expires in", "value": "@{formatNumber(div(items('Apply_to_each')?['hours_left'], 24.0), '0.0')} days" }
+      ]
+    },
+    { "type": "TextBlock", "text": "@{coalesce(items('Apply_to_each')?['reason'], 'Open the app to read it.')}", "wrap": true, "isSubtle": true },
+    { "type": "TextBlock", "text": "Nothing changes on eBay until a person approves it in EBayManager. These buttons only open it.", "wrap": true, "size": "Small", "isSubtle": true }
+  ],
+  "actions": [
+    { "type": "Action.OpenUrl", "title": "Review", "url": "@{coalesce(items('Apply_to_each')?['approve_url'], items('Apply_to_each')?['open_url'])}" },
+    { "type": "Action.OpenUrl", "title": "Open the app", "url": "@{items('Apply_to_each')?['open_url']}" }
+  ]
+}

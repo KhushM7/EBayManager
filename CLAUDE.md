@@ -4,7 +4,7 @@ Automates K's eBay selling: improve existing listings, re-evaluate unsold ones, 
 
 Full plan (decisions, eBay API map, rollout): https://claude.ai/artifact/JowUE86DsPhFBsswMms8jf
 
-Design docs: [roadmap](docs/roadmap.md), [design system](docs/design-system.md), [pricing engine](docs/pricing-engine.md), [security](docs/security.md), [pricing and promotion](docs/pricing-and-promotion.md), [sold-price data](docs/sold-price-data.md), [listing assistant](docs/listing-assistant.md), [go-live tests](docs/go-live-tests.md), [safety and environments](docs/safety-and-environments.md), [approvals](docs/approvals.md), [app and dashboard](docs/app-and-dashboard.md), [photo AI](docs/imageai.md).
+Design docs: [roadmap](docs/roadmap.md), [Power Platform](docs/power-platform.md), [design system](docs/design-system.md), [pricing engine](docs/pricing-engine.md), [security](docs/security.md), [pricing and promotion](docs/pricing-and-promotion.md), [sold-price data](docs/sold-price-data.md), [listing assistant](docs/listing-assistant.md), [go-live tests](docs/go-live-tests.md), [safety and environments](docs/safety-and-environments.md), [approvals](docs/approvals.md), [app and dashboard](docs/app-and-dashboard.md), [photo AI](docs/imageai.md).
 
 ## Decisions (2026-11-02)
 
@@ -67,8 +67,14 @@ Design docs: [roadmap](docs/roadmap.md), [design system](docs/design-system.md),
 - **The sales ladder** (K, `src/ladder.ts`): a listing that isn't selling gets one push at a time, at most one a week, chosen by its own figures: unseen, the title and specifics first, then promotion; watched but unsold, an offer to watchers, then the price; seen but unwatched, the price. The nightly's price review, triage, watcher offers and promotion each act only on their rung (a price change of 10% or more still goes ahead: the market moved).
 - **The 14-day promotion review** (K, `src/promotion.ts`): two weeks after an ad is applied, and every two weeks after, the listing's views, impressions and watchers are compared with before; if no more people see it, an "end" label is filed. A promoted listing is no longer ended just for being seen.
 - **eBay refusals are never silent** (K, `reportWriteFailure` in `src/proposals.ts`): when eBay refuses or fails an approved change, an Inbox to-do says so and carries the raw diagnostics (every call sent for the label, what was sent, eBay's status, request id and whole reply) with a Copy button, and a notification points to it. It resolves when the same kind of change next goes through for that listing.
+- **Microsoft Power Platform** (K's plan, [power-platform.md](docs/power-platform.md)): Power BI, Power Automate, Power Apps and Copilot Studio may only read EBayManager's data, through a read-only API with its own key (`/api/ro/*`, `RO_API_KEY`), or show a person a proposal; they never hold eBay tokens, call eBay or decide anything. The Stock Room app may send items as new-listing drafts only (`/api/intake/drafts`, `INTAKE_API_KEY`). No buyer personal data leaves. Both APIs are off until K sets their key. The app's side is built and tested; the tenant's side (`powerplatform/`) is recipes K hasn't built yet, so none of it is claimed anywhere.
 - **Git in Claude sessions** (K): commits are authored as K with GitHub's private address (`Khush Mehta <124626664+KhushM7@users.noreply.github.com>`, never a personal email: the repository is public), unsigned, with no co-author or session lines and no mention of Claude as author. New branches have plain names: no `claude/` prefix, no random letters at the end.
 - **Deploying from GitHub** (K): `.github/workflows/deploy.yml`, started by hand or by Claude. Sandbox deploys at once; production waits for K's approval in GitHub and deploys only from `main` (README, "Deploying from GitHub").
+
+## Decisions (2026-11-24, finishing)
+
+- **Nothing that costs to run** (K): Claude is switched off on production with `CLAUDE_DAILY_BUDGET_USD=0` (`claudeDailyBudgetUsd` in `src/rules.ts`, set from `infra/production.bicepparam`; the setting can only lower the $1 cap). The Power Automate digest and nudge flows are turned off. Copilot Studio stays unpublished (no credits). Power Platform stays read-only and off in production (no keys).
+- **Showcase** (K): `docs/showcase/` holds a page, a PDF carousel, a short video and screenshots for K's CV and LinkedIn, on sample data and Sandbox only (`scripts/showcase-build.mjs`). Never put real account, buyer or production data in it.
 
 ## Rules that are enforced in code, never in prompts
 
@@ -120,6 +126,11 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/ladder.ts` | The sales ladder: each listing's one step tonight (listing, price, offer, promote, wait), read by the nightly steps |
 | `src/watchers.ts` | Offers to watchers: the nightly step that proposes a 2% to 5% reminder offer for listings eBay says are eligible |
 | `.github/workflows/deploy.yml`, `scripts/azure-github-oidc.mjs` | Deploying from GitHub with K's approval for production, and its one-time Azure set-up |
+| `src/ro/`, `src/links.ts`, `src/mcp-core.ts` | The read-only API for Power Platform ([power-platform.md](docs/power-platform.md)): `tables.ts` (what may leave: no buyer details, allowlisted proposal fields), `handler.ts` (the key, the limits, the GET routes and the read-only MCP tools), `digest.ts` (the weekly digest in words), `export.ts` (the nightly CSV files for Power BI). It imports nothing that writes; `test/readonly.test.ts` follows its imports. `links.ts` is the approval-link signing; `mcp-core.ts` the small MCP server both `/mcp` and `/api/ro/mcp` use |
+| `scripts/check-power-platform.mjs` | Checks the two Power Platform APIs on a deployed environment: hidden without a key; with the read-only key, reads only |
+| `docs/showcase/`, `scripts/showcase-build.mjs` | The portfolio showcase: page, slides, screenshots (sample data and Sandbox only), and the script that builds the single-file page, the PDF and the video |
+| `src/intake.ts` | Stock Room intake: `POST /api/intake/drafts` with its own key makes a new-listing draft (one per row, 30 a day) and nothing else |
+| `powerplatform/` | What K builds in the Microsoft tenant: the two custom connectors (OpenAPI 2.0), the Power BI model (`powerbi/build.mjs` writes the Power Query, DAX and TMDL), and recipes for the flows, the Stock Room app and the Copilot Studio agent. None of it has been opened in a Microsoft tool yet |
 | `src/todos.ts`, `src/store/todos.ts`, `web/src/todos.tsx` | Inbox to-dos: what needs K but isn't an eBay change, filed by the audit and the nightly ([approvals.md](docs/approvals.md)) |
 | `src/drafts.ts`, `src/newlisting.ts`, `src/photos.ts`, `src/postage.ts`, `src/store/drafts.ts`, `web/src/wizard.tsx`, `web/src/listing/` | Add Listing: the wizard at `/new` (`/sell` still opens it), drafts, private photos, Claude's photo check, sourced listing text, price, postage, submit as a `create_listing` label ([add-listing.md](docs/add-listing.md), [handover](docs/add-listing-handover.md)) |
 
@@ -148,6 +159,7 @@ Production runs in approval mode (`WRITE_MODE=approval`, set in `infra/productio
 
 - Sold-price data: Marketplace Insights isn't available. Prices come from Trawl and CompsAPI, pooled, with hard monthly caps (Trawl 250, CompsAPI 100) and a 30-day cache ([sold-price-data.md](docs/sold-price-data.md)). Never scrape eBay or automate its website.
 - The engine assumes 0% eBay final value fees (a UK private seller). Add a fee setting if K sells as a business.
+- Power Platform: the app's side is on the branch `power-platform`, unmerged; both APIs are on for Sandbox (2026-11-18) and off in production (no keys). K's steps and open questions are in [power-platform.md](docs/power-platform.md).
 - No CI is set up yet (the deploy workflow runs typecheck and tests before publishing).
 - Promoted Listings through the gate is proven on Sandbox (2026-11-15: campaign and ad created at 2%, rate changed to 3%, ad ended). Offers to watchers is not: eBay Sandbox answered `sendOfferToInterestedBuyers` with a 500 "Internal error" twice, for a listing with no watchers, so the call's shape is still unconfirmed. Its first real proof is one approved label on production; a refusal changes nothing on eBay. Sandbox labels for either can be filed by hand with `POST /api/sandbox/propose` (Sandbox only).
 - The sale model's learning was fixed on 2026-11-15 (production had tau 0.351, alpha 3.165, both at the edge of the search): one observation per stretch a listing spends at a price, a fit at the edge keeps the prior, results are bounded. Still open: a competitor's listing gone from the search results is counted as sold (`src/pricing/learn.ts`).

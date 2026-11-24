@@ -1,0 +1,1362 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "EBayManager (read-only)",
+    "description": "Read-only access to EBayManager's own data: listings, sales, suggested changes and their outcomes, pricing, and Claude spend. It cannot change eBay or decide a proposal, and it carries no buyer details.",
+    "version": "1.0"
+  },
+  "host": "ebay-autopilot-sandbox-wrpoyt.azurewebsites.net",
+  "basePath": "/api/ro",
+  "schemes": [
+    "https"
+  ],
+  "consumes": [],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/status": {
+      "get": {
+        "operationId": "GetStatus",
+        "summary": "Get shop status",
+        "description": "Live listings, changes waiting, and when the nightly check last ran.",
+        "x-ms-visibility": "important",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/Status"
+            }
+          },
+          "429": {
+            "description": "Too many requests (60 a minute).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "Not found, or the key is wrong."
+          }
+        }
+      }
+    },
+    "/listings": {
+      "get": {
+        "operationId": "ListListings",
+        "summary": "List live listings",
+        "description": "Every live eBay listing with price, watchers, views and health flags.",
+        "x-ms-visibility": "important",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "count": {
+                  "type": "integer",
+                  "description": "How many items."
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Listing"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests (60 a minute).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "Not found, or the key is wrong."
+          }
+        }
+      }
+    },
+    "/sales": {
+      "get": {
+        "operationId": "ListSales",
+        "summary": "List sales",
+        "description": "Items sold in the period. No buyer details.",
+        "x-ms-visibility": "important",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "default": 90,
+            "description": "How many days back to look (1 to 730).",
+            "x-ms-summary": "Days back"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "count": {
+                  "type": "integer",
+                  "description": "How many items."
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Sale"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests (60 a minute).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "Not found, or the key is wrong."
+          }
+        }
+      }
+    },
+    "/proposals": {
+      "get": {
+        "operationId": "ListProposals",
+        "summary": "List suggested changes",
+        "description": "Changes suggested in the period and what happened to each. Replies and offer answers carry no text.",
+        "x-ms-visibility": "important",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "default": 90,
+            "description": "How many days back to look (1 to 730).",
+            "x-ms-summary": "Days back"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "applied",
+              "rejected",
+              "expired",
+              "failed",
+              "agreed"
+            ],
+            "description": "Only this status.",
+            "x-ms-summary": "Status"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "count": {
+                  "type": "integer",
+                  "description": "How many items."
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Proposal"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests (60 a minute).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "Not found, or the key is wrong."
+          }
+        }
+      }
+    },
+    "/proposals/waiting": {
+      "get": {
+        "operationId": "ListWaiting",
+        "summary": "List changes waiting for a decision",
+        "description": "What is waiting for a person, with how long it has waited, how long is left and the link to open. This API cannot decide anything.",
+        "x-ms-visibility": "important",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "count": {
+                  "type": "integer",
+                  "description": "How many items."
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Waiting"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests (60 a minute).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "Not found, or the key is wrong."
+          }
+        }
+      }
+    },
+    "/pricing": {
+      "get": {
+        "operationId": "ListPricing",
+        "summary": "List the engine's latest prices",
+        "description": "The pricing engine's latest price and reasoning for each listing.",
+        "x-ms-visibility": "advanced",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "count": {
+                  "type": "integer",
+                  "description": "How many items."
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Pricing"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests (60 a minute).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "Not found, or the key is wrong."
+          }
+        }
+      }
+    },
+    "/pricing/{itemId}": {
+      "get": {
+        "operationId": "GetPricing",
+        "summary": "Explain one listing's price",
+        "description": "Why the pricing engine suggested its price for one listing.",
+        "x-ms-visibility": "important",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "description": "The eBay item number.",
+            "x-ms-summary": "Item number",
+            "x-ms-url-encoding": "single"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/Pricing"
+            }
+          },
+          "429": {
+            "description": "Too many requests (60 a minute).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "Not found, or the key is wrong."
+          }
+        }
+      }
+    },
+    "/pricing-accuracy": {
+      "get": {
+        "operationId": "GetPricingAccuracy",
+        "summary": "Get pricing accuracy",
+        "description": "Each sale beside the engine's last price before it sold.",
+        "x-ms-visibility": "advanced",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "default": 730,
+            "description": "How many days back to look (1 to 730).",
+            "x-ms-summary": "Days back"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/AccuracyList"
+            }
+          },
+          "429": {
+            "description": "Too many requests (60 a minute).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "Not found, or the key is wrong."
+          }
+        }
+      }
+    },
+    "/health-flags": {
+      "get": {
+        "operationId": "ListHealthFlags",
+        "summary": "List listing health flags",
+        "description": "Listings the nightly check flagged, night by night.",
+        "x-ms-visibility": "advanced",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "default": 30,
+            "description": "How many days back to look (1 to 730).",
+            "x-ms-summary": "Days back"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "count": {
+                  "type": "integer",
+                  "description": "How many items."
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/HealthFlag"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests (60 a minute).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "Not found, or the key is wrong."
+          }
+        }
+      }
+    },
+    "/spend": {
+      "get": {
+        "operationId": "ListSpend",
+        "summary": "List Claude spend",
+        "description": "What Claude cost per day and job, against the daily budget.",
+        "x-ms-visibility": "advanced",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "default": 30,
+            "description": "How many days back to look (1 to 730).",
+            "x-ms-summary": "Days back"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "count": {
+                  "type": "integer",
+                  "description": "How many items."
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Spend"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests (60 a minute).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "Not found, or the key is wrong."
+          }
+        }
+      }
+    },
+    "/digest": {
+      "get": {
+        "operationId": "GetDigest",
+        "summary": "Get the digest",
+        "description": "A plain-English summary: what sold, what is waiting, and what was suggested and why. Ready to put in an email.",
+        "x-ms-visibility": "important",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "default": 7,
+            "description": "Days covered (1 to 31).",
+            "x-ms-summary": "Days"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/Digest"
+            }
+          },
+          "429": {
+            "description": "Too many requests (60 a minute).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "Not found, or the key is wrong."
+          }
+        }
+      }
+    },
+    "/export/{name}.csv": {
+      "get": {
+        "operationId": "GetExport",
+        "summary": "Get an export file",
+        "description": "One of the nightly CSV files Power BI loads.",
+        "x-ms-visibility": "internal",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "listings",
+              "listings_daily",
+              "sales",
+              "proposals",
+              "price_accuracy",
+              "price_decisions",
+              "health_flags",
+              "claude_spend"
+            ],
+            "description": "Which file.",
+            "x-ms-summary": "File"
+          },
+          {
+            "name": "live",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "1"
+            ],
+            "description": "Send 1 to build the file now, not use last night's.",
+            "x-ms-summary": "Build now"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "string"
+            }
+          },
+          "429": {
+            "description": "Too many requests (60 a minute).",
+            "schema": {
+              "$ref": "#/definitions/Error"
+            }
+          },
+          "404": {
+            "description": "Not found, or the key is wrong."
+          }
+        },
+        "produces": [
+          "text/csv"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "Status": {
+      "type": "object",
+      "properties": {
+        "environment": {
+          "type": "string",
+          "description": "sandbox or production."
+        },
+        "write_mode": {
+          "type": "string",
+          "description": "approval: approved changes reach eBay. off: everything is a dry run."
+        },
+        "read_only": {
+          "type": "boolean",
+          "description": "Always true: this API can't change anything."
+        },
+        "active_listings": {
+          "type": "integer",
+          "description": "Live listings."
+        },
+        "waiting_changes": {
+          "type": "integer",
+          "description": "Changes waiting for a person."
+        },
+        "last_nightly_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the nightly check last ran.",
+          "x-nullable": true
+        },
+        "claude_daily_budget_usd": {
+          "type": "number",
+          "description": "Claude's daily budget in US dollars.",
+          "x-nullable": true
+        },
+        "now": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The server's time.",
+          "x-nullable": true
+        }
+      }
+    },
+    "Listing": {
+      "type": "object",
+      "properties": {
+        "item_id": {
+          "type": "string",
+          "description": "eBay item number."
+        },
+        "title": {
+          "type": "string",
+          "description": "Listing title."
+        },
+        "price": {
+          "type": "number",
+          "description": "Asking price.",
+          "x-nullable": true
+        },
+        "currency": {
+          "type": "string",
+          "description": "Currency."
+        },
+        "quantity": {
+          "type": "integer",
+          "description": "Quantity available."
+        },
+        "watchers": {
+          "type": "integer",
+          "description": "Watchers."
+        },
+        "views_7d": {
+          "type": "number",
+          "description": "Views in the last 7 days.",
+          "x-nullable": true
+        },
+        "impressions_7d": {
+          "type": "number",
+          "description": "Times shown in search in the last 7 days.",
+          "x-nullable": true
+        },
+        "start_date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When it was first listed.",
+          "x-nullable": true
+        },
+        "days_listed": {
+          "type": "integer",
+          "description": "Days since it was first listed."
+        },
+        "health_flags": {
+          "type": "string",
+          "description": "Health flags from the nightly check, separated by spaces: stale, watched_not_selling, low_views, low_click_through."
+        },
+        "waiting_changes": {
+          "type": "integer",
+          "description": "Changes waiting for a person on this listing."
+        },
+        "snapshot_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this was read from eBay.",
+          "x-nullable": true
+        }
+      }
+    },
+    "Sale": {
+      "type": "object",
+      "properties": {
+        "sale_id": {
+          "type": "string",
+          "description": "A stable name for the row (not eBay's order number)."
+        },
+        "sold_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When it sold.",
+          "x-nullable": true
+        },
+        "item_id": {
+          "type": "string",
+          "description": "eBay item number."
+        },
+        "title": {
+          "type": "string",
+          "description": "Listing title."
+        },
+        "quantity": {
+          "type": "integer",
+          "description": "How many sold."
+        },
+        "item_price": {
+          "type": "number",
+          "description": "What one item sold for, without postage.",
+          "x-nullable": true
+        },
+        "line_total": {
+          "type": "number",
+          "description": "Item price times quantity.",
+          "x-nullable": true
+        },
+        "days_to_sell": {
+          "type": "number",
+          "description": "Days from first listing to the sale.",
+          "x-nullable": true
+        },
+        "source": {
+          "type": "string",
+          "description": "ebay, or imported from the Seller Hub report."
+        }
+      }
+    },
+    "ProposalDetails": {
+      "type": "object",
+      "properties": {
+        "oldPrice": {
+          "type": "number",
+          "description": "Price before.",
+          "x-nullable": true
+        },
+        "newPrice": {
+          "type": "number",
+          "description": "Price proposed.",
+          "x-nullable": true
+        },
+        "title": {
+          "type": "string",
+          "description": "Proposed title."
+        },
+        "action": {
+          "type": "string",
+          "description": "Promotion or offer action."
+        },
+        "rate": {
+          "type": "number",
+          "description": "Proposed ad rate, percent.",
+          "x-nullable": true
+        },
+        "currentRate": {
+          "type": "number",
+          "description": "Current ad rate, percent.",
+          "x-nullable": true
+        },
+        "suggestedRate": {
+          "type": "number",
+          "description": "eBay's suggested ad rate, percent.",
+          "x-nullable": true
+        },
+        "percent": {
+          "type": "number",
+          "description": "Percent off offered to watchers.",
+          "x-nullable": true
+        },
+        "price": {
+          "type": "number",
+          "description": "Listing price.",
+          "x-nullable": true
+        },
+        "offerPrice": {
+          "type": "number",
+          "description": "Offer price.",
+          "x-nullable": true
+        },
+        "listPrice": {
+          "type": "number",
+          "description": "Listing price when a Best Offer arrived.",
+          "x-nullable": true
+        },
+        "counterPrice": {
+          "type": "number",
+          "description": "Counter-offer price.",
+          "x-nullable": true
+        },
+        "watchers": {
+          "type": "number",
+          "description": "Watchers at the time.",
+          "x-nullable": true
+        },
+        "bestOfferEnabled": {
+          "type": "boolean",
+          "description": "Whether Best Offer is on."
+        }
+      }
+    },
+    "Proposal": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Proposal id."
+        },
+        "kind": {
+          "type": "string",
+          "description": "price, revise, create_listing, end_listing, relist, promote, offer_to_watchers, message, best_offer_response or policy."
+        },
+        "kind_label": {
+          "type": "string",
+          "description": "The kind in words."
+        },
+        "item_id": {
+          "type": "string",
+          "description": "eBay item number, if it's about a listing."
+        },
+        "item_title": {
+          "type": "string",
+          "description": "Listing title."
+        },
+        "status": {
+          "type": "string",
+          "description": "pending, approved, applying, applied, failed, agreed, rejected or expired."
+        },
+        "outcome": {
+          "type": "string",
+          "description": "waiting, approved, rejected or expired."
+        },
+        "applied": {
+          "type": "boolean",
+          "description": "True when the change reached eBay."
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "True when it was made while changes were off."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why it was suggested. Empty for replies and offer answers."
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When it was suggested.",
+          "x-nullable": true
+        },
+        "decided_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When a person decided, or it expired.",
+          "x-nullable": true
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When it expires if nobody decides.",
+          "x-nullable": true
+        },
+        "hours_to_decide": {
+          "type": "number",
+          "description": "Hours from suggestion to decision.",
+          "x-nullable": true
+        },
+        "decided_by": {
+          "type": "string",
+          "description": "Who decided."
+        },
+        "details": {
+          "$ref": "#/definitions/ProposalDetails"
+        }
+      }
+    },
+    "Waiting": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Proposal id."
+        },
+        "kind": {
+          "type": "string",
+          "description": "The kind of change."
+        },
+        "kind_label": {
+          "type": "string",
+          "description": "The kind in words."
+        },
+        "item_id": {
+          "type": "string",
+          "description": "eBay item number."
+        },
+        "item_title": {
+          "type": "string",
+          "description": "Listing title."
+        },
+        "status": {
+          "type": "string",
+          "description": "Always pending."
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "True when changes are off: it can be agreed but won't reach eBay."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why it was suggested. Empty for replies and offer answers."
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When it was suggested.",
+          "x-nullable": true
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When it expires.",
+          "x-nullable": true
+        },
+        "details": {
+          "$ref": "#/definitions/ProposalDetails"
+        },
+        "for": {
+          "type": "string",
+          "description": "Who it's waiting for: owner, or the name of whoever made the draft."
+        },
+        "hours_waiting": {
+          "type": "number",
+          "description": "Hours it has waited.",
+          "x-nullable": true
+        },
+        "hours_left": {
+          "type": "number",
+          "description": "Hours until it expires.",
+          "x-nullable": true
+        },
+        "open_url": {
+          "type": "string",
+          "description": "Opens the app, where the person signs in and decides."
+        },
+        "approve_url": {
+          "type": "string",
+          "description": "The signed approval page (the real account only; needs a signed-in device). Empty otherwise."
+        },
+        "reject_url": {
+          "type": "string",
+          "description": "The signed rejection page (the real account only). Empty otherwise."
+        }
+      }
+    },
+    "PriceOption": {
+      "type": "object",
+      "properties": {
+        "price": {
+          "type": "number",
+          "description": "A price the engine considered.",
+          "x-nullable": true
+        },
+        "days_to_sell": {
+          "type": "number",
+          "description": "Its estimate of days to sell at that price.",
+          "x-nullable": true
+        }
+      }
+    },
+    "Pricing": {
+      "type": "object",
+      "properties": {
+        "item_id": {
+          "type": "string",
+          "description": "eBay item number."
+        },
+        "title": {
+          "type": "string",
+          "description": "Listing title."
+        },
+        "current_price": {
+          "type": "number",
+          "description": "The listing's price now.",
+          "x-nullable": true
+        },
+        "decided_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the engine priced it.",
+          "x-nullable": true
+        },
+        "strategy": {
+          "type": "string",
+          "description": "The engine's strategy."
+        },
+        "suggested_price": {
+          "type": "number",
+          "description": "Its item price.",
+          "x-nullable": true
+        },
+        "suggested_total_with_postage": {
+          "type": "number",
+          "description": "Its price with postage.",
+          "x-nullable": true
+        },
+        "market_price": {
+          "type": "number",
+          "description": "What buyers pay now, with postage.",
+          "x-nullable": true
+        },
+        "confidence": {
+          "type": "number",
+          "description": "0 to 1.",
+          "x-nullable": true
+        },
+        "why": {
+          "type": "string",
+          "description": "The reasoning in words."
+        },
+        "question": {
+          "type": "string",
+          "description": "What the engine needs to know, if it asked."
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/PriceOption"
+          }
+        }
+      }
+    },
+    "Accuracy": {
+      "type": "object",
+      "properties": {
+        "sale_id": {
+          "type": "string",
+          "description": "The sale."
+        },
+        "sold_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When it sold.",
+          "x-nullable": true
+        },
+        "item_id": {
+          "type": "string",
+          "description": "eBay item number."
+        },
+        "title": {
+          "type": "string",
+          "description": "Listing title."
+        },
+        "group": {
+          "type": "string",
+          "description": "The engine's product group."
+        },
+        "strategy": {
+          "type": "string",
+          "description": "The engine's strategy."
+        },
+        "predicted_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the engine last priced it before the sale.",
+          "x-nullable": true
+        },
+        "days_before_sale": {
+          "type": "number",
+          "description": "Days between that price and the sale.",
+          "x-nullable": true
+        },
+        "predicted_price": {
+          "type": "number",
+          "description": "The engine's price.",
+          "x-nullable": true
+        },
+        "market_price": {
+          "type": "number",
+          "description": "The market price it saw.",
+          "x-nullable": true
+        },
+        "sold_price": {
+          "type": "number",
+          "description": "What it sold for.",
+          "x-nullable": true
+        },
+        "error": {
+          "type": "number",
+          "description": "Sold minus predicted.",
+          "x-nullable": true
+        },
+        "abs_pct_error": {
+          "type": "number",
+          "description": "Size of the error as a share of the sold price (0.1 is 10%).",
+          "x-nullable": true
+        }
+      }
+    },
+    "AccuracyList": {
+      "type": "object",
+      "properties": {
+        "sales": {
+          "type": "integer",
+          "description": "Sales in the period."
+        },
+        "priced": {
+          "type": "integer",
+          "description": "Sales the engine had priced beforehand."
+        },
+        "mean_abs_pct_error": {
+          "type": "number",
+          "description": "Average size of the error (0.1 is 10%).",
+          "x-nullable": true
+        },
+        "count": {
+          "type": "integer",
+          "description": "How many items."
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Accuracy"
+          }
+        }
+      }
+    },
+    "HealthFlag": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "description": "The night it was flagged (YYYY-MM-DD)."
+        },
+        "checked_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the check ran.",
+          "x-nullable": true
+        },
+        "item_id": {
+          "type": "string",
+          "description": "eBay item number."
+        },
+        "title": {
+          "type": "string",
+          "description": "Listing title."
+        },
+        "flag": {
+          "type": "string",
+          "description": "stale, watched_not_selling, low_views or low_click_through."
+        },
+        "detail": {
+          "type": "string",
+          "description": "The flag in words."
+        }
+      }
+    },
+    "Spend": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "description": "Day (YYYY-MM-DD, UTC)."
+        },
+        "job": {
+          "type": "string",
+          "description": "What Claude was doing."
+        },
+        "model": {
+          "type": "string",
+          "description": "The Claude model."
+        },
+        "calls": {
+          "type": "integer",
+          "description": "Calls."
+        },
+        "input_tokens": {
+          "type": "integer",
+          "description": "Input tokens."
+        },
+        "output_tokens": {
+          "type": "integer",
+          "description": "Output tokens."
+        },
+        "cost_usd": {
+          "type": "number",
+          "description": "Cost in US dollars.",
+          "x-nullable": true
+        },
+        "daily_budget_usd": {
+          "type": "number",
+          "description": "The daily budget in US dollars.",
+          "x-nullable": true
+        }
+      }
+    },
+    "DigestSold": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "What sold."
+        },
+        "quantity": {
+          "type": "integer",
+          "description": "How many."
+        },
+        "total": {
+          "type": "number",
+          "description": "For how much.",
+          "x-nullable": true
+        },
+        "days_to_sell": {
+          "type": "number",
+          "description": "Days it took.",
+          "x-nullable": true
+        }
+      }
+    },
+    "DigestWaiting": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Proposal id."
+        },
+        "kind_label": {
+          "type": "string",
+          "description": "The kind in words."
+        },
+        "item_title": {
+          "type": "string",
+          "description": "Listing title."
+        },
+        "for": {
+          "type": "string",
+          "description": "Who it's waiting for."
+        },
+        "hours_waiting": {
+          "type": "number",
+          "description": "Hours waited.",
+          "x-nullable": true
+        },
+        "hours_left": {
+          "type": "number",
+          "description": "Hours left.",
+          "x-nullable": true
+        },
+        "open_url": {
+          "type": "string",
+          "description": "Opens the app."
+        }
+      }
+    },
+    "DigestExample": {
+      "type": "object",
+      "properties": {
+        "what": {
+          "type": "string",
+          "description": "The kind of change."
+        },
+        "item": {
+          "type": "string",
+          "description": "Listing title."
+        },
+        "why": {
+          "type": "string",
+          "description": "The reason given."
+        },
+        "outcome": {
+          "type": "string",
+          "description": "waiting, approved, rejected or expired."
+        }
+      }
+    },
+    "Digest": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Start of the period.",
+          "x-nullable": true
+        },
+        "to": {
+          "type": "string",
+          "format": "date-time",
+          "description": "End of the period.",
+          "x-nullable": true
+        },
+        "days": {
+          "type": "integer",
+          "description": "Days covered."
+        },
+        "sold": {
+          "type": "object",
+          "properties": {
+            "count": {
+              "type": "integer",
+              "description": "Items sold."
+            },
+            "revenue": {
+              "type": "number",
+              "description": "Total.",
+              "x-nullable": true
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/DigestSold"
+              }
+            }
+          }
+        },
+        "waiting": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/DigestWaiting"
+          }
+        },
+        "suggestions": {
+          "type": "object",
+          "properties": {
+            "suggested": {
+              "type": "integer",
+              "description": "Changes suggested."
+            },
+            "approved": {
+              "type": "integer",
+              "description": "Approved."
+            },
+            "rejected": {
+              "type": "integer",
+              "description": "Rejected."
+            },
+            "expired": {
+              "type": "integer",
+              "description": "Expired."
+            },
+            "waiting": {
+              "type": "integer",
+              "description": "Still waiting."
+            },
+            "examples": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/DigestExample"
+              }
+            }
+          }
+        },
+        "claude_cost_usd": {
+          "type": "number",
+          "description": "Claude's cost in the period.",
+          "x-nullable": true
+        },
+        "subject": {
+          "type": "string",
+          "description": "A subject line for the email."
+        },
+        "text": {
+          "type": "string",
+          "description": "The digest as plain text."
+        },
+        "html": {
+          "type": "string",
+          "description": "The digest as simple HTML for an email body."
+        }
+      }
+    },
+    "Error": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string",
+          "description": "What went wrong."
+        }
+      }
+    }
+  },
+  "securityDefinitions": {
+    "api_key": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-Api-Key"
+    }
+  },
+  "security": [
+    {
+      "api_key": []
+    }
+  ],
+  "tags": [],
+  "x-ms-connector-metadata": [
+    {
+      "propertyName": "Website",
+      "propertyValue": "https://github.com/KhushM7/EBayManager"
+    },
+    {
+      "propertyName": "Categories",
+      "propertyValue": "Commerce;Data"
+    }
+  ]
+}

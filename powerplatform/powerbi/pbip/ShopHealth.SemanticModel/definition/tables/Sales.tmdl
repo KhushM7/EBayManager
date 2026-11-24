@@ -1,0 +1,94 @@
+table Sales
+	lineageTag: 2b7618c9-b1c2-5b86-b605-43932fb1ff89
+
+	measure 'Revenue £' = SUM ( Sales[line_total] )
+		formatString: £#,0.00
+		lineageTag: 86c785d3-8aa1-5c2b-8ff6-643cbf071ebf
+
+	measure 'Items Sold' = SUM ( Sales[quantity] )
+		formatString: 0
+		lineageTag: 7af79b1a-aed2-5d6f-a1db-2a9bfe8b42e2
+
+	measure 'Avg Sale Price £' = AVERAGE ( Sales[item_price] )
+		formatString: £#,0.00
+		lineageTag: d7c179c8-2258-5d13-9bc3-98bab05c1cfb
+
+	measure 'Avg Days to Sell' = AVERAGE ( Sales[days_to_sell] )
+		formatString: 0.0
+		lineageTag: e528ef14-c44e-5664-91c8-74817d843b8a
+
+	measure 'Sell-through' = DIVIDE ( [Items Sold], [Items Sold] + [Active Listings] )
+		formatString: 0%
+		lineageTag: a36307f5-9800-576a-8ecb-9c215e0187fe
+
+	column sale_id
+		dataType: string
+		lineageTag: 06accc16-543a-5fd7-908f-0e8628d6496c
+		summarizeBy: none
+		sourceColumn: sale_id
+
+	column sold_at
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 28a1fab5-a2d5-5dea-89c5-e502edb7c722
+		summarizeBy: none
+		sourceColumn: sold_at
+
+	column item_id
+		dataType: string
+		lineageTag: dcda2eb3-cbd5-582e-bc28-f8133be1b13a
+		summarizeBy: none
+		sourceColumn: item_id
+
+	column title
+		dataType: string
+		lineageTag: ba1b55b8-0804-5f6c-826e-c95de7bf2803
+		summarizeBy: none
+		sourceColumn: title
+
+	column quantity
+		dataType: int64
+		lineageTag: 880e6b11-8ffc-59fa-b438-59a540371330
+		summarizeBy: sum
+		sourceColumn: quantity
+
+	column item_price
+		dataType: double
+		lineageTag: 6d13be08-cd15-5dc8-9d72-8dcdebd41d5b
+		summarizeBy: none
+		sourceColumn: item_price
+
+	column line_total
+		dataType: double
+		lineageTag: 168c50c7-be61-5cb9-99d9-8c38f37c9783
+		summarizeBy: sum
+		sourceColumn: line_total
+
+	column days_to_sell
+		dataType: double
+		lineageTag: 9c379627-2cff-5e82-a3e0-b6b92783ada5
+		summarizeBy: none
+		sourceColumn: days_to_sell
+
+	column source
+		dataType: string
+		lineageTag: 7843643a-3662-58de-b377-0df4b02f8fe0
+		summarizeBy: none
+		sourceColumn: source
+
+	column sold_date
+		dataType: dateTime
+		formatString: dd mmm yyyy
+		lineageTag: 544374f4-23c8-5602-8ebb-a7d5eb5385e8
+		summarizeBy: none
+		sourceColumn: sold_date
+
+	partition Sales = m
+		mode: import
+		source =
+				let
+					Source = fnExport("sales"),
+					Typed = Table.TransformColumnTypes(Source, {{"sale_id", type text}, {"sold_at", type datetimezone}, {"item_id", type text}, {"title", type text}, {"quantity", Int64.Type}, {"item_price", type number}, {"line_total", type number}, {"days_to_sell", type number}, {"source", type text}}, "en-GB"),
+					WithDate = Table.AddColumn(Typed, "sold_date", each Date.From(DateTimeZone.ToUtc([sold_at])), type date)
+				in
+					WithDate

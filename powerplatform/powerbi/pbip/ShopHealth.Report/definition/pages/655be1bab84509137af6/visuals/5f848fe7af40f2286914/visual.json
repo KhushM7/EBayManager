@@ -1,0 +1,126 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "5f848fe7af40f2286914",
+  "position": {
+    "x": 640,
+    "y": 180,
+    "z": 7000,
+    "width": 624,
+    "height": 240,
+    "tabOrder": 7000
+  },
+  "visual": {
+    "visualType": "tableEx",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "HealthFlags"
+                    }
+                  },
+                  "Property": "title"
+                }
+              },
+              "queryRef": "HealthFlags.title",
+              "nativeQueryRef": "title"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "HealthFlags"
+                    }
+                  },
+                  "Property": "flag"
+                }
+              },
+              "queryRef": "HealthFlags.flag",
+              "nativeQueryRef": "flag"
+            },
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "HealthFlags"
+                        }
+                      },
+                      "Property": "date"
+                    }
+                  },
+                  "Function": 3
+                }
+              },
+              "queryRef": "Min(HealthFlags.date)",
+              "nativeQueryRef": "Min of date"
+            },
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "HealthFlags"
+                        }
+                      },
+                      "Property": "date"
+                    }
+                  },
+                  "Function": 4
+                }
+              },
+              "queryRef": "Max(HealthFlags.date)",
+              "nativeQueryRef": "Max of date"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "HealthFlags"
+                    }
+                  },
+                  "Property": "Flags"
+                }
+              },
+              "queryRef": "HealthFlags.Flags",
+              "nativeQueryRef": "Flags"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Flagged listings (first and last day flagged)'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

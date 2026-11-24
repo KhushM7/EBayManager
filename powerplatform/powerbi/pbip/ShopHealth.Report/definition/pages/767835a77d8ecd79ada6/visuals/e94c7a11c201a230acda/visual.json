@@ -1,0 +1,36 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "e94c7a11c201a230acda",
+  "position": {
+    "x": 16,
+    "y": 672,
+    "z": 13000,
+    "width": 1248,
+    "height": 40,
+    "tabOrder": 13000
+  },
+  "visual": {
+    "visualType": "textbox",
+    "drillFilterOtherVisuals": true,
+    "objects": {
+      "general": [
+        {
+          "properties": {
+            "paragraphs": [
+              {
+                "textRuns": [
+                  {
+                    "value": "Each sale against the engine's last price before it sold. Priced Before Sale is the share of sales the engine had priced at all. With few sales, one odd sale moves the error a lot: read it beside Sales Compared.",
+                    "textStyle": {
+                      "fontSize": "10pt"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

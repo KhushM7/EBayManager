@@ -1,7 +1,7 @@
 import type { Env } from "./env";
 import { gateClosedReason, setWritesPaused, writesPaused } from "./ebay/write";
 import { runNightly } from "./nightly";
-import { CLAUDE_DAILY_BUDGET_USD } from "./rules";
+import { claudeDailyBudgetUsd } from "./rules";
 import { pollInbox } from "./inbox";
 import { applyApproved, createProposal, decide, editProposal } from "./proposals";
 import { keyLoginAllowed } from "./session";
@@ -488,7 +488,7 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
       today: await sum(day.getTime()),
       month: await sum(month.getTime()),
       byJob,
-      dailyBudgetUsd: CLAUDE_DAILY_BUDGET_USD,
+      dailyBudgetUsd: claudeDailyBudgetUsd(env),
       apiKeySet: Boolean(env.ANTHROPIC_API_KEY),
       allowances: await allowances(env),
       services: await serviceStatuses(env),

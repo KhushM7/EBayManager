@@ -1,0 +1,38 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "017f44e0baf160f692af",
+  "position": {
+    "x": 16,
+    "y": 72,
+    "z": 2000,
+    "width": 201,
+    "height": 106,
+    "tabOrder": 2000
+  },
+  "visual": {
+    "visualType": "card",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "PriceAccuracy"
+                    }
+                  },
+                  "Property": "Mean Abs % Error"
+                }
+              },
+              "queryRef": "PriceAccuracy.Mean Abs % Error",
+              "nativeQueryRef": "Mean Abs % Error"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

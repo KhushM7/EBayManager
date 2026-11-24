@@ -1,0 +1,144 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "68be92887412e51fd4b5",
+  "position": {
+    "x": 16,
+    "y": 428,
+    "z": 8000,
+    "width": 1248,
+    "height": 236,
+    "tabOrder": 8000
+  },
+  "visual": {
+    "visualType": "tableEx",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Listings"
+                    }
+                  },
+                  "Property": "title"
+                }
+              },
+              "queryRef": "Listings.title",
+              "nativeQueryRef": "title"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Listings"
+                    }
+                  },
+                  "Property": "price"
+                }
+              },
+              "queryRef": "Listings.price",
+              "nativeQueryRef": "price"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Listings"
+                    }
+                  },
+                  "Property": "days_listed"
+                }
+              },
+              "queryRef": "Listings.days_listed",
+              "nativeQueryRef": "days_listed"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Listings"
+                    }
+                  },
+                  "Property": "watchers"
+                }
+              },
+              "queryRef": "Listings.watchers",
+              "nativeQueryRef": "watchers"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Listings"
+                    }
+                  },
+                  "Property": "views_7d"
+                }
+              },
+              "queryRef": "Listings.views_7d",
+              "nativeQueryRef": "views_7d"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Listings"
+                    }
+                  },
+                  "Property": "health_flags"
+                }
+              },
+              "queryRef": "Listings.health_flags",
+              "nativeQueryRef": "health_flags"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Listings"
+                    }
+                  },
+                  "Property": "waiting_changes"
+                }
+              },
+              "queryRef": "Listings.waiting_changes",
+              "nativeQueryRef": "waiting_changes"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Live listings'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -52,6 +52,8 @@ export function azureEnv(): Omit<Env, "enqueue"> {
     ASSETS: staticAssets(join(__dirname, "web")),
     // The same storage account as the Functions host (its name is already an app setting), container "photos".
     photos: v.AzureWebJobsStorage__accountName ? azurePhotoStore(v.AzureWebJobsStorage__accountName, credential) : undefined,
+    // The Power BI export files, in their own private container beside the photos (docs/power-platform.md).
+    exports: v.AzureWebJobsStorage__accountName ? azurePhotoStore(v.AzureWebJobsStorage__accountName, credential, "exports", true) : undefined,
     DASHBOARD_KEY: v.DASHBOARD_KEY ?? "",
     PEOPLE: opt("PEOPLE"),
     SIGNIN_PATH: opt("SIGNIN_PATH"),
@@ -69,6 +71,8 @@ export function azureEnv(): Omit<Env, "enqueue"> {
     PARCEL2GO_SANDBOX: opt("PARCEL2GO_SANDBOX"),
     IMAGEAI_URL: opt("IMAGEAI_URL"),
     IMAGEAI_KEY: opt("IMAGEAI_KEY"),
+    RO_API_KEY: opt("RO_API_KEY"),
+    INTAKE_API_KEY: opt("INTAKE_API_KEY"),
     MCP_TOKEN: v.MCP_TOKEN ?? "",
     SIGNING_KEY: v.SIGNING_KEY ?? "",
     NTFY_TOPIC: v.NTFY_TOPIC ?? "",

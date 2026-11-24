@@ -1,0 +1,88 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "16412cce7b4792b62f2d",
+  "position": {
+    "x": 16,
+    "y": 180,
+    "z": 8000,
+    "width": 408,
+    "height": 240,
+    "tabOrder": 8000
+  },
+  "visual": {
+    "visualType": "clusteredBarChart",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Proposals"
+                    }
+                  },
+                  "Property": "Suggested"
+                }
+              },
+              "queryRef": "Proposals.Suggested",
+              "nativeQueryRef": "Suggested"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Proposals"
+                    }
+                  },
+                  "Property": "Approved"
+                }
+              },
+              "queryRef": "Proposals.Approved",
+              "nativeQueryRef": "Approved"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Proposals"
+                    }
+                  },
+                  "Property": "Applied to eBay"
+                }
+              },
+              "queryRef": "Proposals.Applied to eBay",
+              "nativeQueryRef": "Applied to eBay"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Suggested, approved, applied to eBay'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

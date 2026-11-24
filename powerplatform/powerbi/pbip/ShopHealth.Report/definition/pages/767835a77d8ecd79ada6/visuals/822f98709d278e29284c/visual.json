@@ -1,0 +1,144 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "822f98709d278e29284c",
+  "position": {
+    "x": 16,
+    "y": 428,
+    "z": 12000,
+    "width": 1248,
+    "height": 236,
+    "tabOrder": 12000
+  },
+  "visual": {
+    "visualType": "tableEx",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "PriceAccuracy"
+                    }
+                  },
+                  "Property": "title"
+                }
+              },
+              "queryRef": "PriceAccuracy.title",
+              "nativeQueryRef": "title"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "PriceAccuracy"
+                    }
+                  },
+                  "Property": "sold_at"
+                }
+              },
+              "queryRef": "PriceAccuracy.sold_at",
+              "nativeQueryRef": "sold_at"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "PriceAccuracy"
+                    }
+                  },
+                  "Property": "predicted_price"
+                }
+              },
+              "queryRef": "PriceAccuracy.predicted_price",
+              "nativeQueryRef": "predicted_price"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "PriceAccuracy"
+                    }
+                  },
+                  "Property": "sold_price"
+                }
+              },
+              "queryRef": "PriceAccuracy.sold_price",
+              "nativeQueryRef": "sold_price"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "PriceAccuracy"
+                    }
+                  },
+                  "Property": "error"
+                }
+              },
+              "queryRef": "PriceAccuracy.error",
+              "nativeQueryRef": "error"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "PriceAccuracy"
+                    }
+                  },
+                  "Property": "abs_pct_error"
+                }
+              },
+              "queryRef": "PriceAccuracy.abs_pct_error",
+              "nativeQueryRef": "abs_pct_error"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "PriceAccuracy"
+                    }
+                  },
+                  "Property": "days_before_sale"
+                }
+              },
+              "queryRef": "PriceAccuracy.days_before_sale",
+              "nativeQueryRef": "days_before_sale"
+            }
+          ]
+        }
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Each sale against the last price'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

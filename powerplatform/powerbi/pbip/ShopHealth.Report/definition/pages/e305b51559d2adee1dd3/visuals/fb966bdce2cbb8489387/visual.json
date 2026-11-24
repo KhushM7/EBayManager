@@ -1,0 +1,124 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "fb966bdce2cbb8489387",
+  "position": {
+    "x": 640,
+    "y": 180,
+    "z": 9000,
+    "width": 624,
+    "height": 240,
+    "tabOrder": 9000
+  },
+  "visual": {
+    "visualType": "lineChart",
+    "drillFilterOtherVisuals": true,
+    "query": {
+      "queryState": {
+        "Category": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "ListingsDaily"
+                    }
+                  },
+                  "Property": "date"
+                }
+              },
+              "queryRef": "ListingsDaily.date",
+              "nativeQueryRef": "date"
+            }
+          ]
+        },
+        "Y": {
+          "projections": [
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "ListingsDaily"
+                        }
+                      },
+                      "Property": "active_listings"
+                    }
+                  },
+                  "Function": 0
+                }
+              },
+              "queryRef": "Sum(ListingsDaily.active_listings)",
+              "nativeQueryRef": "Sum of active_listings"
+            }
+          ]
+        },
+        "Y2": {
+          "projections": [
+            {
+              "field": {
+                "Aggregation": {
+                  "Expression": {
+                    "Column": {
+                      "Expression": {
+                        "SourceRef": {
+                          "Entity": "ListingsDaily"
+                        }
+                      },
+                      "Property": "asking_total"
+                    }
+                  },
+                  "Function": 0
+                }
+              },
+              "queryRef": "Sum(ListingsDaily.asking_total)",
+              "nativeQueryRef": "Sum of asking_total"
+            }
+          ]
+        }
+      },
+      "sortDefinition": {
+        "sort": [
+          {
+            "field": {
+              "Column": {
+                "Expression": {
+                  "SourceRef": {
+                    "Entity": "ListingsDaily"
+                  }
+                },
+                "Property": "date"
+              }
+            },
+            "direction": "Ascending"
+          }
+        ],
+        "isDefaultSort": true
+      }
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Live listings and asking total'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

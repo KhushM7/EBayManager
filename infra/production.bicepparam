@@ -6,6 +6,9 @@ using 'main.bicep'
 param env = 'production'
 param location = readEnvironmentVariable('AZURE_LOCATION', 'francecentral')
 param writeMode = 'approval'
+// Claude switched off to keep the running cost at nothing (K, 2026-11-24). Delete the line, or set a figure up to 1, to
+// turn it back on, then redeploy the infrastructure.
+param claudeDailyBudgetUsd = '0'
 param ownerObjectId = readEnvironmentVariable('AZURE_OWNER_OBJECT_ID', '')
 param sandboxConveniences = false
 // The photo AI container (docs/imageai.md): a pinned ghcr.io tag; empty leaves it undeployed.

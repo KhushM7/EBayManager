@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Env } from "./env";
-import { CLAUDE_DAILY_BUDGET_USD } from "./rules";
+import { claudeDailyBudgetUsd } from "./rules";
 import { classifyClaudeError, recordFailure, recordOk } from "./services";
 import { tools } from "./tools";
 
@@ -76,9 +76,11 @@ const MAX_TOOL_RESULT_CHARS = 20_000;
 
 export async function client(env: Env, api?: MessagesApi): Promise<MessagesApi> {
   if (!api && !env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set on this Worker yet.");
+  const budget = claudeDailyBudgetUsd(env);
+  if (budget <= 0) throw new Error("Claude is switched off for this environment (CLAUDE_DAILY_BUDGET_USD is 0).");
   const spent = await spentTodayUsd(env);
-  if (spent >= CLAUDE_DAILY_BUDGET_USD)
-    throw new Error(`Today's Claude budget of $${CLAUDE_DAILY_BUDGET_USD.toFixed(2)} is used up ($${spent.toFixed(2)}).`);
+  if (spent >= budget)
+    throw new Error(`Today's Claude budget of $${budget.toFixed(2)} is used up ($${spent.toFixed(2)}).`);
   return api ?? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }).beta.messages;
 }
 
@@ -205,7 +207,7 @@ export async function runAgent(env: Env, run: AgentRun, api?: MessagesApi): Prom
 
   while (turns < maxTurns) {
     // The daily budget holds inside a run too, not only before it starts.
-    if (turns > 0 && spentAtStart + total >= CLAUDE_DAILY_BUDGET_USD) break;
+    if (turns > 0 && spentAtStart + total >= claudeDailyBudgetUsd(env)) break;
     turns++;
     const response = await createMessage(env, messagesApi, {
       model: run.model,

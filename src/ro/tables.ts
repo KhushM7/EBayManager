@@ -1,6 +1,6 @@
 import type { Env } from "../env";
 import { orderLines, type LatestRow } from "../store";
-import { CLAUDE_DAILY_BUDGET_USD } from "../rules";
+import { claudeDailyBudgetUsd } from "../rules";
 import { decisionUrl } from "../links";
 import { r2 } from "../util";
 
@@ -356,7 +356,7 @@ export async function spendTable(env: Env, since: number) {
     // "triage:1234567890" is the triage job for one listing: the listing isn't part of the job's name here.
     const job = u.job.includes(":") ? u.job.slice(0, u.job.indexOf(":")) : u.job;
     const key = `${isoDay(u.at)}|${job}|${u.model}`;
-    const r = rows.get(key) ?? { date: isoDay(u.at), job, model: u.model, calls: 0, input_tokens: 0, output_tokens: 0, cost_usd: 0, daily_budget_usd: CLAUDE_DAILY_BUDGET_USD };
+    const r = rows.get(key) ?? { date: isoDay(u.at), job, model: u.model, calls: 0, input_tokens: 0, output_tokens: 0, cost_usd: 0, daily_budget_usd: claudeDailyBudgetUsd(env) };
     r.calls++;
     r.input_tokens += u.input_tokens ?? 0;
     r.output_tokens += u.output_tokens ?? 0;
@@ -379,7 +379,7 @@ export async function statusTable(env: Env, now = Date.now()) {
     active_listings: (await env.store.listings.latestSet()).length,
     waiting_changes: pending.length,
     last_nightly_at: iso(nightly?.at),
-    claude_daily_budget_usd: CLAUDE_DAILY_BUDGET_USD,
+    claude_daily_budget_usd: claudeDailyBudgetUsd(env),
     now: iso(now)!,
   };
 }

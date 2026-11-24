@@ -8,6 +8,7 @@ param env string
 param location string
 param suffix string
 param writeMode string
+param claudeDailyBudgetUsd string = ''
 param ownerObjectId string
 param sandboxConveniences bool
 param cosmosEndpoint string
@@ -192,6 +193,7 @@ resource site 'Microsoft.Web/sites@2024-04-01' = {
           { name: 'APPLICATIONINSIGHTS_AUTHENTICATION_STRING', value: 'Authorization=AAD' }
           { name: 'EBAY_ENV', value: env }
           { name: 'WRITE_MODE', value: writeMode }
+          { name: 'CLAUDE_DAILY_BUDGET_USD', value: claudeDailyBudgetUsd }
           { name: 'EBAY_MARKETPLACE', value: 'EBAY_GB' }
           { name: 'EBAY_SITE_ID', value: '3' }
           { name: 'PUBLIC_URL', value: publicUrl }

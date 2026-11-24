@@ -40,6 +40,8 @@ export interface Env {
   VAPID_KEY?: string;
   /** K's Anthropic API key, for the audit and nightly triage. */
   ANTHROPIC_API_KEY?: string;
+  /** Lowers the Claude daily budget for this environment; "0" stops Claude (src/rules.ts, claudeDailyBudgetUsd). */
+  CLAUDE_DAILY_BUDGET_USD?: string;
   /** "true" on Sandbox only: DASHBOARD_KEY signs in as a test owner. */
   ALLOW_KEY_LOGIN?: string;
   /** "true" to serve /mcp (Sandbox). Off in production. */

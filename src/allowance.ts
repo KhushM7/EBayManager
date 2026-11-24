@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 import { push } from "./notify";
-import { CLAUDE_DAILY_BUDGET_USD } from "./rules";
+import { claudeDailyBudgetUsd } from "./rules";
 import { MONTHLY_CAP, providerEnabled, providerKeys, refreshQuota, usedThisMonth, type Provider, type Slot } from "./solddata";
 import type { TodoInput } from "./store/todos";
 
@@ -64,8 +64,9 @@ export async function allowances(env: Env, now = Date.now()): Promise<Allowance[
   const since = Math.min(dayStart(now), credit?.at ?? Infinity);
   const rows = await env.store.usage.since(since);
   const today = rows.filter((r) => r.at >= dayStart(now)).reduce((s, r) => s + r.cost_usd, 0);
-  const budgetLeft = Math.max(0, CLAUDE_DAILY_BUDGET_USD - today);
-  const notes = [`Today: ${money(today)} of the ${money(CLAUDE_DAILY_BUDGET_USD)} daily budget used${budgetLeft <= 0 ? " (used up until midnight UTC)" : ""}.`];
+  const budget = claudeDailyBudgetUsd(env);
+  const budgetLeft = Math.max(0, budget - today);
+  const notes = [budget <= 0 ? "Claude is switched off for this environment: nothing calls it." : `Today: ${money(today)} of the ${money(budget)} daily budget used${budgetLeft <= 0 ? " (used up until midnight UTC)" : ""}.`];
 
   let claude: Allowance;
   if (!env.ANTHROPIC_API_KEY) {

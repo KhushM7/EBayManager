@@ -10,6 +10,7 @@ import {
   decide,
   DEFAULT_PARAMS,
   marketState,
+  reliableDays,
   type Costs,
   type Decision,
   type MarketSale,
@@ -353,7 +354,9 @@ export function sumOfParts(parts: ComponentResult[], postage: number, floor?: nu
   const itemPrice = (p: ComponentResult, i: number) => Math.max(0, (p.decision.options[i]?.total ?? p.decision.total!) - p.typicalPostage);
   const options = [0, 1, 2].map((i) => {
     const price = r2(valued.reduce((s, p) => s + itemPrice(p, i), 0));
-    const slowest = Math.max(...valued.map((p) => p.decision.options[i]?.daysToSell ?? 0));
+    // The slowest part; one part without a reliable estimate means there's none for the whole.
+    const waits = valued.map((p) => reliableDays(p.decision.options[i]?.daysToSell));
+    const slowest = waits.some((w) => w == null) ? null : Math.max(...(waits as number[]));
     return { total: r2(price + postage), price, daysToSell: slowest, chance30: Math.min(...valued.map((p) => p.decision.options[i]?.chance30 ?? 0)), keeps: price, expectedValue: price };
   });
   const price = Math.max(charmPrice(options[1].price), floor ?? 0);
@@ -408,7 +411,7 @@ export async function recordDecision(env: Env, itemId: string | null, r: PriceRe
     price: r.decision.price,
     total: r.decision.total,
     market_price: m?.mNow ?? null,
-    predicted_days: r.decision.options[1]?.daysToSell ?? null,
+    predicted_days: reliableDays(r.decision.options[1]?.daysToSell),
     result: JSON.stringify(r).slice(0, 60_000),
   });
 }

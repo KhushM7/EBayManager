@@ -1,3 +1,4 @@
+import { log, swallow } from "./log";
 import type { Env } from "./env";
 import { runFirstDayAudit } from "./firstday";
 import { auditListing } from "./jobs";
@@ -68,11 +69,12 @@ export async function runJob(env: Env, jobId: string): Promise<void> {
     const result = JSON.stringify(await execute(env, kind, JSON.parse(job.args)));
     await env.store.jobs.finishJob(jobId, Date.now(), { result: result.length > 1_000_000 ? JSON.stringify({ truncated: true }) : result });
     // The audit sends its own summary; the others say they're ready.
-    if (kind !== "firstday") await push(env, `${TITLES[kind]} ready`, "Open the app to see it.", undefined, `job-${jobId}`).catch(() => {});
+    if (kind !== "firstday") await push(env, `${TITLES[kind]} ready`, "Open the app to see it.", undefined, `job-${jobId}`).catch(swallow(env, "push.failed", { detail: kind }));
   } catch (e) {
     const error = (e instanceof Error ? e.message : String(e)).slice(0, 1000);
+    await log(env, "error", "job.failed", { job: kind, detail: jobId, err: e });
     await env.store.jobs.finishJob(jobId, Date.now(), { error });
-    await push(env, `${TITLES[kind]} failed`, error.slice(0, 200), undefined, `job-${jobId}`).catch(() => {});
+    await push(env, `${TITLES[kind]} failed`, error.slice(0, 200), undefined, `job-${jobId}`).catch(swallow(env, "push.failed", { detail: kind }));
   }
 }
 

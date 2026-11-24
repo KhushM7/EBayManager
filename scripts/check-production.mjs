@@ -76,6 +76,10 @@ for (const kind of ["ftp", "scm"]) {
 const cosmos = az(["cosmosdb", "show", "-g", "rg-ebay-shared", "-n", o.cosmosAccount, "--query", "{local:disableLocalAuth, free:enableFreeTier, tls:minimalTlsVersion}"], { json: true });
 check("AZ  Cosmos DB: keys disabled, free tier, TLS 1.2", cosmos.local === true && cosmos.free === true && cosmos.tls === "Tls12", JSON.stringify(cosmos));
 
+// Logging: a workspace over its daily cap drops everything until it resets (docs/production-fixes-plan.md).
+const cap = az(["monitor", "log-analytics", "workspace", "show", "-g", o.resourceGroup, "-n", o.functionAppName.replace("ebay-autopilot", "log-ebay"), "--query", "workspaceCapping"], { json: true });
+check("LOG  Azure logging is under its daily cap", cap?.dataIngestionStatus === "RespectQuota", JSON.stringify(cap));
+
 const code = "go-live-check";
 const res = await (await get(`/ebay/account-deletion?challenge_code=${code}`)).json().catch(() => ({}));
 if (vars.EBAY_DELETION_TOKEN) {

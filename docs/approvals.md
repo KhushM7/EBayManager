@@ -11,7 +11,7 @@ Decided 2026-11-02, replacing the earlier rule that covered only prices and mess
 | `price` | Price of a listing | Trading `ReviseFixedPriceItem` | **Locked** |
 | `message` | A message to a buyer | Trading `AddMemberMessageRTQ` | **Locked** |
 | `best_offer_response` | Accept, decline or counter a Best Offer | Trading `RespondToBestOffer` | **Locked** |
-| `offer_to_watchers` | Send a small reminder offer to watchers (2% to 5% off, `src/watchers.ts`) | Negotiation `sendOfferToInterestedBuyers` | **Locked** |
+| `offer_to_watchers` | Send a small reminder offer to watchers (5% off, eBay's minimum and K's maximum, `src/watchers.ts`) | Negotiation `sendOfferToInterestedBuyers` | **Locked** |
 | `create_listing` | Publish a new listing | Trading `AddFixedPriceItem` (Inventory `publishOffer` from Phase 8) | **Locked** |
 | `end_listing` | End a listing early | Trading `EndFixedPriceItem` | **Locked** |
 | `policy` | Return, shipping or payment business policy | Account API | **Locked** |
@@ -39,7 +39,9 @@ The Inbox holds two things: **labels** (proposals, which change eBay only once a
 | --- | --- | --- | --- |
 | Answer | The pricing engine's question, missing measurements, a fault to describe | The answer is saved as K's facts for the listing (the engine and Claude's edits use them, cited "from K"); an engine question also starts a fresh price check | K only |
 | Claude can do this | "Let Claude improve this listing" (title, specifics, description) | Runs the Claude listing review, which files ordinary labels | Anyone |
-| For you to do | Add photos, turn on Best Offer, a flagged listing that got no label | Done or Dismiss | Anyone |
+| For you to do | Add photos, turn on Best Offer | Done or Dismiss | Anyone |
+
+A health flag alone is never a to-do (K, 2026-11-24): the sales ladder files the step that can be taken as a label, and nothing when there isn't one. With Claude off, to-dos only Claude could act on aren't filed, and "Let Claude draft it" refuses and stays open.
 
 A finding that already has a label gets no to-do. One to-do per check and listing (or policy): the audit and the nightly file the same one, not two. A rerun refreshes open to-dos and resolves those whose problem has gone; a dismissed or done to-do stays closed unless the problem changes (its fingerprint), and to-dos for ended listings close. The Inbox badge counts labels plus open to-dos.
 
@@ -58,6 +60,17 @@ pending ──┤
 - K can edit pending replies and offer answers in the Inbox before approving.
 - An approved proposal is applied immediately by the write gate. If the gate refuses it because writes are paused, it stays `approved` and is applied when K resumes writes. In production read-only it is marked dry run and never applied.
 - Each proposal stores the old value, the new value, the reason, and any guardrail flags (for example "more than 10% change" or "below floor").
+
+## History (2026-11-24)
+
+The Inbox has two tabs. **To decide** holds pending labels and open to-dos, with labels that are approved but held, being sent, or refused by eBay pinned at the top as *Not finished* (a refusal leaves after 14 days, or once the same change is suggested again). **History** holds everything else: closed labels, to-dos and the old bundle advice, each with one plain outcome. The Applied, Rejected, Refused and Expired tabs are gone; their links open History with the matching filter.
+
+- **Events** (`src/store/events.ts`): each change to a label, to-do or bundle advice also writes one `suggestion_event`, in the same partition and the same batch, never changed or deleted (an eBay account deletion removes that person's name from to-dos' words). They record filed, notified (a device took the push), seen (a card was on someone's screen), edited, approved, sending, applied, failed, rejected, expired, done, dismissed, resolved, reopened, and who and why.
+- **Why it closed** (`closed_reason`): ran out of time, replaced by a newer one (`superseded_by`), problem gone, listing sold, listing ended, replaced by a later run, buyer's account deleted, or not recorded (older rows).
+- **To-dos that come back** start a new episode; the earlier one stays in History with its outcome and note.
+- **No buyer's words.** Labels' events carry ids and codes only. A to-do's words are kept only from runs that can't quote a buyer.
+- **Sold or ended listings:** the nightly closes their pending price, edit, ad, watcher-offer and end labels and their to-dos, saying which (`closeForEnded`). Replies stay.
+- **Older suggestions:** `node scripts/backfill-history.mjs sandbox|production` (dry run unless `--write`; production is K's) records what the stored rows prove. `node scripts/export-jobs.mjs` saves background job results before their 30 days are up, outside git.
 
 ## How K approves
 

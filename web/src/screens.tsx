@@ -2,8 +2,11 @@ import { AnimatePresence, LayoutGroup, motion, useMotionValue, useScroll, useTra
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, apiJob, SignedOut, type Activity as Row, type Device, type Listing, type Me, type Proposal } from "./api";
 import { DraftEditor, EDITABLE } from "./drafts";
+import { SoldStrip } from "./offers";
 import { ago, daysSince, describe, money, plural } from "./format";
-import { BundleAdvice, PriceCheck } from "./pricing";
+import { BundleStrip } from "./bundles";
+import { PriceCheck } from "./pricing";
+import { History, inboxStart, useSeen } from "./history";
 import { Todos } from "./todos";
 import { Facts, StyleCard } from "./report";
 import { ListingRulesCard } from "./rules";
@@ -39,6 +42,7 @@ const KIND: Record<string, { label: string; Icon: (p: { size?: number }) => any;
   revise: { label: "Listing edit", Icon: Icons.sparkles, tone: "text-blue bg-blue-soft" },
   create_listing: { label: "New listing", Icon: Icons.box, tone: "text-green bg-green-soft" },
   message: { label: "Reply to a buyer", Icon: Icons.message, tone: "text-yellow bg-yellow-soft" },
+  new_message: { label: "Message a buyer", Icon: Icons.message, tone: "text-accent bg-accent-soft" },
   best_offer_response: { label: "Answer an offer", Icon: Icons.tag, tone: "text-yellow bg-yellow-soft" },
   end_listing: { label: "End listing", Icon: Icons.x, tone: "text-red bg-red-soft" },
   relist: { label: "Relist", Icon: Icons.refresh, tone: "text-blue bg-blue-soft" },
@@ -61,14 +65,10 @@ const STATE: Record<string, [string, string]> = {
 
 // ---------------------------------------------------------------- Inbox
 
-// "Recorded only" (approvals made while the account was read-only) is reached from Settings > Advanced.
-const STATUSES = [
-  { id: "pending", label: "To decide" },
-  { id: "applied", label: "Applied" },
-  { id: "rejected", label: "Rejected" },
-  { id: "failed", label: "Refused" },
-  { id: "expired", label: "Expired" },
-];
+const TABS = [
+  { id: "decide", label: "To decide" },
+  { id: "history", label: "History" },
+] as const;
 
 const hasFigure = (p: Proposal) => ["price", "best_offer_response", "create_listing", "promote", "offer_to_watchers"].includes(p.kind) || (p.kind === "revise" && Boolean(p.payload?.title));
 
@@ -140,6 +140,7 @@ function ProposalCard({
   onSignedOut: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const seen = useSeen(p.id);
   const x = useMotionValue(0);
   const approveOpacity = useTransform(x, [20, 120], [0, 1]);
   const rejectOpacity = useTransform(x, [-120, -20], [1, 0]);
@@ -158,6 +159,7 @@ function ProposalCard({
 
   return (
     <motion.li
+      ref={seen}
       layout
       variants={item}
       exit={{ opacity: 0, height: 0, marginTop: 0, transition: { duration: 0.3, ease: EASE_OUT } }}
@@ -283,17 +285,19 @@ function ProposalCard({
   );
 }
 
-export function Inbox({ me, onSignedOut, onChanged }: ScreenProps) {
-  const initial = new URLSearchParams(location.search).get("status") ?? "pending";
-  const [status, setStatus] = useState(initial);
-  const { data, error, reload } = useData<Proposal[]>(`/proposals?status=${status}`, onSignedOut);
+export function Inbox({ me, onSignedOut, onChanged, go }: ScreenProps) {
+  const start = inboxStart(location.search);
+  const [tab, setTab] = useState<"decide" | "history">(start.tab);
+  const { data, error, reload } = useData<Proposal[]>("/proposals?status=pending", onSignedOut);
+  // Past the decision but not finished: held while changes are paused, being sent, or refused by eBay.
+  const attention = useData<Proposal[]>("/suggestions/attention", onSignedOut);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [gone, setGone] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [todoCount, setTodoCount] = useState(0);
   const toasts = useToasts();
 
-  useEffect(() => (setSelected(new Set()), setGone(new Set())), [status]);
+  useEffect(() => (setSelected(new Set()), setGone(new Set())), [tab]);
 
   const decide = async (ids: string[], decision: "approve" | "reject") => {
     setBusy(true);
@@ -303,7 +307,7 @@ export function Inbox({ me, onSignedOut, onChanged }: ScreenProps) {
       for (const r of out.slice(0, 2)) toasts.push(decision === "approve" ? "good" : "info", r.result);
       if (out.length > 2) toasts.push("good", `${out.length} decided.`);
       setSelected(new Set());
-      setTimeout(() => (reload(), onChanged()), 900);
+      setTimeout(() => (reload(), attention.reload(), onChanged()), 900);
     } catch (e) {
       if (e instanceof SignedOut) onSignedOut();
       else toasts.push("bad", (e as Error).message);
@@ -320,16 +324,33 @@ export function Inbox({ me, onSignedOut, onChanged }: ScreenProps) {
     });
 
   const rows = (data ?? []).filter((p) => !gone.has(p.id));
-  const waiting = status === "pending";
-  const summary = [todoCount && plural(todoCount, "suggestion"), rows.length && `${rows.length} to decide`].filter(Boolean).join(" · ");
+  const waiting = tab === "decide";
+  const stuck = attention.data ?? [];
+  const summary = [stuck.length && `${stuck.length} not finished`, todoCount && plural(todoCount, "suggestion"), rows.length && `${rows.length} to decide`].filter(Boolean).join(" · ");
   return (
     <div class="max-w-3xl">
       <div class="page-head">
         <div>
           <h1>Inbox</h1>
-          <p>{waiting ? (data ? summary || "Nothing needs you right now." : "Checking…") : status === "agreed" ? "Approvals recorded while the account was read-only. None of these reached eBay." : "Changes already decided."}</p>
+          <p>{waiting ? (data ? summary || "Nothing needs you right now." : "Checking…") : "Everything suggested so far, and what became of it."}</p>
         </div>
+        <button class="btn btn-secondary" onClick={() => go("/offers")}>
+          <Icons.tag size={16} /> Offers and sales
+        </button>
       </div>
+
+      <LayoutGroup id="inbox-tabs">
+        <div class="tabs" role="tablist">
+          {TABS.map((t) => (
+            <button role="tab" aria-selected={t.id === tab} class="tab" onClick={() => setTab(t.id)}>
+              {t.id === tab && <motion.span layoutId="inbox-tab" class="tab-active" transition={SPRING} />}
+              <span>{t.label}</span>
+            </button>
+          ))}
+        </div>
+      </LayoutGroup>
+
+      {tab === "history" && <History start={start.filter} onSignedOut={onSignedOut} />}
 
       {waiting && me.writesBlocked && (
         <div class="mb-4 flex items-center gap-3 rounded-2xl border border-line bg-yellow-soft px-4 py-3 text-sm text-yellow">
@@ -337,21 +358,21 @@ export function Inbox({ me, onSignedOut, onChanged }: ScreenProps) {
         </div>
       )}
 
-      {waiting && <Todos me={me} onSignedOut={onSignedOut} onCount={setTodoCount} onChanged={onChanged} />}
-      {waiting && <BundleAdvice onSignedOut={onSignedOut} />}
-
-      <div class={waiting && todoCount ? "section" : ""}>
-        {waiting && todoCount > 0 && <h2 class="inbox-sub">Changes to approve</h2>}
-        <LayoutGroup id="inbox-tabs">
-          <div class="tabs" role="tablist">
-            {(status === "agreed" ? [...STATUSES, { id: "agreed", label: "Recorded only" }] : STATUSES).map((s) => (
-              <button role="tab" aria-selected={s.id === status} class="tab" onClick={() => setStatus(s.id)}>
-                {s.id === status && <motion.span layoutId="inbox-tab" class="tab-active" transition={SPRING} />}
-                <span>{s.label}</span>
-              </button>
+      {waiting && stuck.length > 0 && (
+        <section class="mb-6" aria-label="Not finished">
+          <h2 class="inbox-sub">Not finished</h2>
+          <ol class="m-0 grid gap-3 p-0">
+            {stuck.map((p) => (
+              <ProposalCard key={p.id} p={p} waiting={false} busy={false} selected={false} onToggle={() => {}} onDecide={() => {}} onSaved={reload} onSignedOut={onSignedOut} />
             ))}
-          </div>
-        </LayoutGroup>
+          </ol>
+        </section>
+      )}
+      {waiting && <Todos me={me} onSignedOut={onSignedOut} onCount={setTodoCount} onChanged={onChanged} />}
+      {waiting && <BundleStrip go={go} onSignedOut={onSignedOut} />}
+
+      {waiting && (<div class={waiting && todoCount ? "section" : ""}>
+        {waiting && todoCount > 0 && <h2 class="inbox-sub">Changes to approve</h2>}
 
         {error && <p class="error">{error}</p>}
         {!data && !error && (
@@ -364,8 +385,8 @@ export function Inbox({ me, onSignedOut, onChanged }: ScreenProps) {
             ))}
           </div>
         )}
-        {data && !rows.length && (waiting ? !todoCount && <AllClear /> : <p class="card text-muted">None yet.</p>)}
-        {data && !rows.length && waiting && todoCount > 0 && <p class="card text-muted">No changes waiting. Your suggestions are above.</p>}
+        {data && !rows.length && !todoCount && !stuck.length && <AllClear />}
+        {data && !rows.length && todoCount > 0 && <p class="card text-muted">No changes waiting. Your suggestions are above.</p>}
 
         <motion.ol class="grid gap-3 p-0" variants={list} initial="hidden" animate="show">
           <AnimatePresence initial={false}>
@@ -384,7 +405,7 @@ export function Inbox({ me, onSignedOut, onChanged }: ScreenProps) {
             ))}
           </AnimatePresence>
         </motion.ol>
-      </div>
+      </div>)}
 
       <AnimatePresence>
         {selected.size > 0 && (
@@ -552,6 +573,7 @@ export function Listings({ me, onSignedOut, onChanged, go }: ScreenProps) {
         </div>
       </div>
 
+      <SoldStrip go={go} />
       {data && rows.length > 0 && (
         <div class="mb-5 grid grid-cols-3 gap-3">
           {[
@@ -1072,7 +1094,54 @@ function CreditForm({ usage, run, busy, reload }: { usage: Usage; run: Run; busy
   );
 }
 
-function UsageSection({ me, usage, run, busy }: { me: Me; usage: ReturnType<typeof useData<Usage>>; run: Run; busy: boolean }) {
+interface LastRuns {
+  poll: number | null;
+  nightly: number | null;
+  failedSteps: string[];
+  problems: { at: number; level: string; event: string; detail: string | null }[];
+}
+
+/** When the app's own checks last ran, and the week's problems (owner only; already stripped of private details). */
+function LastRunsBlock({ onSignedOut }: { onSignedOut: () => void }) {
+  const runs = useData<LastRuns>("/events", onSignedOut);
+  const r = runs.data;
+  if (!r) return runs.error ? <p class="error">{runs.error}</p> : null;
+  const at = (ms: number | null) => (ms ? new Date(ms).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Not yet");
+  return (
+    <Section title="Last runs" sub="When the app last checked eBay, and anything that went wrong in the last 7 days.">
+      <dl class="figures">
+        <div>
+          <dt>Offers, messages and sales</dt>
+          <dd>{at(r.poll)}</dd>
+        </div>
+        <div>
+          <dt>Nightly check</dt>
+          <dd>
+            {at(r.nightly)}
+            {r.failedSteps.length > 0 && <span class="font-normal text-yellow"> · {r.failedSteps.length} failed</span>}
+          </dd>
+        </div>
+      </dl>
+      {r.problems.length > 0 ? (
+        <details class="mt-3">
+          <summary class="cursor-pointer text-sm text-muted">{r.problems.length === 20 ? "20 or more problems" : plural(r.problems.length, "problem")}</summary>
+          <ul class="mt-2 grid gap-2 p-0">
+            {r.problems.map((p, i) => (
+              <li class="list-none text-sm break-words" key={i}>
+                <span class="text-muted">{at(p.at)}</span> {p.event.replace(/[._]/g, " ")}
+                {p.detail ? <span class="text-muted">: {p.detail.slice(0, 200)}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : (
+        <p class="mt-3 text-sm text-muted">No problems recorded.</p>
+      )}
+    </Section>
+  );
+}
+
+function UsageSection({ me, usage, run, busy, onSignedOut }: { me: Me; usage: ReturnType<typeof useData<Usage>>; run: Run; busy: boolean; onSignedOut: () => void }) {
   const owner = me.user.role === "owner";
   const u = usage.data;
   if (!u) return <div class="card">{usage.error ? <p class="error">{usage.error}</p> : <div class="skeleton h-40" />}</div>;
@@ -1136,6 +1205,7 @@ function UsageSection({ me, usage, run, busy }: { me: Me; usage: ReturnType<type
           </>
         )}
       </Section>
+      {owner && <LastRunsBlock onSignedOut={onSignedOut} />}
     </div>
   );
 }
@@ -1204,7 +1274,7 @@ export function Settings(props: ScreenProps) {
     ) : s === "listing" ? (
       owner ? <ListingRulesCard onSignedOut={onSignedOut} /> : <p class="text-sm text-muted">Only the owner sets how listings are written.</p>
     ) : (
-      <UsageSection me={me} usage={usage} run={run} busy={busy} />
+      <UsageSection onSignedOut={onSignedOut} me={me} usage={usage} run={run} busy={busy} />
     );
 
   const menu = (

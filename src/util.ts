@@ -21,3 +21,10 @@ export const stripHtml = (html: string) =>
     .replace(/&amp;/g, "&")
     .replace(/\s+/g, " ")
     .trim();
+
+/** The longest wait worth stating. Past it the sale model has too little demand to go on (2026-11-24: it reached billions of days). */
+export const MAX_DAYS = 365;
+
+/** A wait to rely on, or null: also applied on reading, since stored decisions may hold absurd figures. */
+export const reliableDays = (d: unknown): number | null =>
+  typeof d === "number" && Number.isFinite(d) && d >= 0 && d <= MAX_DAYS ? Math.round(d) : null;

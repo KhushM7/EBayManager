@@ -72,11 +72,13 @@ self.addEventListener("notificationclick", (event) => {
   n.close();
 
   if (!url) {
-    // Tapping the notification body opens the Inbox to review it there.
+    // Tapping the notification body opens the Inbox to review it there (a buyer's message: Messages).
+    const to = String(n.tag ?? "").startsWith("message-") ? "/messages" : "/";
     event.waitUntil(
       self.clients.matchAll({ type: "window" }).then((wins) => {
         const open = wins.find((w) => new URL(w.url).origin === location.origin);
-        return open ? open.focus() : self.clients.openWindow("/");
+        if (!open) return self.clients.openWindow(to);
+        return to === "/" ? open.focus() : open.focus().then((w) => w.navigate(to)).catch(() => self.clients.openWindow(to));
       }),
     );
     return;

@@ -1,3 +1,4 @@
+import { swallow } from "./log";
 import type { Env } from "./env";
 import { push } from "./notify";
 import { claudeDailyBudgetUsd } from "./rules";
@@ -49,7 +50,7 @@ const dayStart = (now: number) => {
 };
 
 export async function getClaudeCredit(env: Env): Promise<{ usd: number; at: number } | null> {
-  return env.store.kv.getJson<{ usd: number; at: number }>(CREDIT_KEY).catch(() => null);
+  return env.store.kv.getJson<{ usd: number; at: number }>(CREDIT_KEY).catch(swallow(env, "allowance.credit_unread"));
 }
 
 /** K's entry from the Claude Console's balance (owner only, from Settings). null clears it. */
@@ -173,7 +174,7 @@ export async function checkAllowances(env: Env, now = Date.now()): Promise<strin
   const r = await env.store.todos.sync("allowance", { codes: [CODE] }, todos, now);
   if (r.opened) {
     const fresh = (await env.store.todos.list("open")).filter((t) => t.code === CODE && !before.has(t.id));
-    for (const t of fresh) await push(env, t.title, t.detail, undefined, `allowance-${t.id}`).catch(() => null);
+    for (const t of fresh) await push(env, t.title, t.detail, undefined, `allowance-${t.id}`).catch(swallow(env, "push.failed", { detail: t.title }));
   }
   return `${todos.length} low or out${r.opened ? `, ${r.opened} new` : ""}`;
 }

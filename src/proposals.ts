@@ -1,7 +1,9 @@
 import type { Env } from "./env";
 import { titleLock } from "./ebay/trading";
 import { callFor, ebayWrite, WriteRefused } from "./ebay/write";
+import { log } from "./log";
 import { push } from "./notify";
+import { swallow } from "./log";
 import { snapshotListings } from "./snapshot";
 import { PROPOSAL_TTL_DAYS } from "./rules";
 import { newProposalId } from "./store/proposals";
@@ -16,6 +18,7 @@ export type ProposalKind =
   | "promote"
   | "offer_to_watchers"
   | "message"
+  | "new_message"
   | "best_offer_response"
   | "policy";
 
@@ -36,7 +39,7 @@ export interface Proposal {
 /** Records a proposal. While WRITE_MODE is off it is a dry run that can never be applied. */
 export async function createProposal(
   env: Env,
-  p: { kind: ProposalKind; itemId?: string; payload: unknown; reason?: string },
+  p: { kind: ProposalKind; itemId?: string; payload: unknown; reason?: string; /** Lapses sooner than usual, as a buyer's offer does. */ expiresAt?: number | null },
 ): Promise<Proposal> {
   const now = Date.now();
   const row: Proposal = {
@@ -48,7 +51,7 @@ export async function createProposal(
     status: "pending",
     dry_run: env.WRITE_MODE === "approval" ? 0 : 1,
     created_at: now,
-    expires_at: now + PROPOSAL_TTL_DAYS * 86_400_000,
+    expires_at: Math.min(now + PROPOSAL_TTL_DAYS * 86_400_000, p.expiresAt ?? Infinity),
   };
   // A newer price, revision or ad rate for the same item supersedes the pending one, in the same transaction.
   // Replies and offer responses never do: each answers a different buyer.
@@ -97,11 +100,13 @@ export async function proposeAndNotify(
   // On the real account, replies and offer answers are approved in the app, not from the lock screen.
   const appOnly = env.EBAY_ENV === "production" && APP_ONLY_KINDS.includes(row.kind) && (await requireAppForReplies(env));
   const links = opts.links === false || appOnly ? undefined : await decisionLinks(env, row);
-  await push(env, row.dry_run ? `Dry run: ${title}` : title, body, links, row.id);
+  // "Notified" is recorded only when a device took the push.
+  const delivered = await push(env, row.dry_run ? `Dry run: ${title}` : title, body, links, row.id);
+  if (delivered) await env.store.proposals.markNotified(row.id, Date.now()).catch(swallow(env, "history.notified", { proposalId: row.id }));
   return { proposalId: row.id, status: row.dry_run ? "dry run: cannot be applied while writes are off" : "pending K's approval" };
 }
 
-const APP_ONLY_KINDS = ["message", "best_offer_response"];
+const APP_ONLY_KINDS = ["message", "new_message", "best_offer_response"];
 
 /** Settings switch, on unless K turns it off: replies and offer answers need the app, not a notification tap. */
 export async function requireAppForReplies(env: Env): Promise<boolean> {
@@ -109,7 +114,7 @@ export async function requireAppForReplies(env: Env): Promise<boolean> {
 }
 
 /** Kinds whose pending drafts K may edit in the Inbox before approving. */
-export const EDITABLE_KINDS = ["message", "best_offer_response"];
+export const EDITABLE_KINDS = ["message", "new_message", "best_offer_response"];
 
 /** K's edit to a pending draft: the reply text, or the offer action, counter price and message. */
 export async function editProposal(env: Env, id: string, changes: Record<string, unknown>, actor: string | null = null): Promise<string> {
@@ -118,7 +123,7 @@ export async function editProposal(env: Env, id: string, changes: Record<string,
   if (p.status !== "pending") return `Already ${p.status}`;
   if (!EDITABLE_KINDS.includes(p.kind)) return `A ${p.kind} proposal can't be edited`;
   const payload = JSON.parse(p.payload);
-  if (p.kind === "message") {
+  if (p.kind === "message" || p.kind === "new_message") {
     if (typeof changes.body !== "string") return "Give the reply text";
     payload.body = changes.body.slice(0, 2000);
   } else {
@@ -130,14 +135,14 @@ export async function editProposal(env: Env, id: string, changes: Record<string,
   }
   payload.editedByK = true;
   payload.editedBy = actor;
-  if (!(await env.store.proposals.editPayload(id, JSON.stringify(payload)))) return "Already decided";
+  if (!(await env.store.proposals.editPayload(id, JSON.stringify(payload), actor))) return "Already decided";
   return "Saved";
 }
 
 /** Listing changes show on the Listings screen straight away; a failed re-read waits for the nightly one. */
 async function refreshAfterChange(env: Env, kind: string) {
   if (!["price", "revise", "create_listing", "end_listing", "relist"].includes(kind)) return;
-  await snapshotListings(env).catch(() => {});
+  await snapshotListings(env).catch(swallow(env, "listings.refresh_failed"));
 }
 
 /** Applies proposals K approved while writes were paused. Run when K resumes writes. */
@@ -177,6 +182,7 @@ const KIND_WORDS: Record<string, string> = {
   revise: "the listing edit",
   create_listing: "the new listing",
   message: "the reply",
+  new_message: "the message",
   best_offer_response: "the offer answer",
 };
 const failedCode = (kind: string) => `ebay_refused_${kind}`;
@@ -189,7 +195,7 @@ const failedCode = (kind: string) => `ebay_refused_${kind}`;
  */
 export async function reportWriteFailure(env: Env, p: Pick<Proposal, "id" | "kind" | "item_id" | "payload">, message: string, now = Date.now()) {
   const what = KIND_WORDS[p.kind] ?? `the ${p.kind.replace(/_/g, " ")}`;
-  const calls = (await env.store.audit.recent(40).catch(() => [])).filter((r) => r.proposal_id === p.id).reverse();
+  const calls = ((await env.store.audit.recent(40).catch(swallow(env, "refusal.audit_read_failed", { proposalId: p.id }))) ?? []).filter((r) => r.proposal_id === p.id).reverse();
   const title = (() => {
     try {
       return String(JSON.parse(p.payload).itemTitle ?? JSON.parse(p.payload).title ?? "") || null;
@@ -209,13 +215,13 @@ export async function reportWriteFailure(env: Env, p: Pick<Proposal, "id" | "kin
   const detail = `You approved ${what}, but eBay didn't accept it, so nothing changed on eBay.\neBay said: ${message.split("\n")[0].slice(0, 300)}\nCopy the diagnostics below to Claude to get it fixed. Approving the label again won't help until then.\n${DIAGNOSTICS_MARK}\n${diagnostics}`;
   await env.store.todos
     .sync("gate", { codes: [failedCode(p.kind)], itemIds: p.item_id ? [p.item_id] : null }, [{ code: failedCode(p.kind), kind: "you", itemId: p.item_id, itemTitle: title, subject: p.item_id ? null : p.id, title: `eBay refused ${what}`, detail, fingerprint: `${p.id}:${now}` }], now)
-    .catch(() => null);
-  await push(env, `eBay refused ${what}`, `${title ? `${title.slice(0, 60)}: ` : ""}${message.split("\n")[0].slice(0, 160)} The details are in the Inbox.`, undefined, `refused-${p.id}`).catch(() => null);
+    .catch(swallow(env, "refusal.todo_failed", { proposalId: p.id }));
+  await push(env, `eBay refused ${what}`, `${title ? `${title.slice(0, 60)}: ` : ""}${message.split("\n")[0].slice(0, 160)} The details are in the Inbox.`, undefined, `refused-${p.id}`).catch(swallow(env, "refusal.push_failed", { proposalId: p.id }));
 }
 
 /** The same kind of change has now gone through for this listing: its "eBay refused" to-do, if any, is resolved. */
-async function clearWriteFailure(env: Env, p: Pick<Proposal, "kind" | "item_id">, now = Date.now()) {
-  if (p.item_id) await env.store.todos.sync("gate", { codes: [failedCode(p.kind)], itemIds: [p.item_id] }, [], now).catch(() => null);
+async function clearWriteFailure(env: Env, p: Pick<Proposal, "id" | "kind" | "item_id">, now = Date.now()) {
+  if (p.item_id) await env.store.todos.sync("gate", { codes: [failedCode(p.kind)], itemIds: [p.item_id] }, [], now).catch(swallow(env, "refusal.clear_failed", { proposalId: p.id }));
 }
 
 export const DRY_RUN_AGREED = "Dry run: recorded as approved. Nothing was sent to eBay, and it can't be.";
@@ -234,6 +240,7 @@ export async function decide(env: Env, id: string, decision: "approve" | "reject
   if (!p) return "Not found";
   if (p.status !== "pending") return `Already ${p.status}`;
   const now = Date.now();
+  if (EDITABLE_KINDS.includes(p.kind)) await log(env, "info", "inbox.decided", { itemId: p.item_id ?? undefined, proposalId: id, detail: `${p.kind} ${decision}` });
   if (p.expires_at < now) {
     await env.store.proposals.expire(id, now);
     return "Expired";

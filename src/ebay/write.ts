@@ -4,6 +4,9 @@ import { PROMOTION_RATE, RETURNS, WATCHER_OFFER } from "../rules";
 import { EbayCallError, esc, mediaUpload, restWrite, tradingRequest, tradingUpload } from "./trading";
 import { getCampaigns, getPromotedListings } from "./sell";
 import { ebayHosts } from "./hosts";
+import { structure } from "./inbox";
+import { NEW_MESSAGE_PATH, newMessageBody } from "./messages";
+import { log, swallow } from "../log";
 import { seqId } from "../store/doc";
 
 // The write gate. This is the only module that may send an eBay write (enforced by test/safety.test.ts).
@@ -105,7 +108,14 @@ export function callFor(p: Pick<Proposal, "kind" | "item_id" | "payload">): Writ
         )}</ParentMessageID><RecipientID>${esc(String(a.recipientId))}</RecipientID></MemberMessage>`,
       };
     }
+    case "new_message": {
+      const body = newMessageBody(a, p.item_id);
+      if (!body.messageText) throw new WriteRefused("The message is empty. Write it before approving.");
+      if (!a.conversationId && !String(a.recipientId ?? "").trim()) throw new WriteRefused("The message has nobody to go to.");
+      return { call: "sendMessage", xml: JSON.stringify(body), rest: { method: "POST", path: NEW_MESSAGE_PATH, body } };
+    }
     case "best_offer_response": {
+      if (a.expiresAt != null && Number(a.expiresAt) < Date.now()) throw new WriteRefused("This offer has expired on eBay, so it can't be answered.");
       const action = a.action === "accept" ? "Accept" : a.action === "decline" ? "Decline" : a.action === "counter" ? "Counter" : null;
       if (!action) throw new WriteRefused(`Unknown offer action ${a.action}`);
       if (action === "Counter" && !(Number(a.counterPrice) > 0)) throw new WriteRefused("A counter-offer needs a price.");
@@ -124,7 +134,7 @@ export function callFor(p: Pick<Proposal, "kind" | "item_id" | "payload">): Writ
       // K's rule, enforced here: a small reminder discount only (WATCHER_OFFER), whatever the proposal says.
       const percent = Number(a.percent);
       if (!(percent >= WATCHER_OFFER.minPercent && percent <= WATCHER_OFFER.maxPercent))
-        throw new WriteRefused(`An offer to watchers must be ${WATCHER_OFFER.minPercent}% to ${WATCHER_OFFER.maxPercent}% off, not ${a.percent}%.`);
+        throw new WriteRefused(`An offer to watchers must be ${WATCHER_OFFER.minPercent === WATCHER_OFFER.maxPercent ? WATCHER_OFFER.minPercent : `${WATCHER_OFFER.minPercent}% to ${WATCHER_OFFER.maxPercent}`}% off, not ${a.percent}%.`);
       if (!p.item_id) throw new WriteRefused("An offer to watchers needs a listing.");
       const body = {
         allowCounterOffer: false,
@@ -240,7 +250,17 @@ export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
       await audit(env, p.id, built.call, built.xml, "applied", JSON.stringify(res.body).slice(0, 4000));
       return `${built.call} ok`;
     }
+    const toBuyer = p.kind === "best_offer_response" || p.kind === "message";
+    if (toBuyer) await log(env, "info", "inbox.sending", { itemId: p.item_id ?? undefined, proposalId: p.id, detail: built.call });
     const res = await tradingRequest(env, built.call, built.xml);
+    if (toBuyer) await log(env, "info", "inbox.ebay_answer", { itemId: p.item_id ?? undefined, proposalId: p.id, detail: `${built.call}: ${String(res.Ack ?? "no ack")}; ${structure(res, 30)}` });
+    if (p.kind === "best_offer_response") {
+      // eBay can acknowledge the call and still refuse the offer inside it.
+      const states = [res.RespondToBestOffer?.BestOffer ?? []].flat().map((o: any) => String(o?.CallStatus ?? ""));
+      if (states.some((x) => x && x !== "Success")) throw new Error(`eBay answered the call but refused the offer (${states.join(", ")})`);
+      const a = JSON.parse(p.payload);
+      await env.store.messages.answered(String(a.bestOfferId), String(a.action), Date.now()).catch(swallow(env, "inbox.mark_answered_failed", { proposalId: p.id }));
+    }
     const summary = (res.ItemID ? `${built.call} ok, item ${res.ItemID}` : `${built.call} ok`) + note;
     await audit(env, p.id, built.call, built.xml, "applied", JSON.stringify(res));
     if (p.kind === "revise" && p.item_id) {
@@ -270,6 +290,7 @@ export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
     return summary;
   } catch (e) {
     // A promotion's own calls are already in the log, each with its outcome.
+    if (["best_offer_response", "message", "new_message"].includes(p.kind)) await log(env, "error", "inbox.send_failed", { itemId: p.item_id ?? undefined, proposalId: p.id, detail: built.call, err: e });
     if (!built.promote) await audit(env, p.id, built.call, built.rest ? `${built.rest.method} ${built.rest.path} ${built.xml}` : built.xml, "failed", failure(e));
     throw e;
   }

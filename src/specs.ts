@@ -1,3 +1,4 @@
+import { log, swallow } from "./log";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { Env } from "./env";
 import { client, createMessage, logUsage, MODELS, type MessagesApi } from "./claude";
@@ -123,7 +124,7 @@ export function verifySpecs(
 export async function wantedSpecs(env: Env, item: any): Promise<string[]> {
   const have = new Set(list<any>(item?.ItemSpecifics?.NameValueList).map((nv) => String(nv.Name).toLowerCase()));
   const cat = String(item?.PrimaryCategory?.CategoryID ?? "");
-  const aspects = cat ? await categoryAspects(env, cat).catch(() => []) : [];
+  const aspects = cat ? await categoryAspects(env, cat).catch(async (err) => (await log(env, "warn", "specs.aspects", { err }), [])) : [];
   return aspects.map((a) => a.name).filter((n) => !have.has(n.toLowerCase()));
 }
 
@@ -199,14 +200,15 @@ export async function storedSpecs(env: Env, itemId: string, title: string): Prom
 export async function specsFor(env: Env, item: any, api?: MessagesApi): Promise<SpecLookup | null> {
   const itemId = String(item?.ItemID ?? "");
   const title = String(item?.Title ?? "");
-  const stored = await storedSpecs(env, itemId, title).catch(() => null);
+  const stored = await storedSpecs(env, itemId, title).catch(swallow(env, "specs.stored", { itemId }));
   if (stored) return stored;
   if (!env.ANTHROPIC_API_KEY && !api) return null;
   try {
     const found = await lookupSpecs(env, item, await wantedSpecs(env, item), api);
     await env.store.listings.putSpecs(itemId, title, found.at, JSON.stringify(found));
     return found;
-  } catch {
+  } catch (err) {
+    await log(env, "warn", "specs.lookup", { itemId, err });
     return null;
   }
 }

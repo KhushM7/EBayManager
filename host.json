@@ -6,8 +6,23 @@
     "queues": { "batchSize": 1, "newBatchThreshold": 0, "maxDequeueCount": 3, "visibilityTimeout": "00:01:00", "maxPollingInterval": "00:00:30" }
   },
   "logging": {
-    "logLevel": { "default": "Information", "Host.Results": "Error", "Function": "Information" },
-    "applicationInsights": { "samplingSettings": { "isEnabled": true, "excludedTypes": "Request" } }
+    "logLevel": {
+      "default": "Warning",
+      "Host.Results": "Error",
+      "Host.Function.Console": "Information",
+      "Function": "Warning",
+      "Function.app.User": "Information",
+      "Function.poll": "Information",
+      "Function.nightly": "Information",
+      "Function.background": "Information",
+      "Azure.Core": "Error",
+      "Azure.Identity": "Warning"
+    },
+    "applicationInsights": {
+      "enableLiveMetrics": false,
+      "enablePerformanceCountersCollection": false,
+      "samplingSettings": { "isEnabled": true, "maxTelemetryItemsPerSecond": 5, "excludedTypes": "Request;Exception" }
+    }
   },
   "extensionBundle": { "id": "Microsoft.Azure.Functions.ExtensionBundle", "version": "[4.*, 5.0.0)" }
 }

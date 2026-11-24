@@ -7,7 +7,6 @@ import { isJunk, itemNumber, poolSales, wordsFromTitle, type SoldSale } from "..
 import { identify, identifyByRules, matchTitles } from "../src/pricing/identify";
 import { priceItem, recordDecision, sumOfParts } from "../src/pricing/engine";
 import { learnParams } from "../src/pricing/learn";
-import { evaluateCombine, evaluateSplit, suggestBundles } from "../src/pricing/bundles";
 import { otherSearches } from "../src/pricing/identify";
 
 const DAY = 86_400_000;
@@ -426,29 +425,6 @@ describe("bundles", () => {
     expect(d.price).toBeCloseTo(26.99, 2);
     expect(d.why).toMatch(/Not counted, no sales found: Mystery/);
     expect(sumOfParts([{ ...part("Mystery", 0, 0, "ask"), market: { why: "thin" } }, part("TV stick", 30, 3)], 3).strategy).toBe("ask");
-  });
-
-  it("recommends combining slow items with a related popular one only when it's worth it", async () => {
-    const slow = { itemId: "1", title: "Galaxy Buds case", price: 6, listedDays: 120, watchers: 0, daysToSell: 300 };
-    const popular = { itemId: "2", title: "Galaxy Buds 2 Pro", price: 60, listedDays: 5, watchers: 3, daysToSell: 12 };
-    const e = evaluateCombine([slow, popular]);
-    expect(e.daysTogether).toBeLessThan(e.daysSeparately);
-
-    const { api } = fakeClaude(() => ({
-      suggestions: [
-        { kind: "combine", itemIds: ["1", "3"], title: "Galaxy Buds with case", reason: "Same buyer." },
-        { kind: "combine", itemIds: ["1", "nope"], title: "x", reason: "y" },
-      ],
-    }));
-    const slowCharger = { itemId: "3", title: "Samsung charger", price: 8, listedDays: 200, watchers: 0, daysToSell: 400 };
-    const advice = await suggestBundles({ store: memoryStore(), ANTHROPIC_API_KEY: "k" } as Env, [slow, popular, slowCharger], api);
-    expect(advice).toHaveLength(1);
-    expect(advice[0].together).toBeGreaterThan(advice[0].separately);
-  });
-
-  it("recommends splitting a bundle whose parts are worth clearly more", () => {
-    const e = evaluateSplit({ itemId: "9", title: "Console + 5 games", price: 80, listedDays: 10, watchers: 1, daysToSell: 20, parts: [{ name: "Console", price: 90 }, { name: "Games", price: 40 }] });
-    expect(e.separately).toBeGreaterThan(e.together * 1.15 + 5);
   });
 });
 

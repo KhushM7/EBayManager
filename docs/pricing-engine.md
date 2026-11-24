@@ -123,12 +123,14 @@ The engine keeps a **record of every prediction**: price, regime, predicted days
 
 The proposal shows each component's price.
 
-**Advice across K's listings** (nightly, using step 1 for each listing):
-- **Combine:** two or more items that suit the same buyer (same brand or ecosystem, same use) and are slow or low in value, where one listing earns more than separate ones. One postage charge and one listing to manage; worth it when postage is a large share of each item's price.
-- **Split:** a bundle whose parts would sell for clearly more on their own, after the extra postage and effort.
-- **Group by appeal:** for traction, suggests pairing a slow item with a popular one (the Galaxy case with the Galaxy Buds).
+**The Bundle assistant** (K, 2026-11-24, `src/bundles.ts`, the Bundles page). It replaces the old "sell together" advice, which compared made-up waiting costs and once paired unrelated items. eBay's Bundle discounts do what K wants: the listings stay separate and a buyer who picks 2, 3 or 4+ gets a percentage off. They are one setting for the whole shop, with a list of excluded listings, and no API for them was found, so the assistant works it out and K sets it on eBay.
+- **Groups:** Claude about weekly (its verdict, and its own words, must say the items are related: checked in code), plain rules every night, and K's own. A dismissed group stays dismissed for a year. Spares or repair, sold out, and collection-only mixed with posted are left out.
+- **Percentages:** multiples of 5, usually 5, 10 and 15 (10, 15 and 20 for slow or cheap groups), never falling as more are bought. Every item at every tier must leave K at or above the floor after eBay's buyer fee (`src/buyerfee.ts`), and stay at a sensible price (15% under the engine's quicker price, or 20% under today's when it isn't sure). The page shows each tier in pounds. Waiting time plays no part.
+- **Rotation:** one group active, all other listings excluded. A swap is considered after 14 days, only for a clearly better group (a quarter better; more if the active one brought orders of several items; less after 28 days with none), or at once when fewer than two listings are left. New listings join eBay's discount by themselves, so the nightly asks K to exclude them.
+- **To-do:** the nightly files at most one, with the steps and what to exclude. "I've done this" (or Done in the Inbox) records it as running; "Not now" waits two weeks.
+- **Splitting:** a bundle whose parts come to clearly more on their own is listed on the Bundles page.
 
-Each suggestion shows the expected profit both ways and the expected days to sell. It's advice in the Inbox: K decides, and any listing changes it leads to are normal proposals.
+**Waits** past 365 days are stored as none (`reliableDays`): the sale model has too little demand to go on. Then a Best Offer under the asking price is never suggested for acceptance (the full asking price always is), and promotion is "can't be judged".
 
 ## Data
 
@@ -139,7 +141,7 @@ Each suggestion shows the expected profit both ways and the expected days to sel
 | `market_snapshots` | Daily active supply per product (ladder, count, live sales) |
 | `price_decisions` | Every decision: inputs, regime, strategy, price, predicted days and profit |
 | `pricing_params` | Learned `τ` and `α` per category group, versioned, with the data count behind them |
-| `bundle_advice` | Combine and split suggestions with the numbers |
+| `bundle_assistant` (kv) | Groups, what's running, dismissals and past groups. Old `bundle_advice` rows are history only |
 
 ## What K sees on a price label
 

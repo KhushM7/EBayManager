@@ -1,3 +1,4 @@
+import { swallow } from "./log";
 import type { Env } from "./env";
 import { completeOnce, MODELS, type MessagesApi } from "./claude";
 import type { PastReply } from "./ebay/history";
@@ -167,7 +168,7 @@ export function styleText(g: StyleGuide | null): string {
  * where it conflicts with a rule above it (greeting lines included), the rule wins.
  */
 export async function withStyle(env: Env, system: string): Promise<string> {
-  const text = styleText(await getStyle(env).catch(() => null));
+  const text = styleText(await getStyle(env).catch(swallow(env, "style.unread")));
   if (!text) return system;
   return `${system}\n\nK's style guide, learned from K's past replies. Follow it for wording, greeting, sign-off and length. The rules above always win over it, and [bracketed] parts are placeholders, never facts:\n${text}`;
 }

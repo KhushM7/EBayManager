@@ -1,3 +1,4 @@
+import { log } from "./log";
 import type { Env } from "./env";
 import { sendToAll } from "./push";
 
@@ -23,7 +24,7 @@ export async function push(
   if (delivered) {
     await env.store.kv.set("last_push_at", String(Date.now()));
   }
-  if (!env.NTFY_TOPIC) return;
+  if (!env.NTFY_TOPIC) return delivered;
   // Published as JSON, not as Title/Actions headers: titles carry "£" and "→", and Node's fetch (Azure)
   // refuses any header character beyond Latin-1, which failed every price proposal after it was saved.
   const actions = links
@@ -38,9 +39,10 @@ export async function push(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ topic: env.NTFY_TOPIC, title: fullTitle, message: body, ...(actions ? { actions } : {}) }),
     });
-    if (!res.ok) console.warn(`ntfy: HTTP ${res.status}`);
+    if (!res.ok) await log(env, "warn", "ntfy", { detail: `HTTP ${res.status}` });
   } catch (e) {
     // The fallback channel failing must not undo or hide what was already saved (the Inbox still has it).
-    console.warn(`ntfy: ${e instanceof Error ? e.message : e}`);
+    await log(env, "warn", "ntfy", { err: e });
   }
+  return delivered;
 }

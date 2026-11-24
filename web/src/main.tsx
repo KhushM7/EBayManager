@@ -1,26 +1,32 @@
 import { AnimatePresence, LayoutGroup, motion, MotionConfig } from "framer-motion";
-import { render } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { render, type ComponentChildren } from "preact";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { api, SignedOut, type Me } from "./api";
 import { SignedOutDoor } from "./doors";
 import { Logo } from "./logo";
+import { Messages } from "./messages";
 import { Metrics } from "./metrics";
+import { Bundles } from "./bundles";
 import { NewListing } from "./wizard";
+import { Offers } from "./offers";
 import { Report } from "./report";
 import { Activity, Inbox, Listings, Settings } from "./screens";
 import { Icons, page, SPRING, useTabbarSync } from "./ui";
 import "./style.css";
 
-// Desktop shows every destination in the sidebar; the phone's floating tab bar keeps five, with "Sell" in the
-// middle. Store Pulse and Activity are reached from Insights and Settings on the phone.
+// Every destination, in the desktop's sidebar and in the phone's floating tab bar, which scrolls sideways with
+// "New listing" pinned at its end.
 const ROUTES = [
-  { path: "/", label: "Inbox", Icon: Icons.inbox, View: Inbox, tab: true },
-  { path: "/listings", label: "Listings", Icon: Icons.grid, View: Listings, tab: true },
-  { path: "/new", label: "Sell", Icon: Icons.plus, View: NewListing, tab: true },
-  { path: "/metrics", label: "Insights", Icon: Icons.chart, View: Metrics, tab: true },
-  { path: "/pulse", label: "Store Pulse", Icon: Icons.pulse, View: Report, tab: false },
-  { path: "/activity", label: "Activity", Icon: Icons.clock, View: Activity, tab: false },
-  { path: "/settings", label: "Settings", Icon: Icons.settings, View: Settings, tab: true },
+  { path: "/", label: "Inbox", Icon: Icons.inbox, View: Inbox },
+  { path: "/offers", label: "Offers", Icon: Icons.tag, View: Offers },
+  { path: "/messages", label: "Messages", Icon: Icons.message, View: Messages },
+  { path: "/listings", label: "Listings", Icon: Icons.grid, View: Listings },
+  { path: "/new", label: "Sell", Icon: Icons.plus, View: NewListing },
+  { path: "/metrics", label: "Insights", Icon: Icons.chart, View: Metrics },
+  { path: "/bundles", label: "Bundles", Icon: Icons.box, View: Bundles },
+  { path: "/pulse", label: "Store Pulse", Icon: Icons.pulse, View: Report },
+  { path: "/activity", label: "Activity", Icon: Icons.clock, View: Activity },
+  { path: "/settings", label: "Settings", Icon: Icons.settings, View: Settings },
 ] as const;
 const ALIASES: Record<string, string> = { "/audit": "/pulse", "/sell": "/new" };
 
@@ -52,6 +58,37 @@ function EnvPill({ me }: { me: Me }) {
       <i aria-hidden="true" />
       {label}
     </motion.div>
+  );
+}
+
+/** The phone bar's scrolling part: the current tab slides to the middle, and an edge fades while more lies past it. */
+function TabStrip({ path, children }: { path: string; children: ComponentChildren }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const placed = useRef(false);
+  const edges = () => {
+    const el = ref.current;
+    if (!el) return;
+    el.classList.toggle("more-left", el.scrollLeft > 4);
+    el.classList.toggle("more-right", el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  };
+  useEffect(() => {
+    const el = ref.current;
+    const tab = el?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (el && tab) {
+      const still = !placed.current || matchMedia("(prefers-reduced-motion: reduce)").matches;
+      placed.current = true;
+      el.scrollTo({ left: tab.offsetLeft - (el.clientWidth - tab.offsetWidth) / 2, behavior: still ? "auto" : "smooth" });
+    }
+    edges();
+  }, [path]);
+  useEffect(() => {
+    addEventListener("resize", edges);
+    return () => removeEventListener("resize", edges);
+  }, []);
+  return (
+    <div class="tabstrip" ref={ref} onScroll={edges}>
+      {children}
+    </div>
   );
 }
 
@@ -131,24 +168,23 @@ function App() {
       </div>
 
       <nav class="tabbar" ref={tabbarRef} aria-label="Sections">
-        <LayoutGroup id="tabs">
-          {ROUTES.filter((r) => r.tab).map((r) =>
-            r.path === "/new" ? (
-              <a class="tablink" href={r.path} aria-current={r.path === route.path ? "page" : undefined} onClick={click(r.path)} aria-label="New listing">
-                <motion.span whileTap={{ scale: 0.9 }} class="-mt-1 grid size-11 place-items-center rounded-2xl bg-accent text-white" style={{ boxShadow: "0 10px 26px -8px var(--glow), inset 0 1px 0 rgba(255,255,255,.25)" }}>
-                  <Icons.plus size={24} />
-                </motion.span>
-              </a>
-            ) : (
-              <a class="tablink" href={r.path} aria-current={r.path === route.path ? "page" : undefined} onClick={click(r.path)}>
+        <TabStrip path={route.path}>
+          <LayoutGroup id="tabs">
+            {ROUTES.filter((r) => r.path !== "/new").map((r) => (
+              <a key={r.path} class="tablink" href={r.path} aria-current={r.path === route.path ? "page" : undefined} onClick={click(r.path)}>
                 {r.path === route.path && <motion.span layoutId="tab-active" class="nav-active" transition={SPRING} />}
                 <r.Icon />
-                {r.label}
+                {r.path === "/pulse" ? "Pulse" : r.label}
                 {badge(r)}
               </a>
-            ),
-          )}
-        </LayoutGroup>
+            ))}
+          </LayoutGroup>
+        </TabStrip>
+        <a class="tabbar-new" href="/new" aria-current={route.path === "/new" ? "page" : undefined} onClick={click("/new")} aria-label="New listing">
+          <motion.span whileTap={{ scale: 0.9 }} class="grid size-11 place-items-center rounded-2xl bg-accent text-white" style={{ boxShadow: "0 10px 26px -8px var(--glow), inset 0 1px 0 rgba(255,255,255,.25)" }}>
+            <Icons.plus size={24} />
+          </motion.span>
+        </a>
       </nav>
     </MotionConfig>
   );

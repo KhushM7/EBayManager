@@ -143,6 +143,9 @@ export function promotionAdvice(i: PromotionInput): PromotionAdvice {
     if (i.currentRate! > rate + 0.01) return { action: "lower", rate, why: `Currently ${i.currentRate}%, more than needed: ${rate}% is ${i.suggestedRate != null ? `under half of eBay's suggested ${i.suggestedRate}%` : "eBay's minimum"} and enough to be shown.`, saturated, needsVisibility, payback };
     return { ...none(`Already promoted at ${i.currentRate}%, within the limits; the 14-day review judges whether it's working.`), payback };
   }
+  // So little demand at this price that the waiting cost outweighs any sale, ad or not: the sale model says nothing.
+  if (!(v0 > 0 && v1 > 0))
+    return none("How fast this sells at its price can't be estimated reliably, so whether an ad would pay can't be judged.");
   if (v1 - v0 < PROMO.minGain)
     return { ...stop(`At ${rate}% the better chance of a sale doesn't cover the £${fee.toFixed(2)} fee.`), payback };
 
@@ -280,14 +283,25 @@ export async function proposePromotions(env: Env, found: ListingPromotion[], lad
 }
 
 /** Nightly: promotion advice for listings the engine priced recently. */
-export async function reviewPromotions(env: Env, ladder?: Map<string, { rung: string; why: string }>): Promise<string> {
-  const recent = new Set((await env.store.pricing.latestDecisions(Date.now() - 14 * 86_400_000)).map((d) => d.item_id));
-  const results = (await env.store.listings.latestSet()).filter((s) => recent.has(s.item_id));
-  if (!results.length) return "no listings with a recent market picture";
-  const errors: string[] = [];
-  const found = await researchPromotion(env, results.map((r) => ({ itemId: r.item_id, title: r.title })), errors);
+export async function reviewPromotions(env: Env, ladder?: Map<string, { rung: string; why: string }>, done?: PromotionCheck): Promise<string> {
+  const { found, errors } = done ?? (await checkPromotions(env));
+  if (!found.length) return "no listings with a recent market picture";
   const proposed = await proposePromotions(env, found, ladder);
   return `${found.length} checked, ${proposed} proposed${errors.length ? `; ${errors.join("; ").slice(0, 200)}` : ""}`;
+}
+
+export interface PromotionCheck {
+  found: ListingPromotion[];
+  errors: string[];
+}
+
+/** Tonight's promotion advice for every listing with a recent market picture: read once, used by the ladder too. */
+export async function checkPromotions(env: Env): Promise<PromotionCheck> {
+  const recent = new Set((await env.store.pricing.latestDecisions(Date.now() - 14 * 86_400_000)).map((d) => d.item_id));
+  const results = (await env.store.listings.latestSet()).filter((s) => recent.has(s.item_id));
+  const errors: string[] = [];
+  const found = results.length ? await researchPromotion(env, results.map((r) => ({ itemId: r.item_id, title: r.title })), errors) : [];
+  return { found, errors };
 }
 
 // --- The 14-day review (K, 2026-11-15) ---

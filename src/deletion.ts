@@ -1,3 +1,4 @@
+import { log } from "./log";
 import type { Env } from "./env";
 import { appToken } from "./ebay/auth";
 import { assertRest } from "./ebay/allowlist";
@@ -79,7 +80,7 @@ export async function forgetUser(env: Env, username: string): Promise<number> {
   let changed = await env.store.messages.deleteByBuyer(u);
   // Drafts and answers that name them: personal fields scrubbed, and pending ones closed.
   const named = await env.store.proposals.listWhere([
-    { f: "kind", op: "in", v: ["message", "best_offer_response"] },
+    { f: "kind", op: "in", v: ["message", "new_message", "best_offer_response"] },
     { f: "payload", op: "contains", v: JSON.stringify(u) },
   ]);
   for (const p of named) {
@@ -89,6 +90,8 @@ export async function forgetUser(env: Env, username: string): Promise<number> {
     if (await env.store.proposals.scrub(p.id, JSON.stringify(a))) changed++;
   }
   changed += await env.store.audit.scrubText(u);
+  // To-dos and what History kept of them (an "eBay refused" to-do can quote a reply's recipient).
+  changed += await env.store.todos.scrubText(u);
   return changed;
 }
 
@@ -107,8 +110,9 @@ export async function handleAccountDeletion(env: Env, request: Request, url: URL
   let ok = false;
   try {
     ok = await verifySignature(env, request.headers.get("X-EBAY-SIGNATURE"), body);
-  } catch {
+  } catch (err) {
     ok = false;
+    await log(env, "error", "deletion.unverified", { err });
   }
   // eBay's own SDK answers an unverifiable notification with 412.
   if (!ok) return new Response("Signature not valid", { status: 412 });

@@ -5,6 +5,7 @@ import type { Env } from "../src/env";
 import { createProposal, decide, getProposal } from "../src/proposals";
 import { callFor, CAMPAIGN_NAME, setWritesPaused, WriteRefused } from "../src/ebay/write";
 import { reviewWatcherOffers, watcherOffer, type WatcherOfferInput } from "../src/watchers";
+import { getEligibleForOffers } from "../src/ebay/sell";
 import { LOCKED_KINDS, WATCHER_OFFER } from "../src/rules";
 
 // Offers to watchers and Promoted Listings through the write gate (K, 2026-11-15). The offer is a reminder, so
@@ -15,11 +16,9 @@ const now = Date.parse("2026-11-15T02:00:00Z");
 const input = (over: Partial<WatcherOfferInput> = {}): WatcherOfferInput => ({ price: 40, watchers: 3, listedDays: 20, floor: null, sentBefore: 0, lastSentAt: null, priceMoving: false, now, ...over });
 
 describe("the offer to watchers", () => {
-  it("starts at 2% and goes up a point each time it's sent again, never above 5%", () => {
-    expect(watcherOffer(input())).toMatchObject({ percent: 2, offerPrice: 39.2 });
-    expect(watcherOffer(input({ sentBefore: 1 }))).toMatchObject({ percent: 3 });
-    expect(watcherOffer(input({ sentBefore: 3 }))).toMatchObject({ percent: 5, offerPrice: 38 });
-    expect(watcherOffer(input({ sentBefore: 9 }))).toMatchObject({ percent: 5 });
+  it("is eBay's minimum and K's maximum, 5%, however often it's sent", () => {
+    expect(WATCHER_OFFER).toMatchObject({ minPercent: 5, maxPercent: 5, durationDays: 2 });
+    for (const sentBefore of [0, 1, 9]) expect(watcherOffer(input({ sentBefore }))).toMatchObject({ percent: 5, offerPrice: 38 });
   });
 
   it("needs watchers, a week listed, a settled price and two weeks since the last offer", () => {
@@ -27,11 +26,12 @@ describe("the offer to watchers", () => {
     expect(watcherOffer(input({ listedDays: 3 }))).toHaveProperty("skip");
     expect(watcherOffer(input({ priceMoving: true }))).toHaveProperty("skip");
     expect(watcherOffer(input({ lastSentAt: now - 5 * DAY }))).toHaveProperty("skip");
-    expect(watcherOffer(input({ lastSentAt: now - 15 * DAY, sentBefore: 1 }))).toMatchObject({ percent: 3 });
+    expect(watcherOffer(input({ lastSentAt: now - 15 * DAY, sentBefore: 1 }))).toMatchObject({ percent: 5 });
   });
 
-  it("never goes under K's floor: a smaller discount, or none", () => {
-    expect(watcherOffer(input({ sentBefore: 3, floor: 38.9 }))).toMatchObject({ percent: 2 });
+  it("never goes under K's floor", () => {
+    expect(watcherOffer(input({ floor: 38 }))).toMatchObject({ percent: 5 });
+    expect(watcherOffer(input({ floor: 38.9 }))).toHaveProperty("skip");
     expect(watcherOffer(input({ floor: 39.5 }))).toHaveProperty("skip");
   });
 
@@ -45,11 +45,11 @@ describe("the gate's limits", () => {
   const offer = (percent: unknown) => callFor({ kind: "offer_to_watchers", item_id: "111", payload: JSON.stringify({ percent, message: "hi" }) });
   const promote = (a: unknown) => callFor({ kind: "promote", item_id: "111", payload: JSON.stringify(a) });
 
-  it("sends only 2% to 5% offers, with no counter-offers", () => {
-    const c = offer(3);
+  it("sends only 5% offers, for 2 days, with no counter-offers", () => {
+    const c = offer(5);
     expect(c.rest?.path).toBe("/sell/negotiation/v1/send_offer_to_interested_buyers");
-    expect(c.rest?.body).toMatchObject({ allowCounterOffer: false, offerDuration: { unit: "DAY", value: WATCHER_OFFER.durationDays }, offeredItems: [{ listingId: "111", quantity: 1, discountPercentage: "3" }] });
-    for (const bad of [1, 6, 10, 50, "x", null]) expect(() => offer(bad)).toThrow(WriteRefused);
+    expect(c.rest?.body).toMatchObject({ allowCounterOffer: false, offerDuration: { unit: "DAY", value: WATCHER_OFFER.durationDays }, offeredItems: [{ listingId: "111", quantity: 1, discountPercentage: "5" }] });
+    for (const bad of [1, 2, 4, 6, 10, 50, "x", null]) expect(() => offer(bad)).toThrow(WriteRefused);
   });
 
   it("sets only 2% to 4% ad rates", () => {
@@ -121,10 +121,10 @@ describe("applying them", () => {
 
   it("sends an approved offer to watchers, and refuses one over 5% however it was filed", async () => {
     ebay = () => json({ offers: [{ offerId: "1" }] });
-    const ok = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { percent: 2, message: "hi" } });
+    const ok = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { percent: 5, message: "hi" } });
     expect(await decide(env, ok.id, "approve")).toBe("sendOfferToInterestedBuyers ok");
     const big = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { percent: 20, message: "hi" } });
-    expect(await decide(env, big.id, "approve")).toMatch(/must be 2% to 5% off/);
+    expect(await decide(env, big.id, "approve")).toMatch(/must be 5% off/);
     expect((await getProposal(env, big.id))?.status).toBe("pending");
     expect(writes()).toHaveLength(1);
   });
@@ -140,8 +140,21 @@ describe("applying them", () => {
     expect(await reviewWatcherOffers(env, now)).toMatch(/0 proposed/);
     const made = await env.store.proposals.listWhere([{ f: "kind", op: "=", v: "offer_to_watchers" }]);
     expect(made).toHaveLength(1);
-    expect(JSON.parse(made[0].payload)).toMatchObject({ percent: 2, offerPrice: 39.2, watchers: 2 });
+    expect(JSON.parse(made[0].payload)).toMatchObject({ percent: 5, offerPrice: 38, watchers: 2 });
     expect(writes()).toHaveLength(0);
+  });
+
+  it("tells 'eBay says none' from a reply it doesn't read, and from a failed call", async () => {
+    ebay = () => new Response(null, { status: 204 });
+    expect(await getEligibleForOffers(env)).toEqual({ ids: [], reply: expect.stringMatching(/^204/) });
+    ebay = () => json({ eligibleItems: [{ listingId: "111" }], total: 1 });
+    expect(await getEligibleForOffers(env)).toEqual({ ids: ["111"], reply: "200, total 1, fields eligibleItems total, item fields listingId" });
+    ebay = () => json({ somethingElse: [], total: 4 });
+    expect(await getEligibleForOffers(env)).toEqual({ ids: [], reply: "200, total 4, fields somethingElse total" });
+    ebay = () => new Response("no", { status: 403 });
+    await expect(getEligibleForOffers(env)).rejects.toThrow(/403/);
+    await env.store.listings.writeSnapshot(now, [{ item_id: "111", title: "Watched", price: 40, currency: "GBP", quantity_available: 1, watch_count: 2, start_time: new Date(now - 20 * DAY).toISOString() }]);
+    await expect(reviewWatcherOffers(env, now, undefined, null)).rejects.toThrow(/didn't say/);
   });
 });
 
@@ -162,9 +175,9 @@ describe("when eBay refuses an approved change (K, 2026-11-15: never silently)",
   afterEach(() => vi.unstubAllGlobals());
 
   it("files an Inbox to-do with what was sent and eBay's whole reply, and resolves it when one goes through", async () => {
-    const reply = JSON.stringify({ errors: [{ errorId: 150022, domain: "API_NEGOTIATION", message: "Invalid discount", longMessage: "The discount is below the minimum for this listing.", parameters: [{ name: "discountPercentage", value: "2" }] }] });
+    const reply = JSON.stringify({ errors: [{ errorId: 150022, domain: "API_NEGOTIATION", message: "Invalid discount", longMessage: "The discount is below the minimum for this listing.", parameters: [{ name: "discountPercentage", value: "5" }] }] });
     ebay = () => new Response(reply, { status: 400, headers: { rlogid: "t6abc%3D-19a" } });
-    const p = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { itemTitle: "Kettle", percent: 2, message: "hi" } });
+    const p = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { itemTitle: "Kettle", percent: 5, message: "hi" } });
     expect(await decide(env, p.id, "approve")).toMatch(/^Failed: POST \/sell\/negotiation\/v1\/send_offer_to_interested_buyers failed \(400\): The discount is below the minimum/);
     expect((await getProposal(env, p.id))?.status).toBe("failed");
 
@@ -176,13 +189,13 @@ describe("when eBay refuses an approved change (K, 2026-11-15: never silently)",
     expect(diagnostics).toContain("environment: sandbox");
     expect(diagnostics).toContain("call 1: sendOfferToInterestedBuyers -> failed");
     // What was sent, the status, eBay's request id, and its reply exactly as sent.
-    expect(diagnostics).toContain('"discountPercentage":"2"');
+    expect(diagnostics).toContain('"discountPercentage":"5"');
     expect(diagnostics).toContain("HTTP 400, eBay request id t6abc%3D-19a");
     expect(diagnostics).toContain(`Raw reply: ${reply}`);
 
     // The next offer for the listing goes through: the to-do is resolved.
     ebay = () => new Response(JSON.stringify({ offers: [] }));
-    const ok = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { percent: 3, message: "hi" } });
+    const ok = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { percent: 5, message: "hi" } });
     expect(await decide(env, ok.id, "approve")).toBe("sendOfferToInterestedBuyers ok");
     expect(await env.store.todos.list("open")).toHaveLength(0);
   });
@@ -205,7 +218,7 @@ describe("when eBay refuses an approved change (K, 2026-11-15: never silently)",
   it("doesn't file one when the gate itself refuses (nothing was sent)", async () => {
     ebay = () => new Response("{}");
     await setWritesPaused(env, true);
-    const p = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { percent: 2, message: "hi" } });
+    const p = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { percent: 5, message: "hi" } });
     expect(await decide(env, p.id, "approve")).toMatch(/Approved, not applied/);
     expect(await env.store.todos.list("open")).toHaveLength(0);
   });

@@ -31,7 +31,7 @@ The site is **hidden**: anyone not signed in sees a blank page everywhere. You s
 (`/s/<SIGNIN_PATH>`) with your email and the 6-digit code from Google or Microsoft Authenticator.
 
 **It runs 24/7 without your computer.** Azure starts the app when someone opens it or a timer is due, and lets it
-sleep in between: the nightly review at 02:00 UTC, the buyer-message and offer poll every 15 minutes, and
+sleep in between: the nightly review at 02:00 UTC, the buyer-message and offer poll every 5 minutes, and
 background jobs. After a quiet spell the first page load can take a few seconds. Two things eventually need you:
 - **The eBay connection lasts about 18 months.** When it ends, Settings shows "Connect your eBay account" again; sign in to eBay there.
 - **Your session lasts 30 days on a device where you ticked "Stay signed in".** Then sign in again with your code.
@@ -157,16 +157,23 @@ Measured from the app's own logs (2026-11-03 to 2026-11-07) and Azure's publishe
 | **Claude (Anthropic API)** | Haiku for nightly checks and reply drafts; Sonnet for photo checks, specs (with web search) and listing text | **About $2 to $8 a month.** Day to day the nightly checks cost cents; each new listing about $0.30 to $0.80. Hard cap: $1 a day (`CLAUDE_DAILY_BUDGET_USD`); Settings → Advanced shows the spend |
 | **Azure Functions (Flex Consumption)** | Runs only when used, 512 MB, sleeps when idle | **£0 to £1**, inside the monthly free allowance at this use |
 | **Cosmos DB** | Free tier: one account, both databases | **£0** |
-| **Blob Storage, queue, Key Vault, logs** | Photos (deleted 30 days after listing), jobs, secrets, logs capped at 0.15 GB a day | **Pennies, under £1** |
+| **Blob Storage, queue, Key Vault, logs** | Photos (deleted 30 days after listing), jobs, secrets, and logs. Azure's free 5 GB of logs a month is shared by both environments, so production is capped at 0.1 GB a day and Sandbox at 0.05 | **Pennies, under £1**. Until 2026-11-24 the Functions host's own sign-in chatter passed the free 5 GB; host.json now keeps it out |
 | **Sold-price data** | Trawl and CompsAPI, hard monthly caps (250 and 100 look-ups) | Their plans' prices; capped |
 | **Photo AI (Container Apps)** | Background removal, spot removal and upscale in K's own container, scaled to zero ([docs/imageai.md](docs/imageai.md)) | **£0 when not used.** Billed only while an edit runs (plus 2 minutes before it scales back to zero), inside Azure's monthly free grant at this use |
 | **Azure in total** | | **About £0 to £3 a month.** A budget alert emails you at 50% and 100% of $5 |
 
-**Claude is switched off on production (2026-11-24)** so the app costs nothing to keep running:
-`claudeDailyBudgetUsd = '0'` in `infra/production.bicepparam` sets the app setting `CLAUDE_DAILY_BUDGET_USD` to 0,
-and every Claude call then refuses before it starts. The app still reads eBay, flags listings, prices with the
-engine and takes approvals; what needs Claude (photo checks, listing text, reply drafts, triage) says it is switched
-off. To turn it back on, delete the line (or set up to `'1'`) and run the infrastructure update.
+**Claude is on** (K, 2026-11-24), up to $1 a day. To switch it off in an environment, set `claudeDailyBudgetUsd = '0'` in
+its `infra/*.bicepparam` and run the infrastructure update: every Claude call then refuses before it starts, while the
+app still reads eBay, flags listings, prices with the engine and takes approvals.
+
+### Logs and monitoring
+
+The app writes a short line to Azure's logs and an event to the `jobs` container for each nightly step, failure and
+swallowed error (`src/log.ts`; events last 14 days, problems 90). Tokens and personal details are removed first. Read
+both with `node scripts/logs.mjs sandbox|production [--since 24h] [--errors] [--item id] [--run id]`. If a check
+stops or keeps failing, the app files an Inbox to-do and a notification (`src/monitor.ts`). To be told if the whole app
+is down, set the repository variable `UPTIME_URL` to the app's address: `.github/workflows/uptime.yml` then checks it
+hourly and GitHub emails when it fails.
 
 So far: production Claude $1.39 in 5 days (mostly the one-off first-day audit and spec look-ups), Sandbox $1.12.
 

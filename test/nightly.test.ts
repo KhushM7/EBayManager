@@ -35,6 +35,11 @@ describe("health rules", () => {
     ]);
   });
 
+  it("counts in plain English, and leaves a listing alone after any applied change", () => {
+    expect(healthFlags({ ...base, watchCount: 1, views7d: 1, impressions7d: 400 }, NOW).map((f) => f.detail)).toEqual(["Only 1 view in the last 7 days.", "Shown 400 times in search but opened 1 time in 7 days."]);
+    expect(healthFlags({ ...base, views7d: 1, lastChangeAt: NOW - DAY }, NOW)).toEqual([]);
+  });
+
   it("leaves alone listings with a pending proposal or a recent price change", () => {
     expect(healthFlags({ ...base, pendingProposals: 1 }, NOW)).toEqual([]);
     expect(healthFlags({ ...base, lastPriceChangeAt: NOW - 2 * DAY }, NOW)).toEqual([]);
@@ -103,5 +108,20 @@ describe("nightly run", () => {
     expect(m.listings[0]).toMatchObject({ active: 1, asking: 6, watchers: 0 });
     expect(m.flags.map((f) => f.flag)).toEqual(["stale"]);
     expect(m.lastNightly.steps.health).toBe("1 flagged");
+  });
+});
+
+describe("the nightly's record", () => {
+  it("says which steps failed, and logs each one", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("down", { status: 500 })));
+    const env = { store: memoryStore(), EBAY_ENV: "sandbox", WRITE_MODE: "approval", EBAY_SITE_ID: "3", EBAY_MARKETPLACE: "EBAY_GB", NTFY_TOPIC: "" } as Env;
+    await withEbayTokens(env.store);
+    const r = await runNightly(env);
+    expect(r.failed).toEqual(expect.arrayContaining(["snapshot", "orders", "eligible_offers"]));
+    expect(r.runs.find((x) => x.name === "snapshot")).toMatchObject({ ok: false });
+    expect(r.runs.find((x) => x.name === "expire")).toMatchObject({ ok: true });
+    const errors = await env.store.jobs.recentEvents({ since: 0, status: ["error"] });
+    expect(errors.map((e) => e.kind)).toEqual(expect.arrayContaining(["nightly.snapshot", "nightly.done"]));
+    vi.unstubAllGlobals();
   });
 });

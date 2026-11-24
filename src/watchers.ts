@@ -1,11 +1,12 @@
 import type { Env } from "./env";
-import { getEligibleForOffers } from "./ebay/sell";
+import { getEligibleForOffers, type EligibleForOffers } from "./ebay/sell";
 import { proposeAndNotify } from "./proposals";
 import { WATCHER_OFFER } from "./rules";
 import { r2 } from "./util";
 
 // Offers to watchers (K, 2026-11-15). People who watch a listing liked it; a small offer reminds them it's
-// there. So the discount is as little as possible (WATCHER_OFFER: 2% the first time, a point more each time the
+// there. So the discount is as little as eBay allows (WATCHER_OFFER: 5%, eBay's minimum and K's maximum; should
+// the two ever differ, it starts at the minimum and goes up a point each time the
 // listing is offered again unsold, never above 5%), never under K's floor. Each offer is an `offer_to_watchers`
 // proposal K approves (a locked kind); the write gate sends it and refuses any other percentage.
 
@@ -59,10 +60,17 @@ export const WATCHER_MESSAGE = "Thanks for watching this. Here's a little off if
  * Nightly: for each listing eBay says can take an offer to its watchers, file one `offer_to_watchers` proposal
  * when the rules above allow. Reads eBay only; nothing is sent until K approves.
  */
-export async function reviewWatcherOffers(env: Env, now = Date.now(), ladder?: Map<string, { rung: string; why: string }>): Promise<string> {
+export async function reviewWatcherOffers(
+  env: Env,
+  now = Date.now(),
+  ladder?: Map<string, { rung: string; why: string }>,
+  /** Tonight's answer from eBay, when the ladder already asked; null: that call failed. */
+  asked?: EligibleForOffers | null,
+): Promise<string> {
   const rows = (await env.store.listings.latestSet()).filter((l) => (l.watch_count ?? 0) > 0);
   if (!rows.length) return "no listings with watchers";
-  const eligible = new Set(await getEligibleForOffers(env));
+  if (asked === null) throw new Error("eBay didn't say which listings can be offered (see the eligible_offers step)");
+  const eligible = new Set((asked ?? (await getEligibleForOffers(env))).ids);
   const earlier = await env.store.proposals.listWhere([{ f: "kind", op: "=", v: "offer_to_watchers" }]);
   const prices = await env.store.proposals.listWhere([{ f: "kind", op: "=", v: "price" }]);
   let proposed = 0;
@@ -107,5 +115,5 @@ export async function reviewWatcherOffers(env: Env, now = Date.now(), ladder?: M
     );
     proposed++;
   }
-  return `${eligible.size} eligible on eBay, ${proposed} proposed${skipped.length ? `; skipped ${skipped.join("; ").slice(0, 200)}` : ""}`;
+  return `${eligible.size} eligible on eBay of ${rows.length} with watchers, ${proposed} proposed${skipped.length ? `; skipped ${skipped.join("; ").slice(0, 200)}` : ""}`;
 }

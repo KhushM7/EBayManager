@@ -2,7 +2,7 @@ import type { Env } from "../env";
 import { orderLines, type LatestRow } from "../store";
 import { claudeDailyBudgetUsd } from "../rules";
 import { decisionUrl } from "../links";
-import { r2 } from "../util";
+import { r2, reliableDays } from "../util";
 
 // The tables behind the read-only API (docs/power-platform.md): what Power BI, Power Automate and Copilot
 // Studio may see. Store reads only: nothing here writes to the store, calls eBay or Claude, or imports
@@ -122,7 +122,7 @@ const PAYLOAD_FIELDS: Record<string, string[]> = {
   best_offer_response: ["offerPrice", "listPrice", "action", "counterPrice"],
 };
 /** Kinds whose reason is written about a buyer's message, so it stays in the app. */
-const BUYER_KINDS = new Set(["message", "best_offer_response"]);
+const BUYER_KINDS = new Set(["message", "new_message", "best_offer_response"]);
 const KIND_WORDS: Record<string, string> = {
   price: "Price change",
   revise: "Listing edit",
@@ -290,7 +290,7 @@ export async function pricingTable(env: Env, itemId?: string) {
         confidence: typeof d?.confidence === "number" ? d.confidence : null,
         why: typeof d?.why === "string" ? d.why.slice(0, 1500) : null,
         question: typeof d?.question === "string" ? d.question.slice(0, 500) : null,
-        options: Array.isArray(d?.options) ? d.options.slice(0, 5).map((o: any) => ({ price: Number(o?.price) || null, days_to_sell: Number(o?.daysToSell) || null })) : [],
+        options: Array.isArray(d?.options) ? d.options.slice(0, 5).map((o: any) => ({ price: Number(o?.price) || null, days_to_sell: reliableDays(o?.daysToSell) })) : [],
       };
     })
     .sort((a, b) => String(a.title).localeCompare(String(b.title)));
@@ -299,7 +299,7 @@ export async function pricingTable(env: Env, itemId?: string) {
 /** Every price the engine gave for K's own items (no reasoning text), for trends. */
 export async function priceDecisionsTable(env: Env, since: number) {
   return (await env.store.pricing.decisionSummaries(since))
-    .map((r) => ({ item_id: r.item_id!, decided_at: iso(r.at)!, decided_ms: r.at, group: r.grp, strategy: r.strategy, suggested_price: r.price, suggested_total_with_postage: r.total, market_price: r.market_price, predicted_days: r.predicted_days }))
+    .map((r) => ({ item_id: r.item_id!, decided_at: iso(r.at)!, decided_ms: r.at, group: r.grp, strategy: r.strategy, suggested_price: r.price, suggested_total_with_postage: r.total, market_price: r.market_price, predicted_days: reliableDays(r.predicted_days) }))
     .sort((a, b) => a.decided_ms - b.decided_ms);
 }
 

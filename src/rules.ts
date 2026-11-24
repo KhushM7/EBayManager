@@ -7,6 +7,7 @@
 export const LOCKED_KINDS = [
   "price",
   "message",
+  "new_message",
   "best_offer_response",
   "offer_to_watchers",
   "create_listing",
@@ -34,10 +35,11 @@ export const COLLECTION_OFFERED_BY_DEFAULT = DEFAULT_SHIPPING === "ship_and_coll
 
 /**
  * Offers to watchers (K, 2026-11-15): a reminder to people who liked the item, not a price cut, so the discount
- * is as small as possible: 2% the first time, a point more each time the listing is offered again unsold, never
- * above 5%. The write gate refuses any other percentage. `cooldownDays` is the gap between offers on a listing.
+ * is as small as possible. eBay's own rules leave one choice inside K's 5% limit: its Negotiation API takes 5% off
+ * or more, and an offer runs 2 days (its specification, read 2026-11-24, before any offer was sent). The write gate
+ * refuses any other percentage. `cooldownDays` is the gap between offers on a listing.
  */
-export const WATCHER_OFFER = { minPercent: 2, maxPercent: 5, cooldownDays: 14, minListedDays: 7, durationDays: 4 } as const;
+export const WATCHER_OFFER = { minPercent: 5, maxPercent: 5, cooldownDays: 14, minListedDays: 7, durationDays: 2 } as const;
 
 /** Promoted Listings: the lowest and highest general ad rate the app may set, percent. The write gate refuses others. */
 export const PROMOTION_RATE = { min: 2, max: 4 } as const;
@@ -55,3 +57,7 @@ export function claudeDailyBudgetUsd(env: { CLAUDE_DAILY_BUDGET_USD?: string }):
   const n = Number(raw);
   return Number.isFinite(n) ? Math.min(CLAUDE_DAILY_BUDGET_USD, Math.max(0, n)) : 0;
 }
+
+/** Whether Claude may be called at all here: a key is set and it isn't switched off. Today's spend is checked by the call itself. */
+export const claudeAvailable = (env: { ANTHROPIC_API_KEY?: string; CLAUDE_DAILY_BUDGET_USD?: string }) =>
+  Boolean(env.ANTHROPIC_API_KEY) && claudeDailyBudgetUsd(env) > 0;

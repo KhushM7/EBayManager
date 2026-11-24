@@ -83,7 +83,7 @@ describe("decide", () => {
     expect(d.total!).toBeLessThanOrEqual(m.mNow! + 0.5);
     expect(d.total!).toBeGreaterThanOrEqual(m.valueFloor! - 0.6);
     expect(d.options).toHaveLength(3);
-    expect(d.options[0].daysToSell).toBeLessThanOrEqual(d.options[2].daysToSell);
+    expect(d.options[0].daysToSell!).toBeLessThanOrEqual(d.options[2].daysToSell!);
   });
 
   it("holds out at a higher price in a temporary race to the bottom", () => {

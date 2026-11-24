@@ -1,8 +1,9 @@
 import type { Env } from "./env";
 import { gateClosedReason, setWritesPaused, writesPaused } from "./ebay/write";
 import { runNightly } from "./nightly";
-import { claudeDailyBudgetUsd } from "./rules";
+import { claudeAvailable, claudeDailyBudgetUsd } from "./rules";
 import { pollInbox } from "./inbox";
+import { handleOffers } from "./offersapi";
 import { applyApproved, createProposal, decide, editProposal } from "./proposals";
 import { keyLoginAllowed } from "./session";
 import { saveSubscription, vapidPublicKey } from "./push";
@@ -21,9 +22,12 @@ import { editStyle, getStyle, learnStyle, saveStyle } from "./style";
 import { addRule, draftRule, getRules, removeRule } from "./guidance";
 import { reviewPromotions } from "./promotion";
 import { handleDrafts } from "./drafts";
+import { BUNDLE_TODO, bundleTodoClosed, handleBundles } from "./bundles";
+import { handleSuggestions } from "./history";
 import { fetchListingPicture } from "./ebay/pictures";
 import { allowances, checkAllowances, setClaudeCredit } from "./allowance";
 import { ebayNeedsReconnect, serviceStatuses } from "./services";
+import { lastRuns } from "./monitor";
 import { handlePhotoAi } from "./imageai";
 
 // JSON API for the dashboard. Everything except sign-in needs a signed-in person (docs/security.md); some
@@ -107,11 +111,16 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
   const drafts = await handleDrafts(env, request, url, path, user);
   if (drafts) return drafts;
 
+  // History, labels needing attention, and what has been seen (src/history.ts).
+  const suggestions = await handleSuggestions(env, path, method, url, () => body(request), user);
+  if (suggestions) return json(suggestions);
+
   // Photo AI tools for the editor (src/imageai.ts): owner and managers, like the rest of New listing.
   const photoAi = path.match(/^\/photo-ai\/([a-z_]+)$/);
   if (photoAi) return handlePhotoAi(env, request, photoAi[1]);
 
   // The people are set by K with scripts/people.mjs; here the owner can only see them and sign them out.
+  if (path === "/events" && method === "GET") return owner ? json(await lastRuns(env)) : ownerOnly();
   if (path === "/people" && method === "GET") return owner ? json({ people: await listPeople(env) }) : ownerOnly();
   const person = path.match(/^\/people\/([\w-]+)\/signout$/);
   if (person && method === "POST") {
@@ -267,6 +276,9 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
     return json({ result }, result === "Saved" ? 200 : 400);
   }
 
+  const offers = await handleOffers(env, method, path, () => body(request));
+  if (offers) return offers;
+
   if (path === "/inbox/poll" && method === "POST") return json(await pollInbox(env));
 
   if (path === "/push/subscribe" && method === "POST") {
@@ -337,16 +349,20 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
   }
 
   if (path === "/pricing/advice" && method === "GET") {
-    const rows = await env.store.pricing.openAdvice();
-    return json(rows.map((r) => ({ id: r.id, at: r.at, ...JSON.parse(r.detail) })));
+    // Replaced by the Bundle assistant (src/bundles.ts): the old advice is never shown, even to an old copy of the app.
+    return json([]);
   }
 
   if (path === "/pricing/advice/dismiss" && method === "POST") {
     const { id } = await body(request);
     if (typeof id !== "string" || !/^[\w-]{1,40}$/.test(id)) return json({ error: "Bad id" }, 400);
-    await env.store.pricing.dismissAdvice(id);
+    await env.store.pricing.dismissAdvice(id, user.name);
     return json({ ok: true });
   }
+
+  // The Bundle assistant (src/bundles.ts): which listings to put in eBay's bundle discounts. Never calls eBay.
+  const bundles = await handleBundles(env, path, method, () => body(request), user);
+  if (bundles) return bundles;
 
   // Inbox to-dos (src/todos.ts): what needs one of you but isn't an eBay change. None of these write to eBay:
   // an answer is saved as K's facts, and a Claude draft files ordinary proposals for approval.
@@ -373,6 +389,7 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
     const now = Date.now();
     if (action === "done" || action === "dismiss") {
       await env.store.todos.close(id, action === "done" ? "done" : "dismissed", user.name, now);
+      if (todo.code === BUNDLE_TODO) await bundleTodoClosed(env, todo.fingerprint, action, user.name, now);
       return json({ ok: true });
     }
     if (action === "answer") {
@@ -382,7 +399,7 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
       const { text } = await body(request);
       const answer = typeof text === "string" ? text.trim().slice(0, 1000) : "";
       if (!answer) return json({ error: "Write an answer" }, 400);
-      if (todo.code === "own_price" || todo.code === "own_price_review") {
+      if (todo.code === "own_price" || todo.code === "own_price_review" || todo.code === "price_gap") {
         // Nothing comparable has sold: K's price becomes the listing's own price. If the listing isn't at it, the
         // usual price proposal (floor, step and engine checks; K approves) puts it there.
         const price = parsePrice(answer);
@@ -407,6 +424,8 @@ export async function handleApi(env: Env, request: Request, url: URL, pre?: Sess
       return json({ ok: true, note });
     }
     if (todo.kind !== "claude" || !todo.item_id) return json({ error: "This to-do isn't for Claude" }, 400);
+    // Refused, and left open: a review that can't run isn't done.
+    if (!claudeAvailable(env)) return json({ error: "Claude is switched off here, so it can't review this now. The to-do stays open." }, 409);
     return run(async () => {
       await startJob(env, "listing_review", { itemId: todo.item_id }, user.name);
       const note = "Claude is reviewing it. Its changes arrive as labels to approve.";

@@ -88,7 +88,7 @@ export interface DraftRow {
   /** The listing text: Claude's draft, then K's edits. */
   listing?: { title: string; description: string; specifics: DraftSpecific[]; dropped: string[]; at: number; editedByK: boolean } | null;
   /** The engine's result for the draft, and the price chosen from it (or K's own price when nothing has sold). */
-  pricing?: { at: number; strategy: string; price: number | null; total: number | null; why: string; confidence: number; question?: string; reason?: string; options: { price: number; daysToSell: number; position?: import("../pricing/model").Position }[]; summary?: import("../pricing/engine").EvidenceSummary | null } | null;
+  pricing?: { at: number; strategy: string; price: number | null; total: number | null; why: string; confidence: number; question?: string; reason?: string; options: { price: number; daysToSell: number | null; position?: import("../pricing/model").Position }[]; summary?: import("../pricing/engine").EvidenceSummary | null } | null;
   /** "adjusted": the engine priced it and a person set their own figure after reading its summary (K, 2026-11-15). */
   price?: { value: number; kind: "engine" | "own" | "adjusted"; floor: number | null; bestOffer: boolean } | null;
   parcel?: { lengthCm: number; widthCm: number; heightCm: number; weightKg: number } | null;

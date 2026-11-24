@@ -1,3 +1,4 @@
+import { log } from "./log";
 import type { Env } from "./env";
 
 // Web Push to the installed PWA: RFC 8291 payload encryption (aes128gcm) and RFC 8292 VAPID, on Web Crypto only.
@@ -110,6 +111,7 @@ export async function sendToAll(env: Env, msg: PushMessage): Promise<number> {
       if (ok) await env.store.push.markOk(s.endpoint, Date.now());
       else await env.store.push.markError(s.endpoint, `${res.status} ${(await res.text()).slice(0, 200)}`);
     } catch (e) {
+      await log(env, "warn", "push.send", { err: e });
       await env.store.push.markError(s.endpoint, e instanceof Error ? e.message : String(e));
     }
   }

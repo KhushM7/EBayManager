@@ -63,7 +63,7 @@ Design docs: [roadmap](docs/roadmap.md), [Power Platform](docs/power-platform.md
 - **Pricing** (K, [pricing-engine.md](docs/pricing-engine.md), revision 5): live listings first, then sales. One floor; the options always ascend; the reason is written for the price chosen, in item prices (postage is the next step, and isn't shown here). With nothing in the same condition, other-condition comparables are adjusted to the item (new against used: 0.5 to 0.9 by its wear) and the result says so. The price step shows what was found (how many, cheapest, middle, dearest) and where each price sits, in place of days to sell, and whoever lists the item may set their own price.
 - **Listing style** (K, `src/guidance.ts`): the owner, never a manager, tells Claude in the app how listings should be written; each piece of feedback becomes a standing rule (wording, or a fact true of every item) for new listings and Claude's rewrites. Rules sit below the fixed ones; links and contact details are refused.
 - **Promotion** (K): proposed when a listing isn't being seen (few impressions, or hardly any views and nobody watching after 14 days), not for days listed alone. Approved `promote` labels now apply (2% to 4%).
-- **Offers to watchers** (K, `src/watchers.ts`): a reminder, so as little off as possible: 2% first, a point more each time, never above 5% or under the floor. Proposed nightly, approved by K, sent by the gate.
+- **Offers to watchers** (K, `src/watchers.ts`): a reminder, so as little off as eBay allows: always 5% for 2 days (eBay's own minimum and length, K's maximum; 2% was never possible), never under the floor. Proposed nightly, approved by K, sent by the gate.
 - **The sales ladder** (K, `src/ladder.ts`): a listing that isn't selling gets one push at a time, at most one a week, chosen by its own figures: unseen, the title and specifics first, then promotion; watched but unsold, an offer to watchers, then the price; seen but unwatched, the price. The nightly's price review, triage, watcher offers and promotion each act only on their rung (a price change of 10% or more still goes ahead: the market moved).
 - **The 14-day promotion review** (K, `src/promotion.ts`): two weeks after an ad is applied, and every two weeks after, the listing's views, impressions and watchers are compared with before; if no more people see it, an "end" label is filed. A promoted listing is no longer ended just for being seen.
 - **eBay refusals are never silent** (K, `reportWriteFailure` in `src/proposals.ts`): when eBay refuses or fails an approved change, an Inbox to-do says so and carries the raw diagnostics (every call sent for the label, what was sent, eBay's status, request id and whole reply) with a Copy button, and a notification points to it. It resolves when the same kind of change next goes through for that listing.
@@ -73,8 +73,17 @@ Design docs: [roadmap](docs/roadmap.md), [Power Platform](docs/power-platform.md
 
 ## Decisions (2026-11-24, finishing)
 
-- **Nothing that costs to run** (K): Claude is switched off on production with `CLAUDE_DAILY_BUDGET_USD=0` (`claudeDailyBudgetUsd` in `src/rules.ts`, set from `infra/production.bicepparam`; the setting can only lower the $1 cap). The Power Automate digest and nudge flows are turned off. Copilot Studio stays unpublished (no credits). Power Platform stays read-only and off in production (no keys).
+- **Nothing that costs to run** (K; Claude excepted, see below). The Power Automate digest and nudge flows are turned off. Copilot Studio stays unpublished (no credits). Power Platform stays read-only and off in production (no keys).
 - **Showcase** (K): `docs/showcase/` holds a page, a PDF carousel, a short video and screenshots for K's CV and LinkedIn, on sample data and Sandbox only (`scripts/showcase-build.mjs`). Never put real account, buyer or production data in it.
+
+## Decisions (2026-11-24, production fixes)
+
+- **Plan**: [production-fixes-plan.md](docs/production-fixes-plan.md). Claude stays **on** in production (K, reversing that morning's switch-off, which never took effect: `azureEnv()` didn't pass the setting on). Run the infrastructure before deploying this code.
+- **Every offer is shown** (K), full-price ones included, and nothing is auto-declined or auto-accepted. No pay-per-click or offsite ads.
+- **Bundle assistant** (`src/bundles.ts`): one group of related listings at a time in eBay's own bundle discounts, rotated, reviewed nightly. eBay has no API found for it, so it's a guide K follows; it never writes.
+- **Inbox is To decide and History** (`src/history.ts`, `src/store/events.ts`): every suggestion's outcome is kept, append-only.
+- **Logs** (`src/log.ts`, `src/redact.ts`, `src/monitor.ts`, `scripts/logs.mjs`): never a bare `.catch(() => null)`; use `swallow()`. Azure caps 0.1 GB (production) and 0.05 GB (Sandbox) a day.
+- **Buyer fee** (K): K sets a base price and receives it; eBay adds the fee for buyers (`src/buyerfee.ts`). eBay's API reports K's figure for listings and offers (proven on five offers, 2026-11-24), so a buyer's round £25 arrives as 23.37.
 
 ## Rules that are enforced in code, never in prompts
 
@@ -121,10 +130,10 @@ These are in `src/rules.ts`. K confirmed the selling rules on 2026-10-12 and the
 | `src/util.ts` | Small shared helpers (`r2`, `list`, `num`, `stripHtml`) |
 | `src/specs.ts` | Published specifications for an exactly identified product (Sonnet + web search), each with a verified source |
 | `src/firstday.ts`, `src/style.ts`, `src/promotion.ts`, `src/ebay/history.ts` | First-day audit report, K's reply style guide, Promoted Listings research, and the account-history reads they use |
-| `src/inbox.ts`, `src/ebay/inbox.ts` | The 15-minute poll: buyer questions and Best Offers, Haiku drafts, floor enforced in code |
+| `src/inbox.ts`, `src/ebay/inbox.ts` | The 5-minute poll (service checks every 15): every Best Offer including full-price ones, buyer questions, sales; Haiku drafts, floor enforced in code. `src/sales.ts`, `src/offersapi.ts`, `src/ebay/messages.ts` (Message API: reads proven on production, sending not yet) go with it. The Messages screen is `web/src/messages.tsx`, with `quoted.ts` for what's shown of a message |
 | `src/guidance.ts`, `web/src/rules.tsx` | K's standing rules for how Claude writes listings: feedback to a rule (Haiku), kept in the store, added to the compose and review prompts. Owner only (`/api/listing-rules`) |
 | `src/ladder.ts` | The sales ladder: each listing's one step tonight (listing, price, offer, promote, wait), read by the nightly steps |
-| `src/watchers.ts` | Offers to watchers: the nightly step that proposes a 2% to 5% reminder offer for listings eBay says are eligible |
+| `src/watchers.ts` | Offers to watchers: the nightly step that proposes a 5% reminder offer for listings eBay says are eligible |
 | `.github/workflows/deploy.yml`, `scripts/azure-github-oidc.mjs` | Deploying from GitHub with K's approval for production, and its one-time Azure set-up |
 | `src/ro/`, `src/links.ts`, `src/mcp-core.ts` | The read-only API for Power Platform ([power-platform.md](docs/power-platform.md)): `tables.ts` (what may leave: no buyer details, allowlisted proposal fields), `handler.ts` (the key, the limits, the GET routes and the read-only MCP tools), `digest.ts` (the weekly digest in words), `export.ts` (the nightly CSV files for Power BI). It imports nothing that writes; `test/readonly.test.ts` follows its imports. `links.ts` is the approval-link signing; `mcp-core.ts` the small MCP server both `/mcp` and `/api/ro/mcp` use |
 | `scripts/check-power-platform.mjs` | Checks the two Power Platform APIs on a deployed environment: hidden without a key; with the read-only key, reads only |

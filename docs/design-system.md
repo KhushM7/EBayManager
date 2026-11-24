@@ -17,7 +17,7 @@ Stack: Preact, **Tailwind v4** (`@tailwindcss/vite`) and **Framer Motion** throu
 | Claude spend and the change switch on every screen | The change switch leads **Settings**; Claude spend and allowances are in **Settings → Usage and APIs**. Approvals recorded while read-only are linked from the change switch (`/?status=agreed`) |
 | — | **New listing** wizard (`/new`, the centre "+" on the phone) |
 
-Navigation: a glass sidebar on desktop, and a floating tab bar on the phone with Inbox, Listings, **+**, Insights and Settings. Store Pulse is linked from Insights, and Activity (Change history) from the change switch at the top of Settings. `/audit` still opens Store Pulse.
+Navigation: a glass sidebar on desktop, and a floating tab bar on the phone with every section, which scrolls sideways (the current one slides to the middle, edges fade while there's more) with **+** pinned at its end. `/audit` still opens Store Pulse.
 
 ## Colour
 

@@ -1,5 +1,7 @@
 # The Power Automate flows
 
+**Both flows are turned off (2026-11-24, K):** they were built and run against Sandbox, then switched off so nothing sends email. Turn one back on from My flows → the flow → Turn on.
+
 Three scheduled cloud flows over the read-only connector (`../connector/`). They read and they tell people.
 None of them decides anything: there is no action in the connector that could, and every button opens
 EBayManager, where a signed-in person approves or rejects as always.

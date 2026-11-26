@@ -6,7 +6,7 @@ import { priceCheck } from "./pricing/actions";
 import { push } from "./notify";
 import { composeDraft, planPostage, priceDraft, reviewDraft } from "./newlisting";
 
-// Long tasks K starts from the app (docs/azure-migration.md): on Azure an HTTP response must come within
+// Long tasks K starts from the app (docs/architecture.md): on Azure an HTTP response must come within
 // 230 seconds, so the first-day audit, a price check and Claude's listing review run as background jobs. The
 // request records the job and hands it to the queue; a queue-triggered function runs it (no time limit) and
 // the app shows its progress. Where there is no queue (tests, local runs) the job runs inline and the

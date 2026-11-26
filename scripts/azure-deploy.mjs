@@ -1,4 +1,4 @@
-// Builds and deploys the app to an environment's Function App (docs/azure-migration.md), replacing
+// Builds and deploys the app to an environment's Function App (docs/architecture.md), replacing
 // `wrangler deploy`. Signs in with Entra ID (basic-auth publishing is off).
 //   node scripts/azure-deploy.mjs sandbox                                    (Claude may run this)
 //   $env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-deploy.mjs production   (K only), then:

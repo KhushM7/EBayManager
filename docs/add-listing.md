@@ -1,6 +1,6 @@
 # Add Listing: plan
 
-K's request (2026-11-05): build and finish **Add Listing** before going live. Status: **L1 to L5 built and tested with stand-ins** (on the `add-listing` branch, 2026-11-05), not yet deployed or tried with real photos. What's done, what K needs to test, and what's left: [add-listing-handover.md](add-listing-handover.md). K's decisions are at the end of this doc. Design principles stay those of [listing-assistant.md](listing-assistant.md): coach the photos, never assume a fact, price from the market, and nothing is listed until K approves.
+How a new listing is made, from photos to a `create_listing` label, and the decisions behind it. **Status:** built and live since 2026-11-07 (the first real listing was published through it). Design principles are those of [listing-assistant.md](listing-assistant.md).
 
 ## What already exists
 

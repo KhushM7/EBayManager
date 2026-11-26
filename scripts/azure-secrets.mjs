@@ -1,4 +1,4 @@
-// Uploads an environment's secrets to its Key Vault (docs/azure-migration.md), replacing `wrangler secret
+// Uploads an environment's secrets to its Key Vault (docs/architecture.md), replacing `wrangler secret
 // bulk`. Sandbox reads .dev.vars, production reads .prod.vars (both gitignored). Each value goes to Key Vault
 // through a private temporary file that is deleted at once; nothing is printed except key names.
 //   node scripts/azure-secrets.mjs sandbox

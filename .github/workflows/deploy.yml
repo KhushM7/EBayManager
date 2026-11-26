@@ -7,7 +7,7 @@
 #
 # It signs in to Azure without any stored password (OpenID Connect): each environment has its own Azure
 # identity that can only publish to that environment's Function App. Set up once with
-# scripts/azure-github-oidc.mjs (README, "Deploying from GitHub").
+# scripts/azure-github-oidc.mjs (README, "Operating it").
 name: deploy
 
 on:

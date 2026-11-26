@@ -7,9 +7,27 @@
 // repository can sign in as, and lets it publish to that environment's Function App and nothing else
 // (Website Contributor on the app: no secrets, no database, no other resources). Then it prints the five
 // values to enter as that GitHub environment's variables. Nothing here is a secret.
+import { spawnSync } from "node:child_process";
 import { az, envArg, outputs } from "./azure-common.mjs";
 
-const REPO = process.env.GITHUB_REPOSITORY || "KhushM7/EBayManager";
+// The repository GitHub deploys from: GITHUB_REPOSITORY ("owner/name"), else this clone's origin remote.
+const REPO = process.env.GITHUB_REPOSITORY || originRepo();
+function originRepo() {
+  const r = spawnSync("git", ["remote", "get-url", "origin"], { encoding: "utf8" });
+  const m = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\s*$/.exec(r.stdout ?? "");
+  if (!m) throw new Error("Can't tell which GitHub repository this is. Set GITHUB_REPOSITORY=owner/name.");
+  return m[1];
+}
+/** "owner@ownerId/name@repoId" from GitHub's public API; null if it can't be read (only the plain form is registered). */
+async function repoWithIds(repo) {
+  try {
+    const j = await (await fetch(`https://api.github.com/repos/${repo}`)).json();
+    return `${j.owner.login}@${j.owner.id}/${j.name}@${j.id}`;
+  } catch {
+    console.warn("Couldn't read the repository's ids from GitHub. If the first deploy is refused, set GITHUB_REPOSITORY_WITH_IDS=owner@id/name@id and run this again.");
+    return null;
+  }
+}
 const env = envArg();
 const o = outputs(env);
 const name = `ebay-github-deploy-${env}`;
@@ -21,12 +39,12 @@ let spId = az(["ad", "sp", "list", "--filter", `appId eq '${appId}'`, "--query",
 if (!spId) spId = az(["ad", "sp", "create", "--id", appId, "--query", "id", "-o", "tsv"]).trim();
 
 // Only this repository's GitHub environment of the same name may sign in as it. GitHub names the repository in
-// its token either by name or by name and permanent id ("KhushM7@124626664/EBayManager@1415007865": the first
-// deploy run on 2026-11-15 was refused because only the plain form was registered), so both are registered.
-const REPO_WITH_IDS = process.env.GITHUB_REPOSITORY_WITH_IDS || "KhushM7@124626664/EBayManager@1415007865";
+// its token either by name or by name and permanent ids ("owner@ownerId/name@repoId": a deploy was once refused
+// because only the plain form was registered), so both are registered.
+const REPO_WITH_IDS = process.env.GITHUB_REPOSITORY_WITH_IDS || (await repoWithIds(REPO));
 const subjects = [
   [`github-${env}`, `repo:${REPO}:environment:${env}`],
-  [`github-${env}-ids`, `repo:${REPO_WITH_IDS}:environment:${env}`],
+  ...(REPO_WITH_IDS ? [[`github-${env}-ids`, `repo:${REPO_WITH_IDS}:environment:${env}`]] : []),
 ];
 const registered = az(["ad", "app", "federated-credential", "list", "--id", appId, "--query", "[].subject", "-o", "tsv"]).split(/\r?\n/).map((x) => x.trim());
 for (const [credential, subject] of subjects)

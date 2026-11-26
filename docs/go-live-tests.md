@@ -4,7 +4,7 @@ The real account runs read-only for **one nightly cycle at most** (connect durin
 
 **(R)** = run remotely (automated test or a check run from the terminal, with the output recorded here). **(K)** = K, or a manager, does it physically on a phone or computer. Tick each with the date and who checked it.
 
-Since 2026-11-05 production runs on Azure (docs/azure-migration.md): Cosmos DB and Blob Storage replace D1 and R2, and `node scripts/check-production.mjs` runs A6, B1, B2, B7, B8, C6 and the Azure settings in one go. K goes live as the only user; the items that need a manager are marked N/A and are run when one joins.
+Since 2026-11-05 production runs on Azure (docs/architecture.md): Cosmos DB and Blob Storage replace D1 and R2, and `node scripts/check-production.mjs` runs A6, B1, B2, B7, B8, C6 and the Azure settings in one go. K goes live as the only user; the items that need a manager are marked N/A and are run when one joins.
 
 ## A. Code and build (R)
 

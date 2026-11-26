@@ -1,4 +1,4 @@
-// Shared helpers for the Azure scripts (docs/azure-migration.md). They run the Azure CLI as whoever is signed
+// Shared helpers for the Azure scripts (docs/architecture.md). They run the Azure CLI as whoever is signed
 // in (az login). Nothing here prints a secret.
 import { spawnSync } from "node:child_process";
 
@@ -31,7 +31,7 @@ export function envArg() {
     console.error("Usage: node <script> sandbox|production");
     process.exit(2);
   }
-  // Production changes are K's (CLAUDE.md). A deliberate extra step so nothing deploys to it by accident.
+  // Production changes are the owner's. A deliberate extra step so nothing deploys to it by accident.
   if (env === "production" && process.env.EBAY_CONFIRM_PRODUCTION !== "yes") {
     console.error("This changes PRODUCTION. Run it yourself with EBAY_CONFIRM_PRODUCTION=yes set, e.g.:\n  $env:EBAY_CONFIRM_PRODUCTION='yes'; node " + process.argv[1].split(/[\\/]/).pop() + " production");
     process.exit(2);

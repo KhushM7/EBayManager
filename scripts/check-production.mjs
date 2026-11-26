@@ -1,5 +1,5 @@
 // Remote go-live checks against a deployed environment (docs/go-live-tests.md, sections A, B and C, plus the
-// Azure settings from docs/azure-migration.md). Read-only: it signs nobody in and changes nothing.
+// Azure settings from docs/architecture.md). Read-only: it signs nobody in and changes nothing.
 //   node scripts/check-production.mjs              (production; reads .prod.vars)
 //   node scripts/check-production.mjs sandbox      (sandbox; reads .dev.vars)
 import { createHash } from "node:crypto";
@@ -76,7 +76,7 @@ for (const kind of ["ftp", "scm"]) {
 const cosmos = az(["cosmosdb", "show", "-g", "rg-ebay-shared", "-n", o.cosmosAccount, "--query", "{local:disableLocalAuth, free:enableFreeTier, tls:minimalTlsVersion}"], { json: true });
 check("AZ  Cosmos DB: keys disabled, free tier, TLS 1.2", cosmos.local === true && cosmos.free === true && cosmos.tls === "Tls12", JSON.stringify(cosmos));
 
-// Logging: a workspace over its daily cap drops everything until it resets (docs/production-fixes-plan.md).
+// Logging: a workspace over its daily cap drops everything until it resets (docs/architecture.md).
 const cap = az(["monitor", "log-analytics", "workspace", "show", "-g", o.resourceGroup, "-n", o.functionAppName.replace("ebay-autopilot", "log-ebay"), "--query", "workspaceCapping"], { json: true });
 check("LOG  Azure logging is under its daily cap", cap?.dataIngestionStatus === "RespectQuota", JSON.stringify(cap));
 

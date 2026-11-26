@@ -6,7 +6,7 @@ import { todosRepo } from "./todos";
 import { draftsRepo } from "./drafts";
 import { jobsRepo, kvRepo, listingsRepo, messagesRepo, ordersRepo, pricingRepo, pushRepo, reportsRepo, soldDataRepo, usageRepo } from "./data";
 
-// The app's data store (replaces Cloudflare D1; docs/azure-migration.md). Code uses env.store's repositories;
+// The app's data store (replaces Cloudflare D1; docs/architecture.md). Code uses env.store's repositories;
 // only src/store/ knows about documents, and only src/store/cosmos.ts knows about Cosmos DB.
 
 export function makeStore(docs: DocStore) {

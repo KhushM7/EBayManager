@@ -5,7 +5,7 @@ import { flushLog, log, startRun } from "../../log";
 import { azureEnv } from "./env";
 import type { Env } from "../../env";
 
-// The Azure Functions entry point (docs/azure-migration.md). Four functions:
+// The Azure Functions entry point (docs/architecture.md). Four functions:
 // - app: every HTTP request (host.json routePrefix "" so this is the site root), adapted to the web-standard
 //   Request/Response the app is written against. /admin and /runtime are the Functions host's own and never
 //   reach the app; the host's admin endpoints are disabled in Bicep.

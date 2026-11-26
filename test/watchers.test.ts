@@ -120,9 +120,9 @@ describe("applying them", () => {
   });
 
   it("sends an approved offer to watchers, and refuses one over 5% however it was filed", async () => {
-    ebay = () => json({ offers: [{ offerId: "1" }] });
+    ebay = () => json({ offers: [{ offerId: "1", offerStatus: "PENDING", offerDuration: { unit: "DAY", value: 4 } }] });
     const ok = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { percent: 5, message: "hi" } });
-    expect(await decide(env, ok.id, "approve")).toBe("sendOfferToInterestedBuyers ok");
+    expect(await decide(env, ok.id, "approve")).toBe("Offer sent to 1 interested buyer (eBay offer 1, pending, open 4 days)");
     const big = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { percent: 20, message: "hi" } });
     expect(await decide(env, big.id, "approve")).toMatch(/must be 5% off/);
     expect((await getProposal(env, big.id))?.status).toBe("pending");
@@ -194,9 +194,9 @@ describe("when eBay refuses an approved change (K, 2026-11-15: never silently)",
     expect(diagnostics).toContain(`Raw reply: ${reply}`);
 
     // The next offer for the listing goes through: the to-do is resolved.
-    ebay = () => new Response(JSON.stringify({ offers: [] }));
+    ebay = () => new Response(JSON.stringify({ offers: [{ offerId: "9" }] }));
     const ok = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { percent: 5, message: "hi" } });
-    expect(await decide(env, ok.id, "approve")).toBe("sendOfferToInterestedBuyers ok");
+    expect(await decide(env, ok.id, "approve")).toBe("Offer sent to 1 interested buyer (eBay offer 9)");
     expect(await env.store.todos.list("open")).toHaveLength(0);
   });
 
@@ -221,5 +221,13 @@ describe("when eBay refuses an approved change (K, 2026-11-15: never silently)",
     const p = await createProposal(env, { kind: "offer_to_watchers", itemId: "111", payload: { percent: 5, message: "hi" } });
     expect(await decide(env, p.id, "approve")).toMatch(/Approved, not applied/);
     expect(await env.store.todos.list("open")).toHaveLength(0);
+  });
+});
+
+describe("watcherOfferSummary", () => {
+  it("says when eBay lists no offers, and counts several", async () => {
+    const { watcherOfferSummary } = await import("../src/ebay/write");
+    expect(watcherOfferSummary({})).toMatch(/no offers sent/);
+    expect(watcherOfferSummary({ offers: [{ offerId: "a", offerStatus: "PENDING" }, { offerId: "b", offerStatus: "PENDING" }] })).toBe("Offer sent to 2 interested buyers (eBay offer a, b, pending)");
   });
 });

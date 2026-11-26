@@ -1,4 +1,4 @@
-// Builds the Azure Functions package (docs/azure-migration.md): the web app (web/dist), the function code
+// Builds the Azure Functions package (docs/architecture.md): the web app (web/dist), the function code
 // bundled into one file, host.json and a minimal package.json, in dist/azure. scripts/azure-deploy.mjs zips
 // and deploys that folder. No secrets are read or written here.
 import { build } from "esbuild";

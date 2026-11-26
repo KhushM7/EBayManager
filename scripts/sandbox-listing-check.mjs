@@ -2,7 +2,7 @@
 // storage, Claude's photo check, eBay's category suggestions and item specifics (Taxonomy), the listing text,
 // the pricing engine, postage, and eBay's own check (VerifyAddFixedPriceItem) before the label is filed.
 // It replaces the parts of K's Sandbox walk-through that a script can do; K still tries the camera and the
-// screens on the phone (docs/add-listing-handover.md).
+// screens on the phone (docs/add-listing.md).
 //
 //   node scripts/sandbox-listing-check.mjs              stops when the label is in the Inbox
 //   node scripts/sandbox-listing-check.mjs --approve    also approves it: photos go to eBay Sandbox's picture

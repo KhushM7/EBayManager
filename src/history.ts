@@ -182,7 +182,7 @@ export async function suggestionHistory(env: Env, q: HistoryQuery = {}): Promise
           item_id: row.item_id,
           item_title: titleOf(row.item_id) ?? (worded ? (a.itemTitle ?? null) : null),
           title: labelTitle(row.kind, a),
-          detail: worded ? [row.reason, row.status === "failed" || row.status === "agreed" ? row.result : null].filter(Boolean).join("\n") || null : null,
+          detail: worded ? [row.reason, row.status === "failed" || row.status === "agreed" || (row.status === "applied" && row.kind === "offer_to_watchers") ? row.result : null].filter(Boolean).join("\n") || null : null,
           outcome,
           at: row.decided_at ?? row.created_at,
           filed_at: row.created_at,

@@ -1,4 +1,4 @@
-// The document layer under the store (docs/azure-migration.md). Two implementations behave the same way:
+// The document layer under the store (docs/architecture.md). Two implementations behave the same way:
 // src/store/memory.ts (tests) and src/store/cosmos.ts (Azure Cosmos DB for NoSQL). Repositories in
 // src/store/repos/ are written once against this interface, so the safety-critical logic (conditional claims,
 // transactional batches) is tested once and runs identically in production.

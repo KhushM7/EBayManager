@@ -1,7 +1,7 @@
 import { CosmosClient, ErrorResponse, type Container as CosmosContainer, type OperationInput, type SqlParameter } from "@azure/cosmos";
 import { assertField, assertPath, CONTAINERS, type BatchOp, type Cond, type Container, type Doc, type DocStore, type PatchOp, type Query } from "./doc";
 
-// DocStore on Azure Cosmos DB for NoSQL (docs/azure-migration.md). The Function App signs in with its managed
+// DocStore on Azure Cosmos DB for NoSQL (docs/architecture.md). The Function App signs in with its managed
 // identity (key auth is disabled on the account) and may only touch its own database, by RBAC. Containers are
 // created by Bicep from infra/cosmos-containers.json, never from code.
 //

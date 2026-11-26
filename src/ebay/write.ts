@@ -248,7 +248,7 @@ export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
     if (built.rest) {
       const res = await restWrite(env, built.rest.method, built.rest.path, built.rest.body);
       await audit(env, p.id, built.call, built.xml, "applied", JSON.stringify(res.body).slice(0, 4000));
-      return `${built.call} ok`;
+      return p.kind === "offer_to_watchers" ? watcherOfferSummary(res.body) : `${built.call} ok`;
     }
     const toBuyer = p.kind === "best_offer_response" || p.kind === "message";
     if (toBuyer) await log(env, "info", "inbox.sending", { itemId: p.item_id ?? undefined, proposalId: p.id, detail: built.call });
@@ -294,6 +294,22 @@ export async function ebayWrite(env: Env, proposalId: string): Promise<string> {
     if (!built.promote) await audit(env, p.id, built.call, built.rest ? `${built.rest.method} ${built.rest.path} ${built.xml}` : built.xml, "failed", failure(e));
     throw e;
   }
+}
+
+/**
+ * What eBay did with an offer to watchers, in words for the label's result and History. Offers to watchers never
+ * appear in eBay Messages: each interested buyer gets an offer notification, and eBay's reply lists one offer per
+ * buyer it sent to (often fewer than the watchers: only those eBay counts as interested). The duration is eBay's own,
+ * which can differ from what was asked (2 days were asked for on 2026-11-26 and eBay recorded 4).
+ */
+export function watcherOfferSummary(body: unknown): string {
+  const offers: any[] = Array.isArray((body as any)?.offers) ? (body as any).offers : [];
+  if (!offers.length) return "sendOfferToInterestedBuyers ok, but eBay listed no offers sent";
+  const ids = offers.map((o) => String(o?.offerId ?? "?")).join(", ");
+  const states = [...new Set(offers.map((o) => String(o?.offerStatus ?? "").toLowerCase()).filter(Boolean))].join(", ");
+  const d = offers[0]?.offerDuration;
+  const days = d && Number(d.value) > 0 ? `, open ${Number(d.value)} ${String(d.unit ?? "DAY").toLowerCase()}${Number(d.value) === 1 ? "" : "s"}` : "";
+  return `Offer sent to ${offers.length} interested buyer${offers.length === 1 ? "" : "s"} (eBay offer ${ids}${states ? `, ${states}` : ""}${days})`;
 }
 
 const lastPart = (location: string | null) => (location ? (location.split("?")[0].split("/").filter(Boolean).pop() ?? null) : null);

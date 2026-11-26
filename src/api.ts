@@ -47,7 +47,7 @@ async function body(request: Request): Promise<any> {
 /**
  * The caller's address, for rate limits. On Azure Functions (Flex Consumption) the front end overwrites
  * Client-IP with the connecting address as "ip:port"; X-Client-IP, X-Real-IP, X-Azure-ClientIP and the rest
- * pass through whatever a visitor sends (tested on Sandbox, 2026-11-04: docs/azure-migration.md, question 4).
+ * pass through whatever a visitor sends (tested on Sandbox, 2026-11-04: docs/security.md).
  * So only Client-IP is read, its port removed; anything else counts as "unknown".
  */
 export function clientIp(request: Request): string {

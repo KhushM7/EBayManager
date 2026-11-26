@@ -64,4 +64,4 @@ Photos are stored in Azure Blob Storage (Cloudflare R2 until the move on 2026-11
 
 ### The app's New listing flow
 
-Built (2026-11-06): the **New listing** wizard (`web/src/wizard.tsx`, at `/new`) runs on the drafts server (`/api/drafts`, `src/drafts.ts` and `src/newlisting.ts`). See [add-listing.md](add-listing.md) for the steps and [add-listing-handover.md](add-listing-handover.md) for its state. The placeholder `/api/listing-assistant/*` contract the wizard was first drawn against is gone.
+Built (2026-11-06): the **New listing** wizard (`web/src/wizard.tsx`, at `/new`) runs on the drafts server (`/api/drafts`, `src/drafts.ts` and `src/newlisting.ts`). See [add-listing.md](add-listing.md) for the steps. The placeholder `/api/listing-assistant/*` contract the wizard was first drawn against is gone.

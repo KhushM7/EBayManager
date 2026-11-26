@@ -11,3 +11,7 @@ dist/
 *.pbix
 # Saved job results (scripts/export-jobs.mjs): real listings, never committed
 exports/
+
+# Claude Code: project instructions and settings stay on this computer
+CLAUDE.md
+.claude/

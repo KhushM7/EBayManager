@@ -90,7 +90,7 @@ describe("write gate is the only path to eBay writes", () => {
   });
 });
 
-describe("data access stays behind the store (docs/azure-migration.md)", () => {
+describe("data access stays behind the store (docs/architecture.md)", () => {
   it("nothing uses the old D1 database", () => {
     expect(filesMatching(/\benv\.DB\b|D1Database|\.prepare\(/)).toEqual([]);
   });

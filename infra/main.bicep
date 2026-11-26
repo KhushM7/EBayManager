@@ -1,4 +1,4 @@
-// EBayManager on Azure (docs/azure-migration.md). One template, one environment per deployment:
+// EBayManager on Azure (docs/architecture.md). One template, one environment per deployment:
 //   az deployment sub create --location <region> --template-file infra/main.bicep --parameters infra/<env>.bicepparam
 // Creates the environment's resource group (Function App on Flex Consumption, storage with the jobs queue and
 // the photos container, Key Vault, Application Insights) and, in the shared resource group, the one Cosmos DB
@@ -85,7 +85,7 @@ module app 'modules/app.bicep' = {
 
 // The Function App may read and write its own database only; the owner may read it (diagnosis) and, on
 // Sandbox, write it (tests and imports). Production writes by the owner are granted only for the switch-over
-// import and removed afterwards (docs/azure-migration.md, M6).
+// import and removed afterwards (scripts/azure-infra.mjs).
 module cosmosAccess 'modules/cosmos-access.bicep' = {
   name: 'cosmos-access-${env}'
   scope: sharedRg

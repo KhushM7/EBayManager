@@ -7,7 +7,7 @@ import { CosmosDocStore } from "../../store/cosmos";
 import { staticAssets } from "./static";
 import { azurePhotoStore } from "./photos";
 
-// Builds the app's Env on Azure Functions (docs/azure-migration.md). Settings come from the Function App's
+// Builds the app's Env on Azure Functions (docs/architecture.md). Settings come from the Function App's
 // app settings; secrets in them are Key Vault references the platform resolves using the app's managed
 // identity, so no secret is in code or in the deployment package. The Cosmos DB client signs in with the
 // same managed identity (key auth is disabled on the account) and is allowed into this environment's

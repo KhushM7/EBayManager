@@ -1,4 +1,4 @@
-// Read-only diagnosis of an environment's database (docs/azure-migration.md), replacing
+// Read-only diagnosis of an environment's database (docs/architecture.md), replacing
 // `wrangler d1 execute --command "SELECT ..."`. Signs in as whoever ran az login; on production that
 // identity has only the Cosmos DB Built-in Data Reader role, so this can't change anything there even by
 // mistake. It only ever calls the query API.

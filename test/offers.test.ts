@@ -1,4 +1,4 @@
-// Phase 1 (docs/production-fixes-plan.md): reading offers, sales and messages, and what's logged on the way.
+// Reading offers, sales and messages, and what's logged on the way.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Env } from "../src/env";
 import { consentScopes, FULL_SCOPES, READONLY_SCOPES } from "../src/ebay/auth";

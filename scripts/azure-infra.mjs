@@ -1,4 +1,4 @@
-// Creates or updates an environment's Azure resources from infra/main.bicep (docs/azure-migration.md).
+// Creates or updates an environment's Azure resources from infra/main.bicep (docs/architecture.md).
 //   node scripts/azure-infra.mjs sandbox                                   (Claude may run this)
 //   $env:EBAY_CONFIRM_PRODUCTION='yes'; node scripts/azure-infra.mjs production   (K only)
 // AZURE_LOCATION picks the region (default francecentral); it must be one the subscription allows.

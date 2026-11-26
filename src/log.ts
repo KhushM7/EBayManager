@@ -1,7 +1,7 @@
 import type { Env } from "./env";
 import { redact } from "./redact";
 
-// The app's log (docs/production-fixes-plan.md, "Logs and monitoring"). One call writes one short JSON line for
+// The app's log (docs/architecture.md, "Logs and monitoring"). One call writes one short JSON line for
 // Azure's logs (through env.logSink, set by the platform layer) and one event in the store, which stays readable
 // when Azure's daily cap is reached. It never throws, and takes named fields only: never pass a buyer's name,
 // a message's text or an address. src/ro must not import this (it writes); it may import redact.ts.

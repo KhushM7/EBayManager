@@ -17,4 +17,3 @@ Built in K's developer environment against Sandbox so far: both connectors (impo
 with its nine read-only tools but untested (no Copilot credits), and the Teams card is still a guide; the phase table in
 [docs/power-platform.md](../docs/power-platform.md) says what is proven. The app's side is tested (`test/readonly.test.ts`).
 
-To run the remaining steps in a Claude session on K's own computer, see [LOCAL-SESSION.md](LOCAL-SESSION.md).

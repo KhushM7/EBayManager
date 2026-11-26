@@ -14,11 +14,13 @@ const powerPlatform = args.includes("--power-platform");
 const file = args.find((a) => !a.startsWith("--")) ?? ".dev.vars";
 let vars = existsSync(file) ? readFileSync(file, "utf8") : "";
 if (vars && !vars.endsWith("\n")) vars += "\n";
-const has = (k) => new RegExp(`^${k}=`, "m").test(vars);
+// A key counts as present only with a value, so an empty line copied from .dev.vars.example is filled in.
+const has = (k) => new RegExp(`^${k}=\\S`, "m").test(vars);
 const added = [];
 const add = (k, v) => {
   if (has(k)) return;
-  vars += `${k}=${v}\n`;
+  const empty = new RegExp(`^${k}=[ \\t]*$`, "m");
+  vars = empty.test(vars) ? vars.replace(empty, () => `${k}=${v}`) : vars + `${k}=${v}\n`;
   added.push(k);
 };
 

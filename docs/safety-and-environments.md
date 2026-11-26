@@ -2,7 +2,7 @@
 
 Nothing touches K's real eBay seller account until Phase 6, and nothing changes it until Phase 7. Before then, every feature is built and tested on eBay Sandbox. When the real account is first connected, it is read-only.
 
-Decided 2026-11-02. See [roadmap.md](roadmap.md) for the phases and [approvals.md](approvals.md) for what needs approval.
+Decided 2026-11-02. See [approvals.md](approvals.md) for what needs approval.
 
 ## Three stages
 
@@ -37,7 +37,7 @@ param env = 'production'
 param writeMode = 'off'   // flipped to 'approval' at go-live (section I of go-live-tests.md)
 ```
 
-The template itself refuses test sign-in and `/mcp` in production, whatever the parameters say, and the app refuses to start in production with either switched on. (Until 2026-11-05 these were wrangler environments with their own D1 and R2; see [azure-migration.md](azure-migration.md).)
+The template itself refuses test sign-in and `/mcp` in production, whatever the parameters say, and the app refuses to start in production with either switched on. (Until 2026-11-05 these were wrangler environments with their own D1 and R2; see [azure-migration.md](architecture.md).)
 
 `EBAY_ENV` selects the hosts and the keyset:
 

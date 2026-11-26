@@ -9,7 +9,8 @@ import { parseEnv } from "node:util";
 const env = process.argv[2] === "production" ? "production" : "sandbox";
 const file = env === "production" ? ".prod.vars" : ".dev.vars";
 const vars = existsSync(file) ? parseEnv(readFileSync(file, "utf8")) : {};
-const URL_ = process.env.PUBLIC_URL ?? `https://ebay-autopilot-${env}-wrpoyt.azurewebsites.net`;
+// The address from the environment's last infrastructure deployment, or PUBLIC_URL to check another.
+const URL_ = (process.env.PUBLIC_URL ?? (await import("./azure-common.mjs")).outputs(env).publicUrl).replace(/\/$/, "");
 console.log(`Checking ${env}: ${URL_}\n`);
 let failed = 0;
 const check = (id, ok, detail = "") => {

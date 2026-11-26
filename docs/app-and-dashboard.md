@@ -1,6 +1,6 @@
 # App and dashboard
 
-One web app serves as both the dashboard website and K's Android notification app. It is a Progressive Web App (PWA): K opens it in Chrome and taps **Install app**, after which it has its own icon, runs full screen and receives push notifications with Approve and Reject buttons. It is served by the same Azure Function App as the backend (Cloudflare Worker until 2026-11-05, [azure-migration.md](azure-migration.md)).
+One web app serves as both the dashboard website and K's Android notification app. It is a Progressive Web App (PWA): K opens it in Chrome and taps **Install app**, after which it has its own icon, runs full screen and receives push notifications with Approve and Reject buttons. It is served by the same Azure Function App as the backend (Cloudflare Worker until 2026-11-05, [azure-migration.md](architecture.md)).
 
 Decided 2026-11-02. Web Push is the main notification channel. ntfy stays as an optional fallback.
 
